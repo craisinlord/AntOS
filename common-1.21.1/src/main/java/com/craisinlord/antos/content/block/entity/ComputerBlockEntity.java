@@ -45,7 +45,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     private static final String TASK_PROGRESS_TAG = "TaskProgress";
     private static final String WORKSPACE_OWNER_TAG = "WorkspaceOwner";
     private static final String WORKSPACE_ID_TAG = "WorkspaceId";
-    private static final long AUTHENTICATION_TIMEOUT = 6000L;
     private final Set<ResourceLocation> physicalDiskIds = new LinkedHashSet<>();
     private final ComputerFileSystem fileSystem = new ComputerFileSystem();
     private final ComputerDesktopState desktopState = new ComputerDesktopState();
@@ -82,7 +81,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
             computer.setChanged();
             level.sendBlockUpdated(pos, state, state, 3);
         }
-        if (!level.isClientSide && computer.authenticated && (level.getGameTime() >= computer.authenticatedUntil || computer.activeUser == null ||
+        if (!level.isClientSide && computer.authenticated && (computer.activeUser == null ||
                 (level instanceof net.minecraft.server.level.ServerLevel serverLevel && serverLevel.getServer().getPlayerList().getPlayer(computer.activeUser) == null))) {
             computer.clearAuthentication();
             level.sendBlockUpdated(pos, state, state, 3);
@@ -197,7 +196,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         }
         password = newPassword;
         authenticated = true;
-        authenticatedUntil = level.getGameTime() + AUTHENTICATION_TIMEOUT;
+        authenticatedUntil = 0L;
         setChanged();
         return true;
     }
@@ -211,7 +210,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
             return false;
         }
         authenticated = true;
-        authenticatedUntil = level == null ? 0L : level.getGameTime() + AUTHENTICATION_TIMEOUT;
+        authenticatedUntil = 0L;
         setChanged();
         return true;
     }
@@ -222,12 +221,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
 
     public boolean isAuthenticated() {
         if (!authenticated) {
-            return false;
-        }
-        if (level != null && level.getGameTime() >= authenticatedUntil) {
-            authenticated = false;
-            authenticatedUntil = 0L;
-            setChanged();
             return false;
         }
         return true;
@@ -359,7 +352,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     }
 
     public long authenticationTimeout() {
-        return AUTHENTICATION_TIMEOUT;
+        return 0L;
     }
 
     public boolean hasActiveUser() {

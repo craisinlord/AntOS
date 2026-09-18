@@ -138,7 +138,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     private static Entry introduction() {
         return new Entry(INTRODUCTION, "article", "general", "guide.antos.entry.introduction.title",
                 "guide.antos.entry.introduction.subtitle", List.of("guide.antos.entry.introduction.description"),
-                "", "", "", "", "", "", "", 0, "", "", "", 0.0F, 1.0F, true);
+                "antos:floppy_disk", "", "", "", "", "", "", 0, "", "", "", 0.0F, 1.0F, true);
     }
 
     /** Encodes loaded definitions for connected clients. */

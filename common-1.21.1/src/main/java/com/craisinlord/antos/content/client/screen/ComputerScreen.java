@@ -13,6 +13,7 @@ import com.craisinlord.antos.content.antmail.AntmailAttachment;
 import com.craisinlord.antos.content.antmail.AntmailAttachmentFiles;
 import com.craisinlord.antos.content.antmail.AntmailDraft;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
+import com.craisinlord.antos.api.client.archive.ArchiveEntityPreviewRegistry;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
 import com.craisinlord.antos.content.network.AntmailResultPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
@@ -76,7 +77,6 @@ public final class ComputerScreen extends Screen {
     private static final int WINDOW_CONTROL_WIDTH = 18;
     private static final int WINDOW_CONTROL_COUNT = 3;
     private static final String[] BOOT_MESSAGES = {"ANTS MARCHING...", "COMPUTER COMPUTING...", "HCFS BREWING...", "WAKING THE QUEEN..."};
-    private static final long SESSION_TIMEOUT = 300_000L;
     private static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
     private static final String[] ICONS = {"ARCHIVE", "FILES", "SETTINGS", "TASKS", "TERMINAL", "TEXT", "PAINT", "ANTMAIL", "GAMES", "TRASH"};
     private static final Map<String, String> TITLES = Map.ofEntries(Map.entry("ARCHIVE", "ANTARCHIVE"), Map.entry("FILES", "FILE EXPLORER"),
@@ -97,6 +97,7 @@ public final class ComputerScreen extends Screen {
     private ComputerAccessResultPayload accessResult;
     private int observedResult = -1;
     private Window dragging;
+    private Window archiveScrollbarDragging;
     private boolean paintStrokeActive;
     private int paintStrokeButton = -1;
     private int lastPaintPixelX = -1;
@@ -136,7 +137,7 @@ public final class ComputerScreen extends Screen {
         ComputerAccessClientState.clear(position);
         ComputerNetworking.open(position);
         this.accessResult = ComputerAccessClientState.get(position);
-        this.loggedIn = accessResult != null && accessResult.authenticated() && session.lastUse + SESSION_TIMEOUT > System.currentTimeMillis();
+        this.loggedIn = accessResult != null && accessResult.authenticated();
         if (loggedIn) {
             requestAntmailState();
             session.antmailRefreshTicks = 40;
@@ -219,7 +220,7 @@ public final class ComputerScreen extends Screen {
             session.antmailRefreshTicks = 40;
             requestAntmailState();
         }
-        if (loggedIn && (session.lastUse + SESSION_TIMEOUT <= System.currentTimeMillis() || accessResult == null || !accessResult.authenticated())) {
+        if (loggedIn && (accessResult == null || !accessResult.authenticated())) {
             loggedIn = false;
             session.authenticated = false;
             session.windows.clear();
@@ -981,6 +982,16 @@ public final class ComputerScreen extends Screen {
         int visibleRows = Math.max(1, (h - 58) / cellHeight);
         int totalRows = (filteredEntries.size() + columns - 1) / columns;
         int startRow = Math.max(0, Math.min(session.archiveScroll, Math.max(0, totalRows - visibleRows)));
+        int maximumScroll = Math.max(0, totalRows - visibleRows);
+        if (maximumScroll > 0) {
+            int trackTop = listTop;
+            int trackHeight = Math.max(1, h - 58);
+            int thumbHeight = Math.max(12, trackHeight * visibleRows / totalRows);
+            int thumbTop = trackTop + (trackHeight - thumbHeight) * startRow / maximumScroll;
+            int trackX = x + w - 5;
+            g.fill(trackX, trackTop, trackX + 3, trackTop + trackHeight, 0xFF173817);
+            g.fill(trackX, thumbTop, trackX + 3, thumbTop + thumbHeight, GREEN);
+        }
         for (int rowIndex = startRow; rowIndex < totalRows && rowIndex < startRow + visibleRows; rowIndex++) {
             int rowTop = listTop + (rowIndex - startRow) * cellHeight;
             for (int column = 0; column < columns; column++) {
@@ -1179,6 +1190,7 @@ public final class ComputerScreen extends Screen {
                 if (living == null && entityType != null && !unavailableArchiveEntities.contains(entityId)) {
                     var entity = entityType.create(Minecraft.getInstance().level);
                     if (entity instanceof LivingEntity created && !created.isRemoved()) {
+                        ArchiveEntityPreviewRegistry.configure(resourceId, created);
                         living = created;
                         archiveEntityPreviews.put(entityId, created);
                     } else {
@@ -2179,10 +2191,17 @@ public final class ComputerScreen extends Screen {
                             return true;
                         }
                         session.archiveSearchFocused = false;
+                        int archiveContentWidth = w - 16;
                         int columns = window.maximized ? 3 : 1;
                         int cellHeight = window.maximized ? 72 : 38;
-                        int visibleRows = Math.max(1, (contentH - 58) / cellHeight);
+                        int visibleRows = Math.max(1, (h - 34 - 58) / cellHeight);
                         int totalRows = (entries.size() + columns - 1) / columns;
+                        if (totalRows > visibleRows && inside(archiveX + archiveContentWidth - 5, archiveY + 40, 5,
+                                Math.max(1, h - 34 - 58), mouseX, mouseY)) {
+                            archiveScrollbarDragging = window;
+                            updateArchiveScrollbar(window, mouseY);
+                            return true;
+                        }
                         int startRow = Math.max(0, Math.min(session.archiveScroll, Math.max(0, totalRows - visibleRows)));
                         int gridTop = archiveY + 40;
                         int relativeRow = ((int) mouseY - gridTop) / cellHeight;
@@ -2528,6 +2547,7 @@ public final class ComputerScreen extends Screen {
         float scale = uiScale();
         mouseX = (mouseX - width / 2.0F) / scale;
         mouseY = (mouseY - height / 2.0F) / scale;
+        if (archiveScrollbarDragging != null) updateArchiveScrollbar(archiveScrollbarDragging, mouseY);
         if (dragging != null) {
             int l = -WIDTH / 2;
             int t = -HEIGHT / 2;
@@ -2562,6 +2582,7 @@ public final class ComputerScreen extends Screen {
             draggedDisk = null;
         }
         dragging = null;
+        archiveScrollbarDragging = null;
         if (button == paintStrokeButton) {
             paintStrokeActive = false;
             paintStrokeButton = -1;
@@ -2609,8 +2630,21 @@ public final class ComputerScreen extends Screen {
             return true;
         }
         if (activeWindow.type.equals("ARCHIVE")) {
-            if (session.archiveEntryId == null) session.archiveScroll = Math.max(0, session.archiveScroll - (int) Math.signum(scrollY));
-            else session.archiveDetailScroll = Math.max(0, session.archiveDetailScroll - (int) Math.signum(scrollY));
+            if (session.archiveEntryId == null) {
+                List<ComputerGuideData.Entry> entries = List.of();
+                if (Minecraft.getInstance().level != null && Minecraft.getInstance().level.getBlockEntity(position) instanceof ComputerBlockEntity computer) {
+                    entries = ComputerGuideData.entriesFor(computer.diskIds(), com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position));
+                }
+                int columns = activeWindow.maximized ? 3 : 1;
+                int cellHeight = activeWindow.maximized ? 72 : 38;
+                int visibleRows = Math.max(1, (windowHeight(activeWindow) - 34 - 58) / cellHeight);
+                int totalRows = (filterArchiveEntries(entries).size() + columns - 1) / columns;
+                int maximum = Math.max(0, totalRows - visibleRows);
+                session.archiveScroll = Math.max(0, Math.min(maximum,
+                        session.archiveScroll - (int) Math.signum(scrollY)));
+            } else {
+                session.archiveDetailScroll = Math.max(0, session.archiveDetailScroll - (int) Math.signum(scrollY));
+            }
             return true;
         }
         if (activeWindow.type.equals("WALLPAPERS")) {
@@ -3393,6 +3427,28 @@ public final class ComputerScreen extends Screen {
             if (inside(windowX, windowY + TITLE_BAR_HEIGHT, renderedWidth, renderedHeight - TITLE_BAR_HEIGHT, localMouseX, localMouseY)) return window;
         }
         return null;
+    }
+
+    private void updateArchiveScrollbar(Window window, double mouseY) {
+        List<ComputerGuideData.Entry> entries = List.of();
+        if (Minecraft.getInstance().level != null && Minecraft.getInstance().level.getBlockEntity(position) instanceof ComputerBlockEntity computer) {
+            entries = ComputerGuideData.entriesFor(computer.diskIds(), com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position));
+        }
+        int columns = window.maximized ? 3 : 1;
+        int cellHeight = window.maximized ? 72 : 38;
+        int visibleRows = Math.max(1, (windowHeight(window) - 34 - 58) / cellHeight);
+        int totalRows = (filterArchiveEntries(entries).size() + columns - 1) / columns;
+        int maximum = Math.max(0, totalRows - visibleRows);
+        if (maximum == 0) {
+            session.archiveScroll = 0;
+            return;
+        }
+        int trackHeight = Math.max(1, windowHeight(window) - 34 - 58);
+        int thumbHeight = Math.max(12, trackHeight * visibleRows / totalRows);
+        int trackTop = -HEIGHT / 2 + windowLocalY(window) + 68;
+        int travel = Math.max(1, trackHeight - thumbHeight);
+        double progress = Math.max(0.0, Math.min(1.0, (mouseY - trackTop - thumbHeight / 2.0) / travel));
+        session.archiveScroll = (int) Math.round(progress * maximum);
     }
 
     private static boolean inside(int x, int y, int w, int h, double mx, double my) { return mx >= x && mx < x + w && my >= y && my < y + h; }

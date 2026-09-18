@@ -49,6 +49,15 @@ The working examples are in [`examples/datapack-template`](examples/datapack-tem
 
 Add `data/<namespace>/computer/entry/<path>.json`; its ID is `<namespace>:<path>`. Entries can contain translated titles, subtitles, and descriptions, plus links to items, entities, recipes, enchantments, or structures for Archive previews and locating. Structure entries can use `structure_tag`, `dimension`, and `search_radius`. `green_tint` defaults to `true`; set it to `false` to show preview colors normally. Cover fields include `cover_item`, `cover_entity`, `cover_potion`, `rotation`, and `render_scale`.
 
+For entity-specific archive poses, register a client-side configurator with ArchiveEntityPreviewRegistry.register(ResourceLocation, Consumer<LivingEntity>). AntOS creates the preview entity, calls the registered configurator once, and then caches that entity for rendering. Match the entity type ID and check or cast the entity to your mod's class before applying its visual state. Configurators should only set client-safe preview state and must not perform gameplay actions. Register configurators during client initialization before the Archive is opened.
+```java
+ArchiveEntityPreviewRegistry.register(
+        ResourceLocation.fromNamespaceAndPath("examplemod", "field_beetle"),
+        entity -> {
+            if (entity instanceof FieldBeetleEntity beetle) beetle.setArchivePose();
+        });
+```
+
 ```json
 {
   "type": "article",
