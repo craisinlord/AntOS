@@ -5,6 +5,7 @@ import com.craisinlord.antos.content.antmail.AntmailEventData;
 import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.computer.TaskDebugCommands;
+import com.craisinlord.antos.content.network.FloppyTextureSync;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.neoforge.network.AntOSNeoForgeNetworking;
@@ -36,6 +37,7 @@ public final class AntOSNeoForge {
 
     private void onServerTick(ServerTickEvent.Post event) {
         var server = event.getServer();
+        FloppyTextureSync.tick(server);
         AntmailServerData.access(server).drainAvailable(server);
         AntmailEventData.onTick(server);
     }

@@ -6,7 +6,6 @@ import com.craisinlord.antos.content.block.ComputerBlock;
 import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
 import com.craisinlord.antos.content.item.ComputerItem;
 import com.craisinlord.antos.content.item.FloppyDiskItem;
-import com.craisinlord.antos.neoforge.client.AntOSNeoForgeFloppyDiskItem;
 import com.craisinlord.antos.content.entity.RewardDropEntity;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
@@ -38,7 +37,7 @@ public final class AntOSNeoForgeContent {
             () -> DataComponentType.<ResourceLocation>builder().persistent(ResourceLocation.CODEC).networkSynchronized(ResourceLocation.STREAM_CODEC).build());
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ComputerBlockEntity>> COMPUTER_BLOCK_ENTITY = BLOCK_ENTITY_TYPES.register("computer",
             () -> BlockEntityType.Builder.of((pos, state) -> new ComputerBlockEntity(pos, state, AntOSNeoForgeContent::computerBlockEntityType), COMPUTER.get()).build(null));
-    public static final DeferredHolder<Item, Item> FLOPPY_DISK = ITEMS.register("floppy_disk", () -> new AntOSNeoForgeFloppyDiskItem(new Item.Properties()));
+    public static final DeferredHolder<Item, Item> FLOPPY_DISK = ITEMS.register("floppy_disk", () -> new FloppyDiskItem(new Item.Properties()));
     public static final DeferredHolder<Item, ComputerItem> COMPUTER_ITEM = ITEMS.register("computer", () -> new ComputerItem(COMPUTER.get(), new Item.Properties()));
     public static final DeferredHolder<EntityType<?>, EntityType<RewardDropEntity>> REWARD_DROP_ENTITY = ENTITY_TYPES.register("reward_drop",
             () -> EntityType.Builder.of(RewardDropEntity::new, MobCategory.MISC).sized(0.8F, 0.8F).clientTrackingRange(8).updateInterval(2).build("antos:reward_drop"));

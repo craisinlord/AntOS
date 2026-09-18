@@ -10,6 +10,7 @@ public final class AntOSFabricNetworking {
     public static void register() {
         PayloadTypeRegistry.playS2C().register(ComputerAccessResultPayload.TYPE, ComputerAccessResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.playS2C().register(AntmailResultPayload.TYPE, AntmailResultPayload.STREAM_CODEC);
+        PayloadTypeRegistry.playS2C().register(FloppyTextureSyncPayload.TYPE, FloppyTextureSyncPayload.STREAM_CODEC);
         PayloadTypeRegistry.playC2S().register(ComputerAccessPayload.TYPE, ComputerAccessPayload.STREAM_CODEC);
         PayloadTypeRegistry.playC2S().register(AntmailSetupPayload.TYPE, AntmailSetupPayload.STREAM_CODEC);
         PayloadTypeRegistry.playC2S().register(AntmailStateRequestPayload.TYPE, AntmailStateRequestPayload.STREAM_CODEC);
@@ -41,6 +42,7 @@ public final class AntOSFabricNetworking {
 
         ComputerAccessHandler.setResultSender(ServerPlayNetworking::send);
         AntmailServerHandler.setResultSender(ServerPlayNetworking::send);
+        FloppyTextureSync.setSender(ServerPlayNetworking::send);
     }
 }
 

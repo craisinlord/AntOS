@@ -105,7 +105,7 @@ public final class TerminalCommandService {
             return usage(workingDirectory, "mkdir <path>");
         }
         return fileSystem.createDirectory(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory)
+                ? TerminalResult.success(workingDirectory, "MADE DIRECTORY " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
                 : TerminalResult.error(workingDirectory, "ERROR: CANNOT CREATE DIRECTORY");
     }
 
@@ -114,7 +114,7 @@ public final class TerminalCommandService {
             return usage(workingDirectory, "touch <path>");
         }
         return fileSystem.createFile(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory)
+                ? TerminalResult.success(workingDirectory, "MADE FILE " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
                 : TerminalResult.error(workingDirectory, "ERROR: CANNOT CREATE FILE");
     }
 
@@ -133,7 +133,7 @@ public final class TerminalCommandService {
         }
         String contents = command.arguments().size() == 2 ? command.arguments().get(1) : "";
         return fileSystem.writeText(command.arguments().get(0), workingDirectory, contents)
-                ? TerminalResult.success(workingDirectory)
+                ? TerminalResult.success(workingDirectory, "WROTE FILE " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
                 : TerminalResult.error(workingDirectory, "ERROR: CANNOT WRITE FILE");
     }
 
@@ -142,7 +142,7 @@ public final class TerminalCommandService {
             return usage(workingDirectory, "rm <path>");
         }
         return fileSystem.deleteFile(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory)
+                ? TerminalResult.success(workingDirectory, "DELETED FILE " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
                 : TerminalResult.error(workingDirectory, "ERROR: CANNOT DELETE FILE");
     }
 
@@ -151,7 +151,7 @@ public final class TerminalCommandService {
             return usage(workingDirectory, "rmdir <path>");
         }
         return fileSystem.deleteEmptyDirectory(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory)
+                ? TerminalResult.success(workingDirectory, "DELETED DIRECTORY " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
                 : TerminalResult.error(workingDirectory, "ERROR: DIRECTORY NOT EMPTY OR NOT FOUND");
     }
 
@@ -160,8 +160,17 @@ public final class TerminalCommandService {
             return usage(workingDirectory, "mv <source> <destination>");
         }
         return fileSystem.move(command.arguments().get(0), command.arguments().get(1), workingDirectory)
-                ? TerminalResult.success(workingDirectory)
+                ? TerminalResult.success(workingDirectory, "MOVED " + displayPath(fileSystem, command.arguments().get(0), workingDirectory)
+                        + " TO " + displayPath(fileSystem, command.arguments().get(1), workingDirectory))
                 : TerminalResult.error(workingDirectory, "ERROR: CANNOT MOVE PATH");
+    }
+
+    private String displayPath(TerminalFileSystem fileSystem, String path, String workingDirectory) {
+        try {
+            return fileSystem.normalize(path, workingDirectory);
+        } catch (RuntimeException ignored) {
+            return path;
+        }
     }
 
     private TerminalResult open(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {

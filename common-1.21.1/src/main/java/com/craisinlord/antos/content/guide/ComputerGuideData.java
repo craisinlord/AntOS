@@ -27,6 +27,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     private static final ResourceLocation INTRODUCTION = ResourceLocation.fromNamespaceAndPath("antos", "introduction");
     private static volatile Map<ResourceLocation, Entry> entries = Map.of();
     private static volatile Map<ResourceLocation, Disk> disks = Map.of();
+    private static volatile long diskTextureRevision;
     private static volatile Map<ResourceLocation, DiskCategory> categories = Map.of();
     private static volatile Map<ResourceLocation, Wallpaper> wallpapers = Map.of();
     private static volatile Map<ResourceLocation, Task> tasks = Map.of();
@@ -56,6 +57,17 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         Disk disk = disks.get(diskId);
         DiskCategory category = disk == null ? null : categories.get(disk.category());
         return category == null ? ResourceLocation.fromNamespaceAndPath("antos", "item/floppy_disk/floppy_disk") : category.texture();
+    }
+
+    /** Current server data-pack mapping, sent to clients for vanilla floppy model overrides. */
+    public static Map<ResourceLocation, ResourceLocation> diskCategoryMappings() {
+        Map<ResourceLocation, ResourceLocation> result = new HashMap<>();
+        disks.values().forEach(disk -> result.put(disk.id(), disk.category()));
+        return Map.copyOf(result);
+    }
+
+    public static long diskTextureRevision() {
+        return diskTextureRevision;
     }
 
     public static Wallpaper wallpaper(ResourceLocation id) {
@@ -319,6 +331,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         entries = data.entries();
         disks = data.disks();
         categories = data.categories();
+        diskTextureRevision++;
         wallpapers = data.wallpapers();
         tasks = data.tasks();
         validateLoadedData(data, resourceManager);

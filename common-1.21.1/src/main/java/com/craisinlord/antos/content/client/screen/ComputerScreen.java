@@ -130,6 +130,7 @@ public final class ComputerScreen extends Screen {
         String dimension = Minecraft.getInstance().level == null ? "" : Minecraft.getInstance().level.dimension().location().toString();
         this.sessionKey = dimension + ":" + position.asLong();
         this.session = SESSIONS.computeIfAbsent(sessionKey, ignored -> new Session());
+        this.session.antmailPickingAttachment = false;
         this.session.windows.removeIf(window -> window.type.equals("GAMES") && window.gameOpen);
         if (this.session.bootTicks < 0) this.session.bootTicks = 80;
         ComputerAccessClientState.clear(position);
@@ -143,6 +144,7 @@ public final class ComputerScreen extends Screen {
         if (!loggedIn) {
             session.authenticated = false;
             session.windows.clear();
+            session.antmailPickingAttachment = false;
         }
     }
 
@@ -221,6 +223,7 @@ public final class ComputerScreen extends Screen {
             loggedIn = false;
             session.authenticated = false;
             session.windows.clear();
+            session.antmailPickingAttachment = false;
         }
         if (loggedIn && !session.desktopRequested) {
             ComputerNetworking.requestDesktopState(position);
@@ -1862,6 +1865,8 @@ public final class ComputerScreen extends Screen {
                     g.fill(x + 4, y + 42, x + 210, y + h - 40, BLACK);
                     box(g, x + 4, y + 42, x + 210, y + h - 40, GREEN);
                     g.drawString(font, Component.literal("SELECT FILE TO ATTACH"), x + 10, y + 48, GREEN, false);
+                    box(g, x + 190, y + 43, x + 205, y + 58, GREEN);
+                    g.drawCenteredString(font, Component.literal("X"), x + 197, y + 46, GREEN);
                     int line = y + 64;
                     for (String file : ComputerFileSystemClientState.get(position).files()) {
                         String[] fields = file.split("\\t", 3);
@@ -1947,7 +1952,11 @@ public final class ComputerScreen extends Screen {
             }
         }
         String displayStatus = session.antmailStatus;
-        if (!displayStatus.isEmpty()) drawBottomWrapped(g, displayStatus, x, y, h, 208, PALE_GREEN);
+        if (!displayStatus.isEmpty()) {
+            // Keep long attachment status messages above the compose action row.
+            int statusHeight = session.antmailMode.equals("compose") ? h - 24 : h;
+            drawBottomWrapped(g, displayStatus, x, y, statusHeight, 208, PALE_GREEN);
+        }
     }
 
     private String antmailStatus(AntmailResultPayload result) {
@@ -2291,24 +2300,28 @@ public final class ComputerScreen extends Screen {
                             return true;
                         }
                     } else if (inside(contentX, contentY + 30, 54, 24, mouseX, mouseY)) {
+                        session.antmailPickingAttachment = false;
                         session.antmailMode = "inbox";
                         session.antmailSent = false;
                         session.antmailPage = 0;
                         session.antmailMessageIndex = -1;
                         requestAntmailState(true);
                     } else if (inside(contentX + 54, contentY + 30, 46, 24, mouseX, mouseY)) {
+                        session.antmailPickingAttachment = false;
                         session.antmailMode = "sent";
                         session.antmailSent = true;
                         session.antmailPage = 0;
                         session.antmailMessageIndex = -1;
                         requestAntmailState(true);
                     } else if (inside(contentX + 100, contentY + 30, 54, 24, mouseX, mouseY)) {
+                        session.antmailPickingAttachment = false;
                         session.antmailMode = "drafts";
                         session.antmailSent = false;
                         session.antmailPage = 0;
                         session.antmailMessageIndex = -1;
                         requestAntmailState(true);
                     } else if (inside(contentX + 158, contentY + 30, Math.min(56, Math.max(0, contentW - 158)), 24, mouseX, mouseY)) {
+                        session.antmailPickingAttachment = false;
                         session.antmailMode = "compose";
                         session.antmailFocused = true;
                         session.antmailField = 1;
@@ -2328,6 +2341,7 @@ public final class ComputerScreen extends Screen {
                         int index = ((int) mouseY - (contentY + 80)) / 14;
                         List<AntmailMessage> messages = mailboxMessages(result, session.antmailSent);
                         if (index >= 0 && index < messages.size()) {
+                            session.antmailPickingAttachment = false;
                             session.antmailMessageIndex = index;
                             session.antmailMode = "message";
                             AntmailNetworking.requestMessage(position, messages.get(index).id());
@@ -2375,6 +2389,10 @@ public final class ComputerScreen extends Screen {
                         }
                     } else if (session.antmailMode.equals("compose")) {
                         if (session.antmailPickingAttachment) {
+                            if (inside(contentX + 190, contentY + 43, 15, 15, mouseX, mouseY)) {
+                                session.antmailPickingAttachment = false;
+                                return true;
+                            }
                             int row = 0;
                             for (String file : ComputerFileSystemClientState.get(position).files()) {
                                 String[] fields = file.split("\\t", 3);
@@ -2461,6 +2479,7 @@ public final class ComputerScreen extends Screen {
                 loggedIn = false;
                 session.authenticated = false;
                 session.windows.clear();
+                session.antmailPickingAttachment = false;
                 activeWindow = null;
                 return true;
             }
@@ -2472,6 +2491,7 @@ public final class ComputerScreen extends Screen {
                 int controlsLeft = x + w - WINDOW_CONTROL_WIDTH * WINDOW_CONTROL_COUNT;
                 if (inside(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) {
                     if (window.type.equals("ANTMAIL") && session.antmailMode.equals("compose")) saveAntmailDraft();
+                    if (window.type.equals("ANTMAIL")) session.antmailPickingAttachment = false;
                     session.windows.remove(i);
                     if (activeWindow == window) activeWindow = null;
                 }
@@ -2741,6 +2761,11 @@ public final class ComputerScreen extends Screen {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) { session.terminalFocused = false; return true; }
         }
 
+        if (activeWindow != null && activeWindow.type.equals("ANTMAIL")
+                && session.antmailPickingAttachment && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            session.antmailPickingAttachment = false;
+            return true;
+        }
         if (activeWindow != null && activeWindow.type.equals("ANTMAIL") && session.antmailFocused) {
             if (hasControl(modifiers) && keyCode == GLFW.GLFW_KEY_A) { session.antmailSelectionStart = 0; session.antmailCursor = antmailText().length(); return true; }
             if (hasControl(modifiers) && keyCode == GLFW.GLFW_KEY_C) { if (hasAntmailSelection()) minecraft.keyboardHandler.setClipboard(selectedAntmailText()); return true; }
@@ -2752,10 +2777,6 @@ public final class ComputerScreen extends Screen {
                     if (session.antmailMode.equals("compose")) replaceAntmailSelection(clip);
                     else replaceAntmailSelection(clip.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", ""));
                 }
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_ESCAPE && session.antmailPickingAttachment) {
-                session.antmailPickingAttachment = false;
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {

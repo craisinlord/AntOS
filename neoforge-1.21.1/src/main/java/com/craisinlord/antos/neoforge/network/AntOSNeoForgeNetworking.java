@@ -43,9 +43,12 @@ public final class AntOSNeoForgeNetworking {
                 }));
         registrar.playToClient(AntmailResultPayload.TYPE, AntmailResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.AntmailClientState.update(payload)));
+        registrar.playToClient(FloppyTextureSyncPayload.TYPE, FloppyTextureSyncPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.FloppyTextureClientState.update(payload)));
 
         ComputerAccessHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         AntmailServerHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
+        FloppyTextureSync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
     }
 
     private static void withPlayer(net.neoforged.neoforge.network.handling.IPayloadContext context,

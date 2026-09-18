@@ -5,6 +5,7 @@ import com.craisinlord.antos.content.antmail.AntmailEventData;
 import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.computer.TaskDebugCommands;
+import com.craisinlord.antos.content.network.FloppyTextureSync;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.fabric.network.AntOSFabricNetworking;
@@ -29,6 +30,7 @@ public final class AntOSFabric implements ModInitializer {
         registerReloadListener("computer_data", ComputerGuideData.instance());
         registerReloadListener("antmail_data", AntmailEventData.instance());
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            FloppyTextureSync.tick(server);
             AntmailServerData.access(server).drainAvailable(server);
             AntmailEventData.onTick(server);
         });
