@@ -2936,7 +2936,17 @@ public final class ComputerScreen extends Screen {
             if (keyCode == GLFW.GLFW_KEY_LEFT) { session.antmailCursor = Math.max(0, session.antmailCursor - 1); session.antmailSelectionStart = -1; return true; }
             if (keyCode == GLFW.GLFW_KEY_RIGHT) { session.antmailCursor = Math.min(antmailText().length(), session.antmailCursor + 1); session.antmailSelectionStart = -1; return true; }
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
-                if (session.antmailMode.equals("compose")) sendAntmail(); else setupAntmail();
+                if (session.antmailMode.equals("compose")) {
+                    if (session.antmailField == 1) {
+                        session.antmailField = 2;
+                        session.antmailCursor = session.antmailSubject.length();
+                    } else if (session.antmailField == 2) {
+                        session.antmailField = 3;
+                        session.antmailCursor = session.antmailBody.length();
+                    } else if (session.antmailField == 3) {
+                        replaceAntmailSelection("\n");
+                    }
+                } else setupAntmail();
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) { session.antmailFocused = false; return true; }
