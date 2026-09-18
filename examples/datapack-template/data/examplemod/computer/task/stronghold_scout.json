@@ -1,0 +1,19 @@
+{
+  "title": "task.examplemod.stronghold_scout.title",
+  "description": "task.examplemod.stronghold_scout.description",
+  "program": "examplemod:meadow_research",
+  "category": "examplemod:meadow_research",
+  "sort_order": 30,
+  "position": {"x": 2, "y": 0},
+  "hide_until_dependencies_complete": true,
+  "requires": ["examplemod:meadow_survey"],
+  "objectives": [
+    {
+      "id": "enter_stronghold",
+      "type": "advancement",
+      "target": "examplemod:tasks/enter_stronghold",
+      "description": "task.examplemod.stronghold_scout.enter_stronghold",
+      "count": 1
+    }
+  ]
+}

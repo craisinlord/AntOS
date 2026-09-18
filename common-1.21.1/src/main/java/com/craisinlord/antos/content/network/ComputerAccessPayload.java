@@ -1,0 +1,50 @@
+package com.craisinlord.antos.content.network;
+
+import com.craisinlord.antos.AntOS;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+
+public record ComputerAccessPayload(BlockPos pos, int action, String value) implements CustomPacketPayload {
+    public static final int OPEN = 0;
+    public static final int SETUP = 1;
+    public static final int LOGIN = 2;
+    public static final int LOGOUT = 3;
+    public static final int CHANGE_PASSWORD = 4;
+    public static final int EJECT = 5;
+    public static final int CLOSE = 6;
+    public static final int FILE_LIST = 7;
+    public static final int FILE_OPEN = 8;
+    public static final int FILE_CREATE = 9;
+    public static final int FILE_SAVE = 10;
+    public static final int DESKTOP_STATE = 11;
+    public static final int DESKTOP_WALLPAPER = 12;
+    public static final int FILE_DELETE = 13;
+    public static final int FILE_MOVE = 14;
+    public static final int TERMINAL_COMMAND = 15;
+    public static final int ARCHIVE_STATE = 20;
+    public static final int LOCATE_STRUCTURE = 21;
+    public static final int TASK_STATE = 22;
+    public static final int ARCHIVE_VIEWED = 23;
+    public static final Type<ComputerAccessPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "computer_access"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, ComputerAccessPayload> STREAM_CODEC = StreamCodec.composite(
+            BlockPos.STREAM_CODEC, ComputerAccessPayload::pos,
+            ByteBufCodecs.VAR_INT, ComputerAccessPayload::action,
+            ByteBufCodecs.stringUtf8(65536), ComputerAccessPayload::value,
+            ComputerAccessPayload::new
+    );
+
+    public ComputerAccessPayload(BlockPos pos, int action) {
+        this(pos, action, "");
+    }
+
+    @Override
+    public Type<ComputerAccessPayload> type() {
+        return TYPE;
+    }
+}
+
+

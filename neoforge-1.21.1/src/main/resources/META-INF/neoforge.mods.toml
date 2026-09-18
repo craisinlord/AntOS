@@ -1,0 +1,31 @@
+modLoader="javafml"
+loaderVersion="[2,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="antos"
+version="${version}"
+displayName="AntOS"
+authors="CraisinLord"
+description='''An ant-themed modular computer and Antmail platform.'''
+
+[[dependencies.antos]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.22)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.antos]]
+modId="neoforge"
+type="required"
+versionRange="[21.1,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.antos]]
+modId="geckolib"
+type="required"
+versionRange="*"
+ordering="AFTER"
+side="BOTH"

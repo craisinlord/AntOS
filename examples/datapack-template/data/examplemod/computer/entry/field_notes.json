@@ -1,0 +1,7 @@
+{
+  "type": "article",
+  "category": "general",
+  "title": "guide.examplemod.entry.field_notes.title",
+  "subtitle": "guide.examplemod.entry.field_notes.subtitle",
+  "description": ["guide.examplemod.entry.field_notes.body"]
+}

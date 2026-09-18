@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "antos",
+  "version": "${version}",
+  "name": "AntOS",
+  "description": "An ant-themed modular computer and Antmail platform.",
+  "authors": ["CraisinLord"],
+  "license": "All Rights Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.craisinlord.antos.fabric.AntOSFabric"],
+    "client": ["com.craisinlord.antos.fabric.client.AntOSFabricClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*",
+    "geckolib": "*"
+  }
+}
+

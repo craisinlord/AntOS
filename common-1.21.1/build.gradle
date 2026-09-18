@@ -1,0 +1,10 @@
+plugins { id 'java-library' }
+
+base { archivesName = 'antos-common-1.21.1' }
+
+tasks.named('compileJava') { enabled = false }
+tasks.named('jar') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from sourceSets.main.allJava
+    from sourceSets.main.resources
+}

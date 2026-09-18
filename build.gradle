@@ -1,0 +1,43 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+allprojects {
+    apply plugin: 'java-library'
+    apply plugin: 'maven-publish'
+    group = rootProject.maven_group
+    version = rootProject.mod_version
+
+    repositories {
+        maven { url 'https://maven.fabricmc.net/' }
+        maven { url 'https://maven.neoforged.net/releases' }
+        maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
+        mavenCentral()
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
+
+    java {
+        toolchain { languageVersion = JavaLanguageVersion.of(21) }
+        withSourcesJar()
+    }
+}
+
+tasks.named('jar') { enabled = false }
+
+[
+    fabric121: [projectPath: 'fabric-1.21.1', taskGroup: 'fabric-1.21.1'],
+    neoforge121: [projectPath: 'neoforge-1.21.1', taskGroup: 'neoForge-1.21.1']
+].each { prefix, loader ->
+    def projectPath = loader.projectPath
+    ['build', 'assemble', 'clean', 'runClient', 'runServer'].each { taskName ->
+        tasks.register("${prefix}${taskName.capitalize()}") {
+            group = loader.taskGroup
+            description = "Runs ':${projectPath}:${taskName}' from the AntOS root project"
+            dependsOn(":${projectPath}:${taskName}")
+        }
+    }
+}

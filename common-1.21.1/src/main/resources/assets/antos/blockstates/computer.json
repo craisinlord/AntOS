@@ -1,0 +1,10 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "antos:block/computer"
+      }
+    }
+  ]
+}
+

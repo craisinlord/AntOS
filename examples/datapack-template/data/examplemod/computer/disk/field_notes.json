@@ -1,0 +1,11 @@
+{
+  "category": "general",
+  "title": "guide.examplemod.disk.field_notes.title",
+  "entries": [
+    "examplemod:field_notes"
+  ],
+  "tasks": [
+    "examplemod:field_basics"
+  ],
+  "wallpaper": "examplemod:meadow"
+}

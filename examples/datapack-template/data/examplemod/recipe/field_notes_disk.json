@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    "minecraft:paper",
+    "minecraft:iron_nugget"
+  ],
+  "result": {
+    "id": "antos:floppy_disk",
+    "count": 1,
+    "components": {
+      "antos:floppy_disk": "examplemod:field_notes"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "title": "task.examplemod.meadow_survey.title",
+  "description": "task.examplemod.meadow_survey.description",
+  "program": "examplemod:meadow_research",
+  "category": "examplemod:meadow_research",
+  "sort_order": 20,
+  "position": {"x": 1, "y": 0},
+  "hide_until_dependencies_complete": true,
+  "requires": ["examplemod:field_basics"],
+  "objectives": [
+    {
+      "id": "mine_diamond",
+      "type": "advancement",
+      "target": "minecraft:story/mine_diamond",
+      "description": "task.examplemod.meadow_survey.mine_diamond",
+      "count": 1
+    }
+  ],
+  "archive_entries": ["examplemod:field_notes"]
+}

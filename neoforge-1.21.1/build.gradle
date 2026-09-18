@@ -1,0 +1,30 @@
+plugins { id 'net.neoforged.moddev' }
+
+base { archivesName = 'antos-neoforge-1.21.1' }
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+
+sourceSets.main {
+    java.srcDirs += project(':common-1.21.1').sourceSets.main.java.srcDirs
+    resources.srcDirs += project(':common-1.21.1').sourceSets.main.resources.srcDirs
+}
+
+neoForge {
+    version = neoforge_version_1_21_1
+    mods {
+        create('antos') { sourceSet sourceSets.main }
+    }
+    runs {
+        client { client() }
+        server { server() }
+    }
+}
+
+dependencies {
+    implementation "software.bernie.geckolib:geckolib-neoforge-1.21.1:${geckolib_version}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') { expand 'version': project.version }
+}

@@ -1,0 +1,17 @@
+{
+  "guide.examplemod.entry.field_notes.title": "Field Notes",
+  "guide.examplemod.entry.field_notes.subtitle": "Observations from the meadow",
+  "guide.examplemod.entry.field_notes.body": "Ants use landmarks and scent trails to find their way home.",
+  "guide.examplemod.disk.field_notes.title": "Field Notes Disk",
+  "wallpaper.examplemod.meadow": "Ant Meadow",
+  "task.examplemod.field_basics.title": "Collect Field Samples",
+  "task.examplemod.field_basics.description": "Bring four iron ingots to the field computer for cataloging.",
+  "task.examplemod.field_basics.iron_samples": "Have four iron ingots in your inventory",
+  "task.examplemod.meadow_survey.title": "Survey the Meadow",
+  "task.examplemod.meadow_survey.description": "Continue the research program by finding a diamond.",
+  "task.examplemod.meadow_survey.mine_diamond": "Earn the Diamonds! advancement",
+  "task.examplemod.stronghold_scout.title": "Survey the Stronghold",
+  "task.examplemod.stronghold_scout.description": "The archive points to an old stone complex. Confirm the site in person.",
+  "task.examplemod.stronghold_scout.enter_stronghold": "Enter a stronghold",
+  "task.category.examplemod.meadow_research": "Meadow Research"
+}

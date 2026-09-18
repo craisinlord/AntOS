@@ -1,0 +1,22 @@
+{
+  "title": "task.examplemod.field_basics.title",
+  "description": "task.examplemod.field_basics.description",
+  "program": "examplemod:meadow_research",
+  "category": "examplemod:meadow_research",
+  "sort_order": 10,
+  "position": {"x": 0, "y": 0},
+  "availability": "disk",
+  "objectives": [
+    {
+      "id": "iron_samples",
+      "type": "item",
+      "target": "minecraft:iron_ingot",
+      "description": "task.examplemod.field_basics.iron_samples",
+      "count": 4
+    }
+  ],
+  "rewards": [
+    { "type": "item", "item": "minecraft:bread", "count": 3 }
+  ],
+  "archive_entries": ["examplemod:field_notes"]
+}
