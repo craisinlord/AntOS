@@ -319,7 +319,8 @@ public final class ComputerScreen extends Screen {
         g.drawString(font, Component.literal(setup ? (confirmingPassword ? "CONFIRM PASSWORD" : "CREATE PASSWORD") : "PASSWORD"), formX, t + 132, PALE_GREEN, false);
         g.fill(formX, t + 150, formRight, t + 173, BLACK);
         box(g, formX, t + 150, formRight, t + 173, GREEN);
-        g.drawString(font, Component.literal("*".repeat((confirmingPassword ? confirmation : password).length())), formX + 6, t + 157, GREEN, false);
+        String passwordText = "*".repeat((confirmingPassword ? confirmation : password).length());
+        g.drawString(font, Component.literal(passwordText + (caretVisible() ? "|" : "")), formX + 6, t + 157, GREEN, false);
         g.drawString(font, Component.literal(setup ? (confirmingPassword ? "[ ENTER ] CONFIRM" : "[ ENTER ] CONTINUE") : "[ ENTER ] LOGIN"), formX, t + 187, GREEN, false);
         if (recovery) {
             g.drawString(font, Component.literal("BACKUP FOUND // TASKS + ARCHIVE"), formX, t + 207, PALE_GREEN, false);
@@ -669,7 +670,7 @@ public final class ComputerScreen extends Screen {
             else if (window.type.equals("TASKS")) renderTasks(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("FILES")) renderFileExplorer(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("SETTINGS")) renderSettings(g, cx, cy, h - 34);
-            else if (window.type.equals("TERMINAL")) renderTerminal(g, cx, cy, h - 34);
+            else if (window.type.equals("TERMINAL")) renderTerminal(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("TEXT")) renderTextEditor(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("PAINT")) renderPaint(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("ANTMAIL")) renderAntmail(g, cx, cy, h - 34);
@@ -965,7 +966,7 @@ public final class ComputerScreen extends Screen {
         g.fill(x, y + 14, x + w - 8, y + 35, BLACK);
         box(g, x, y + 14, x + w - 8, y + 35, session.archiveSearchFocused ? GREEN : PALE_GREEN);
         String searchText = session.archiveSearch.isBlank() && !session.archiveSearchFocused ? "SEARCH TITLE" : session.archiveSearch;
-        g.drawString(font, Component.literal(trimToWidth(searchText + (session.archiveSearchFocused ? "_" : ""), w - 16)), x + 6, y + 20,
+        g.drawString(font, Component.literal(trimToWidth(searchText + (session.archiveSearchFocused && caretVisible() ? "|" : ""), w - 16)), x + 6, y + 20,
                 session.archiveSearch.isBlank() ? PALE_GREEN : GREEN, false);
         if (entries.isEmpty()) {
             g.drawString(font, Component.literal("NO ARCHIVE DATA"), x, y + 28, PALE_GREEN, false);
@@ -1403,14 +1404,28 @@ public final class ComputerScreen extends Screen {
         }
     }
 
-    private void renderTerminal(GuiGraphics g, int x, int y, int h) {
+    private void renderTerminal(GuiGraphics g, int x, int y, int w, int h) {
         g.drawString(font, Component.literal("ANTOS TERMINAL [READY]"), x, y, GREEN, false);
-        int line = y + 17;
-        for (String output : session.terminalOutput) {
-            line = wrapLimited(g, output, x, line, 208, y + h - 48, PALE_GREEN) + 1;
-            if (line >= y + h - 48) break;
+        List<net.minecraft.util.FormattedCharSequence> lines = new ArrayList<>();
+        for (String output : session.terminalOutput) lines.addAll(font.split(Component.literal(output), Math.max(1, w - 10)));
+        int visible = Math.max(1, (h - 68) / 11);
+        int maximum = Math.max(0, lines.size() - visible);
+        session.terminalScroll = Math.max(0, Math.min(session.terminalScroll, maximum));
+        session.terminalMaximumScroll = maximum;
+        drawScrollbar(g, x + w - 4, y + 17, Math.max(1, h - 68), visible, lines.size(), session.terminalScroll, maximum);
+        int end = Math.min(lines.size(), session.terminalScroll + visible);
+        for (int i = session.terminalScroll; i < end; i++) {
+            g.drawString(font, lines.get(i), x, y + 17 + (i - session.terminalScroll) * 11, PALE_GREEN, false);
         }
-        g.drawString(font, Component.literal(trimToWidth(session.terminalDirectory + "> " + session.terminalInput + "_", 208)), x, y + h - 26, GREEN, false);
+        g.drawString(font, Component.literal(trimToWidth(session.terminalDirectory + "> " + session.terminalInput + (caretVisible() ? "|" : ""), 208)), x, y + h - 26, GREEN, false);
+    }
+
+    private void drawScrollbar(GuiGraphics g, int x, int top, int trackHeight, int visible, int total, int scroll, int maximum) {
+        if (maximum <= 0 || total <= 0) return;
+        int thumbHeight = Math.max(12, trackHeight * visible / total);
+        int thumbTop = top + (trackHeight - thumbHeight) * scroll / maximum;
+        g.fill(x, top, x + 3, top + trackHeight, 0xFF173817);
+        g.fill(x, thumbTop, x + 3, thumbTop + thumbHeight, GREEN);
     }
 
     private void renderPaint(GuiGraphics g, int x, int y, int w, int h) {
@@ -1440,7 +1455,7 @@ public final class ComputerScreen extends Screen {
         for (int py = 0; py < AntPaintCanvas.HEIGHT; py++) for (int px = 0; px < AntPaintCanvas.WIDTH; px++) if (session.paintCanvas.get(px, py)) g.fill(cx + px * size, cy + py * size, cx + (px + 1) * size, cy + (py + 1) * size, GREEN);
         int hoverX = (session.mouseX - cx) / size;
         int hoverY = (session.mouseY - cy) / size;
-        if (session.mouseX >= cx && session.mouseY >= cy && hoverX >= 0 && hoverX < AntPaintCanvas.WIDTH && hoverY >= 0 && hoverY < AntPaintCanvas.HEIGHT) {
+        if (caretVisible() && session.mouseX >= cx && session.mouseY >= cy && hoverX >= 0 && hoverX < AntPaintCanvas.WIDTH && hoverY >= 0 && hoverY < AntPaintCanvas.HEIGHT) {
             int pixelX = cx + hoverX * size;
             int pixelY = cy + hoverY * size;
             g.fill(pixelX, pixelY, pixelX + size, pixelY + 1, PALE_GREEN);
@@ -1797,25 +1812,32 @@ public final class ComputerScreen extends Screen {
         g.fill(x + 4, y + 36, x + w - 4, y + h - 4, BLACK);
         if (session.textListing) {
             g.drawString(font, Component.literal("SELECT FILE"), x + 10, y + 46, GREEN, false);
-            int line = y + 62;
-            int visibleFiles = 0;
-            int textIndex = 0;
-            for (String file : fileState.files()) {
+            List<String> textFiles = fileState.files().stream().filter(file -> {
                 String[] fields = file.split("\\t", 3);
-                if (fields.length < 3 || !fields[0].equals("TEXT")) continue;
-                if (textIndex++ < session.textPickerScroll || line > y + h - 50) continue;
-                g.drawString(font, Component.literal(fields[1]), x + 10, line, PALE_GREEN, false);
-                line += 14;
-                visibleFiles++;
+                return fields.length >= 3 && fields[0].equals("TEXT");
+            }).toList();
+            int visibleFiles = Math.max(1, (h - 112) / 14);
+            int maximum = Math.max(0, textFiles.size() - visibleFiles);
+            session.textPickerMaximumScroll = maximum;
+            session.textPickerScroll = Math.max(0, Math.min(session.textPickerScroll, maximum));
+            drawScrollbar(g, x + w - 8, y + 62, Math.max(1, h - 112), visibleFiles, textFiles.size(), session.textPickerScroll, maximum);
+            int shown = 0;
+            for (int index = session.textPickerScroll; index < textFiles.size() && shown < visibleFiles; index++, shown++) {
+                String file = textFiles.get(index);
+                String[] fields = file.split("\\t", 3);
+                g.drawString(font, Component.literal(fields[1]), x + 10, y + 62 + shown * 14, PALE_GREEN, false);
             }
-            if (visibleFiles == 0) g.drawString(font, Component.literal("NO TEXT FILES"), x + 10, y + 62, PALE_GREEN, false);
+            if (textFiles.isEmpty()) g.drawString(font, Component.literal("NO TEXT FILES"), x + 10, y + 62, PALE_GREEN, false);
         } else {
             String content = session.textContent.isEmpty() ? "TYPE HERE..." : session.textContent;
-            if (session.textFocused) content = content.substring(0, Math.min(session.textCursor, content.length())) + "|"
+            if (session.textFocused && caretVisible()) content = content.substring(0, Math.min(session.textCursor, content.length())) + "|"
                     + content.substring(Math.min(session.textCursor, content.length()));
             List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(content), w - 28);
             int maxLines = Math.max(1, (h - 88) / 11);
-            session.textScroll = Math.max(0, Math.min(session.textScroll, Math.max(0, lines.size() - maxLines)));
+            int maximum = Math.max(0, lines.size() - maxLines);
+            session.textMaximumScroll = maximum;
+            session.textScroll = Math.max(0, Math.min(session.textScroll, maximum));
+            drawScrollbar(g, x + w - 8, y + 42, Math.max(1, h - 84), maxLines, lines.size(), session.textScroll, maximum);
             for (int i = session.textScroll; i < lines.size() && i < session.textScroll + maxLines; i++) {
                 g.drawString(font, lines.get(i), x + 10, y + 46 + (i - session.textScroll) * 11, GREEN, false);
             }
@@ -1853,7 +1875,9 @@ public final class ComputerScreen extends Screen {
             g.drawString(font, Component.literal("USERNAME // 3-16 CHARACTERS"), x, y + 40, GREEN, false);
             g.fill(x, y + 56, x + 206, y + 79, BLACK);
             box(g, x, y + 56, x + 206, y + 79, GREEN);
-            g.drawString(font, Component.literal(trimToWidth(session.antmailUsername + "@antmail.com", 194)), x + 6, y + 63, GREEN, false);
+            String username = session.antmailUsername + "@antmail.com";
+            g.drawString(font, Component.literal(trimToWidth(session.antmailFocused && caretVisible()
+                    ? insertCaret(username, session.antmailCursor) : username, 194)), x + 6, y + 63, GREEN, false);
             g.drawString(font, Component.literal("[ ENTER ] REGISTER ADDRESS"), x, y + 88, GREEN, false);
         } else {
             g.drawString(font, Component.literal(trimToWidth(result.address(), 208)), x, y + 20, PALE_GREEN, false);
@@ -1866,12 +1890,16 @@ public final class ComputerScreen extends Screen {
             box(g, x + 158, y + 30, x + 214, y + 53, session.antmailMode.equals("compose") ? PALE_GREEN : GREEN);
             g.drawString(font, Component.literal("COMPOSE"), x + 163, y + 38, session.antmailMode.equals("compose") ? PALE_GREEN : GREEN, false);
             if (session.antmailMode.equals("compose")) {
-                g.drawString(font, Component.literal(trimToWidth(session.antmailRecipient, 180)), x + 28, y + 52, PALE_GREEN, false);
-                g.drawString(font, Component.literal(trimToWidth(session.antmailSubject, 156)), x + 52, y + 66, PALE_GREEN, false);
+                g.drawString(font, Component.literal(trimToWidth(session.antmailFocused && session.antmailField == 1 && caretVisible()
+                        ? insertCaret(session.antmailRecipient, session.antmailCursor) : session.antmailRecipient, 180)), x + 28, y + 52, PALE_GREEN, false);
+                g.drawString(font, Component.literal(trimToWidth(session.antmailFocused && session.antmailField == 2 && caretVisible()
+                        ? insertCaret(session.antmailSubject, session.antmailCursor) : session.antmailSubject, 156)), x + 52, y + 66, PALE_GREEN, false);
                 g.drawString(font, Component.literal("TO"), x, y + 52, GREEN, false);
                 g.drawString(font, Component.literal("SUBJECT"), x, y + 66, GREEN, false);
                 g.drawString(font, Component.literal("BODY"), x, y + 80, GREEN, false);
-                wrapLimited(g, session.antmailBody.isEmpty() ? "TYPE MESSAGE..." : session.antmailBody, x, y + 94, 208, y + 124, PALE_GREEN);
+                String body = session.antmailBody.isEmpty() ? "TYPE MESSAGE..." : session.antmailBody;
+                wrapLimited(g, session.antmailFocused && session.antmailField == 3 && caretVisible()
+                        ? insertCaret(body, session.antmailCursor) : body, x, y + 94, 208, y + 124, PALE_GREEN);
                 g.drawString(font, Component.literal(trimToWidth("[ " + (session.antmailAttachText ? "X" : " ") + " ] TEXT FILE   [ " + (session.antmailAttachPaint ? "X" : " ") + " ] PAINTING", 208)), x, y + 128, PALE_GREEN, false);
                 if (session.antmailPickingAttachment) {
                     g.fill(x + 4, y + 42, x + 210, y + h - 40, BLACK);
@@ -1896,7 +1924,18 @@ public final class ComputerScreen extends Screen {
                     g.drawString(font, Component.literal("< BACK // " + (session.antmailSent ? "SENT" : "INBOX")), x, y + 40, GREEN, false);
                     g.drawString(font, Component.literal(trimToWidth(session.antmailSent ? message.recipient().fullAddress() : message.sender().fullAddress(), 208)), x, y + 62, PALE_GREEN, false);
                     g.drawString(font, Component.literal(trimToWidth(message.subject(), 208)), x, y + 78, GREEN, false);
-                    int messageLine = wrapLimited(g, message.body(), x, y + 98, 208, attachmentBottom, PALE_GREEN) + 4;
+                    List<net.minecraft.util.FormattedCharSequence> bodyLines = font.split(Component.literal(message.body()), 198);
+                    int bodyVisible = Math.max(1, (attachmentBottom - (y + 98) - 8) / 11);
+                    int bodyMaximum = Math.max(0, bodyLines.size() - bodyVisible);
+                    session.antmailDetailScroll = Math.max(0, Math.min(session.antmailDetailScroll, bodyMaximum));
+                    session.antmailDetailMaximumScroll = bodyMaximum;
+                    drawScrollbar(g, x + 210, y + 98, Math.max(1, attachmentBottom - (y + 98) - 8), bodyVisible,
+                            bodyLines.size(), session.antmailDetailScroll, bodyMaximum);
+                    int bodyEnd = Math.min(bodyLines.size(), session.antmailDetailScroll + bodyVisible);
+                    for (int bodyIndex = session.antmailDetailScroll; bodyIndex < bodyEnd; bodyIndex++) {
+                        g.drawString(font, bodyLines.get(bodyIndex), x, y + 98 + (bodyIndex - session.antmailDetailScroll) * 11, PALE_GREEN, false);
+                    }
+                    int messageLine = y + 98 + (bodyEnd - session.antmailDetailScroll) * 11 + 4;
                     if (!message.attachments().isEmpty() && messageLine + 9 <= attachmentBottom) {
                         session.antmailAttachmentStartLine = messageLine;
                         for (AntmailAttachment attachment : message.attachments()) {
@@ -1915,23 +1954,29 @@ public final class ComputerScreen extends Screen {
             } else if (session.antmailMode.equals("drafts")) {
                 List<AntmailDraft> drafts = mailbox(result) == null ? List.of() : mailbox(result).drafts();
                 g.drawString(font, Component.literal("DRAFTS // " + drafts.size()), x, y + 62, GREEN, false);
-                int line = y + 80;
-                for (AntmailDraft draft : drafts) {
-                    if (line > y + h - 38) break;
-                    g.drawString(font, Component.literal(trimToWidth("* " + (draft.subject().isBlank() ? "UNTITLED DRAFT" : draft.subject()), 30)), x, line, PALE_GREEN, false);
-                    line += 14;
+                int visible = Math.max(1, (h - 126) / 14);
+                int maximum = Math.max(0, drafts.size() - visible);
+                session.antmailListScroll = Math.max(0, Math.min(session.antmailListScroll, maximum));
+                session.antmailListMaximumScroll = maximum;
+                drawScrollbar(g, x + 210, y + 80, Math.max(1, h - 126), visible, drafts.size(), session.antmailListScroll, maximum);
+                for (int row = 0; row < visible && session.antmailListScroll + row < drafts.size(); row++) {
+                    AntmailDraft draft = drafts.get(session.antmailListScroll + row);
+                    g.drawString(font, Component.literal(trimToWidth("* " + (draft.subject().isBlank() ? "UNTITLED DRAFT" : draft.subject()), 28)), x, y + 80 + row * 14, PALE_GREEN, false);
                 }
                 if (drafts.isEmpty()) g.drawString(font, Component.literal("NO SAVED DRAFTS"), x, y + 80, PALE_GREEN, false);
             } else {
                 List<AntmailMessage> messages = mailboxMessages(result, session.antmailSent);
                 int total = antmailTotal(result, session.antmailSent);
                 g.drawString(font, Component.literal((session.antmailSent ? "SENT // " : "INBOX // ") + total), x, y + 62, GREEN, false);
-                int line = y + 80;
-                for (AntmailMessage message : messages) {
-                    if (line > y + h - 38) break;
+                int visible = Math.max(1, (h - 126) / 14);
+                int maximum = Math.max(0, messages.size() - visible);
+                session.antmailListScroll = Math.max(0, Math.min(session.antmailListScroll, maximum));
+                session.antmailListMaximumScroll = maximum;
+                drawScrollbar(g, x + 210, y + 80, Math.max(1, h - 126), visible, messages.size(), session.antmailListScroll, maximum);
+                for (int row = 0; row < visible && session.antmailListScroll + row < messages.size(); row++) {
+                    AntmailMessage message = messages.get(session.antmailListScroll + row);
                     String status = session.antmailSent ? " // " + message.deliveryStatus() : "";
-                    g.drawString(font, Component.literal((message.read() ? "  " : "* ") + trimToWidth(message.subject() + status, 28)), x, line, message.read() ? PALE_GREEN : GREEN, false);
-                    line += 14;
+                    g.drawString(font, Component.literal((message.read() ? "  " : "* ") + trimToWidth(message.subject() + status, 26)), x, y + 80 + row * 14, message.read() ? PALE_GREEN : GREEN, false);
                 }
                 g.drawString(font, Component.literal("[ < ] PAGE " + (session.antmailPage + 1) + " [ > ]"), x, y + h - 42, GREEN, false);
             }
@@ -1969,6 +2014,15 @@ public final class ComputerScreen extends Screen {
             int statusHeight = session.antmailMode.equals("compose") ? h - 24 : h;
             drawBottomWrapped(g, displayStatus, x, y, statusHeight, 208, PALE_GREEN);
         }
+    }
+
+    private boolean caretVisible() {
+        return (System.currentTimeMillis() / 500L) % 2L == 0L;
+    }
+
+    private String insertCaret(String value, int cursor) {
+        int index = Math.max(0, Math.min(cursor, value.length()));
+        return value.substring(0, index) + "|" + value.substring(index);
     }
 
     private String antmailStatus(AntmailResultPayload result) {
@@ -2120,6 +2174,38 @@ public final class ComputerScreen extends Screen {
                 activeWindow = window;
                 session.windows.remove(i);
                 session.windows.add(window);
+                boolean textTrack = window.type.equals("TEXT") && inside(contentX + contentW - 9,
+                        contentY + (session.textListing ? 62 : 42), 5,
+                        Math.max(1, contentH - (session.textListing ? 112 : 84)), mouseX, mouseY);
+                if (textTrack) {
+                    int trackTop = contentY + (session.textListing ? 62 : 42);
+                    int trackHeight = Math.max(1, contentH - (session.textListing ? 112 : 84));
+                    int maximum = session.textListing ? session.textPickerMaximumScroll : session.textMaximumScroll;
+                    int value = (int) Math.round(Math.max(0.0, Math.min(1.0, (mouseY - trackTop) / trackHeight)) * maximum);
+                    if (session.textListing) session.textPickerScroll = value;
+                    else session.textScroll = value;
+                    return true;
+                }
+                boolean terminalTrack = window.type.equals("TERMINAL")
+                        && inside(contentX + contentW - 5, contentY + 17, 5, Math.max(1, contentH - 68), mouseX, mouseY);
+                boolean antmailDetailTrack = window.type.equals("ANTMAIL") && session.antmailMode.equals("message")
+                        && inside(contentX + contentW - 6, contentY + 98, 6, Math.max(1, contentH - 142), mouseX, mouseY);
+                boolean antmailListTrack = window.type.equals("ANTMAIL")
+                        && (session.antmailMode.equals("inbox") || session.antmailMode.equals("sent") || session.antmailMode.equals("drafts"))
+                        && inside(contentX + contentW - 6, contentY + 80, 6, Math.max(1, contentH - 126), mouseX, mouseY);
+                boolean antmailTrack = antmailDetailTrack || antmailListTrack;
+                if (terminalTrack || antmailTrack) {
+                    int trackTop = terminalTrack ? contentY + 17 : antmailDetailTrack ? contentY + 98 : contentY + 80;
+                    int trackHeight = terminalTrack ? Math.max(1, contentH - 68)
+                            : Math.max(1, contentH - (antmailDetailTrack ? 142 : 126));
+                    int maximum = terminalTrack ? session.terminalMaximumScroll
+                            : session.antmailMode.equals("message") ? session.antmailDetailMaximumScroll : session.antmailListMaximumScroll;
+                    int value = (int) Math.round(Math.max(0.0, Math.min(1.0, (mouseY - trackTop) / trackHeight)) * maximum);
+                    if (terminalTrack) session.terminalScroll = value;
+                    else if (session.antmailMode.equals("message")) session.antmailDetailScroll = value;
+                    else session.antmailListScroll = value;
+                    return true;
+                }
                 if (window.type.equals("SETTINGS") && inside(contentX, contentY + 105, Math.min(205, contentW), 51, mouseX, mouseY)) {
                     List<ResourceLocation> disks = physicalDisks();
                     int index = ((int) mouseY - (contentY + 105)) / 17;
@@ -2284,6 +2370,7 @@ public final class ComputerScreen extends Screen {
                     } else if (session.textListing) {
                         var files = ComputerFileSystemClientState.get(position).files();
                         int index = session.textPickerScroll + ((int) mouseY - (contentY + 62)) / 14;
+                        if (mouseY < contentY + 62 || mouseY >= contentY + contentH - 50) return true;
                         int textIndex = 0;
                         for (String file : files) {
                             String[] fields = file.split("\\t", 3);
@@ -2350,26 +2437,31 @@ public final class ComputerScreen extends Screen {
                         if (mouseY >= contentY + contentH - 48 && mouseY < contentY + contentH - 28) {
                             if (mouseX < contentX + 52 && session.antmailPage > 0) {
                                 session.antmailPage--;
+                                session.antmailListScroll = 0;
                                 requestAntmailState(true);
                             } else if (mouseX >= contentX + 142 && (session.antmailPage + 1) * AntmailMailbox.PAGE_SIZE < antmailTotal(result, session.antmailSent)) {
                                 session.antmailPage++;
+                                session.antmailListScroll = 0;
                                 requestAntmailState(true);
                             }
                             return true;
                         }
                         int index = ((int) mouseY - (contentY + 80)) / 14;
                         List<AntmailMessage> messages = mailboxMessages(result, session.antmailSent);
-                        if (index >= 0 && index < messages.size()) {
+                        index += session.antmailListScroll;
+                        if (mouseY >= contentY + 80 && index >= 0 && index < messages.size()) {
                             session.antmailPickingAttachment = false;
                             session.antmailMessageIndex = index;
                             session.antmailMode = "message";
+                            session.antmailDetailScroll = 0;
                             AntmailNetworking.requestMessage(position, messages.get(index).id());
                             if (!session.antmailSent) AntmailNetworking.markRead(position, messages.get(index).id());
                         }
                     } else if (session.antmailMode.equals("drafts")) {
                         int index = ((int) mouseY - (contentY + 80)) / 14;
+                        index += session.antmailListScroll;
                         AntmailMailbox mailbox = mailbox(result);
-                        if (mailbox != null && index >= 0 && index < mailbox.drafts().size()) {
+                        if (mailbox != null && mouseY >= contentY + 80 && index >= 0 && index < mailbox.drafts().size()) {
                             restoreDraft(mailbox.drafts().get(index));
                             session.antmailMode = "compose";
                             session.antmailFocused = true;
@@ -2392,6 +2484,7 @@ public final class ComputerScreen extends Screen {
                             if (message != null) AntmailNetworking.delete(position, message.id(), session.antmailSent);
                             session.antmailMode = session.antmailSent ? "sent" : "inbox";
                             session.antmailMessageIndex = -1;
+                            session.antmailDetailScroll = 0;
                             return true;
                         }
                         if (message != null && session.antmailAttachmentStartLine >= 0
@@ -2622,11 +2715,28 @@ public final class ComputerScreen extends Screen {
             return true;
         }
         if (activeWindow.type.equals("TEXT") && session.textListing) {
-            session.textPickerScroll = Math.max(0, session.textPickerScroll - (int) Math.signum(scrollY));
+            session.textPickerScroll = Math.max(0, Math.min(session.textPickerMaximumScroll,
+                    session.textPickerScroll - (int) Math.signum(scrollY)));
             return true;
         }
         if (activeWindow.type.equals("TEXT")) {
-            session.textScroll = Math.max(0, session.textScroll - (int) Math.signum(scrollY));
+            session.textScroll = Math.max(0, Math.min(session.textMaximumScroll,
+                    session.textScroll - (int) Math.signum(scrollY)));
+            return true;
+        }
+        if (activeWindow.type.equals("TERMINAL")) {
+            session.terminalScroll = Math.max(0, Math.min(session.terminalMaximumScroll,
+                    session.terminalScroll - (int) Math.signum(scrollY)));
+            return true;
+        }
+        if (activeWindow.type.equals("ANTMAIL")) {
+            if (session.antmailMode.equals("message")) {
+                session.antmailDetailScroll = Math.max(0, Math.min(session.antmailDetailMaximumScroll,
+                        session.antmailDetailScroll - (int) Math.signum(scrollY)));
+            } else if (session.antmailMode.equals("inbox") || session.antmailMode.equals("sent") || session.antmailMode.equals("drafts")) {
+                session.antmailListScroll = Math.max(0, Math.min(session.antmailListMaximumScroll,
+                        session.antmailListScroll - (int) Math.signum(scrollY)));
+            }
             return true;
         }
         if (activeWindow.type.equals("ARCHIVE")) {
@@ -3467,6 +3577,8 @@ public final class ComputerScreen extends Screen {
         private long lastUse;
         private final List<Window> windows = new ArrayList<>();
         private final List<String> terminalOutput = new ArrayList<>(List.of("ANTOS TERMINAL [READY]", "TYPE HELP FOR COMMANDS"));
+        private int terminalScroll;
+        private int terminalMaximumScroll;
         private String terminalInput = "";
         private String terminalDirectory = "/";
         private boolean terminalFocused;
@@ -3475,10 +3587,12 @@ public final class ComputerScreen extends Screen {
         private int textCursor;
         private int textSelectionStart = -1;
         private int textScroll;
+        private int textMaximumScroll;
         private boolean textDirty;
         private boolean textFocused;
         private boolean textListing;
         private int textPickerScroll;
+        private int textPickerMaximumScroll;
         private boolean textRenaming;
         private boolean textSaveAs;
         private String textSaveAsPendingPath = "";
@@ -3528,6 +3642,10 @@ public final class ComputerScreen extends Screen {
         private boolean antmailSent;
         private int antmailMessageIndex = -1;
         private int antmailPage;
+        private int antmailListScroll;
+        private int antmailListMaximumScroll;
+        private int antmailDetailScroll;
+        private int antmailDetailMaximumScroll;
         private int antmailAttachmentStartLine = -1;
         private int antmailVisibleAttachmentCount;
         private boolean antmailAttachText;
