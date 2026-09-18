@@ -4,6 +4,7 @@ import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.client.AntOSClientHooks;
 import com.craisinlord.antos.content.client.FloppyDiskModelProperties;
 import com.craisinlord.antos.content.client.screen.ComputerScreen;
+import com.craisinlord.antos.content.client.game.AntOSComputerGames;
 import com.craisinlord.antos.content.client.renderer.ComputerRenderer;
 import com.craisinlord.antos.content.client.renderer.RewardDropRenderer;
 import com.craisinlord.antos.content.network.AntmailNetworking;
@@ -25,6 +26,7 @@ public final class AntOSNeoForgeClient {
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
+            AntOSComputerGames.register();
             AntOSClientHooks.setComputerOpener(pos -> Minecraft.getInstance().setScreen(new ComputerScreen(pos)));
             FloppyDiskModelProperties.register(AntOSNeoForgeContent.FLOPPY_DISK.get());
             ComputerNetworking.setSender(PacketDistributor::sendToServer);

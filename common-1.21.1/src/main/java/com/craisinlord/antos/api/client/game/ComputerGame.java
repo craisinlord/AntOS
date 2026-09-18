@@ -10,8 +10,9 @@ public interface ComputerGame {
     /** Stable game ID, namespaced by the registering mod. */
     ResourceLocation id();
 
-    /** The AntOS floppy disk ID that installs this game. */
     ResourceLocation diskId();
+
+    default boolean includedByDefault() { return false; }
 
     /** Display name shown in the Games app. */
     String title();

@@ -4,6 +4,7 @@ import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.antmail.AntmailEventData;
 import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
+import com.craisinlord.antos.content.computer.blockle.BlockleAnswers;
 import com.craisinlord.antos.content.computer.TaskDebugCommands;
 import com.craisinlord.antos.content.network.FloppyTextureSync;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -32,6 +33,7 @@ public final class AntOSNeoForge {
     }
     private void registerReloadListeners(AddReloadListenerEvent event) {
         event.addListener(ComputerGuideData.instance());
+        event.addListener(BlockleAnswers.instance());
         event.addListener(AntmailEventData.instance());
     }
 

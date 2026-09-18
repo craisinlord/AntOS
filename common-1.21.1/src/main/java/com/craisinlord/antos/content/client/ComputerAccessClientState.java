@@ -13,6 +13,7 @@ public final class ComputerAccessClientState {
     }
 
     public static void update(ComputerAccessResultPayload result) {
+        com.craisinlord.antos.content.client.game.BlockleClientState.update(result);
         ComputerTasksClientState.update(result);
         ComputerStructureLocatorClientState.update(result);
         ComputerTerminalClientState.update(result);

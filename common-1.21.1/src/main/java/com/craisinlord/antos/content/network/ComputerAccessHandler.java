@@ -7,6 +7,10 @@ import com.craisinlord.antos.content.computer.terminal.TerminalFileSystem;
 import com.craisinlord.antos.content.computer.terminal.TerminalResult;
 import com.craisinlord.antos.content.antmail.AntmailWire;
 import com.craisinlord.antos.content.computer.ComputerWorkspaceData;
+import com.craisinlord.antos.content.computer.blockle.BlockleAnswers;
+import com.craisinlord.antos.content.computer.blockle.BlockleDictionary;
+import com.craisinlord.antos.content.computer.blockle.BlockleGame;
+import com.craisinlord.antos.content.computer.blockle.BlockleSavedData;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -68,8 +72,62 @@ public final class ComputerAccessHandler {
             case ComputerAccessPayload.LOCATE_STRUCTURE -> locateStructure(player, computer, payload);
             case ComputerAccessPayload.TASK_STATE -> taskState(player, computer, payload);
             case ComputerAccessPayload.ARCHIVE_VIEWED -> archiveViewed(player, computer, payload);
+            case ComputerAccessPayload.BLOCKLE_STATE -> blockle(player, computer, payload, false);
+            case ComputerAccessPayload.BLOCKLE_GUESS -> blockle(player, computer, payload, true);
             default -> send(player, payload, ComputerAccessResultPayload.INVALID);
         }
+    }
+
+    private static void blockle(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload, boolean submit) {
+        if (!computer.canUseFileSystem(player)) {
+            sendBlockle(player, payload, false, "unauthorized", "");
+            return;
+        }
+        ServerLevel overworld = player.server.getLevel(Level.OVERWORLD);
+        if (overworld == null) {
+            sendBlockle(player, payload, false, "overworld_unavailable", "");
+            return;
+        }
+        long day = overworld.getDayTime() / 24000L;
+        String key = player.serverLevel().dimension().location() + "|" + payload.pos().asLong();
+        BlockleSavedData.State state = BlockleSavedData.get(player.server, key);
+        if (state.day != day) {
+            state.day = day;
+            state.guesses.clear();
+            BlockleSavedData.changed(player.server);
+        }
+        BlockleAnswers.Answer answer = BlockleAnswers.answerForDay(day);
+        if (answer == null) {
+            sendBlockle(player, payload, false, "answers_unavailable", "");
+            return;
+        }
+        if (submit) {
+            String guess = payload.value().toLowerCase(java.util.Locale.ROOT);
+            if (guess.length() != 5 || !guess.chars().allMatch(value -> value >= 'a' && value <= 'z') || !BlockleDictionary.contains(guess)) {
+                sendBlockle(player, payload, false, "invalid_word", "");
+                return;
+            }
+            if (state.guesses.size() >= 6 || state.guesses.contains(answer.word())) {
+                sendBlockle(player, payload, false, "game_over", "");
+                return;
+            }
+            state.guesses.add(guess);
+            BlockleSavedData.changed(player.server);
+        }
+        StringBuilder encoded = new StringBuilder(Long.toString(day));
+        boolean solved = false;
+        for (String guess : state.guesses) {
+            encoded.append('|').append(guess).append(',').append(BlockleGame.evaluate(answer.word(), guess));
+            if (guess.equals(answer.word())) solved = true;
+        }
+        if (solved || state.guesses.size() >= 6) encoded.append('|').append(solved ? "SOLVED" : "FAILED").append('|').append(answer.word()).append('|').append(answer.itemId());
+        else encoded.append('|').append("PLAYING");
+        sendBlockle(player, payload, true, "", encoded.toString());
+    }
+
+    private static void sendBlockle(ServerPlayer player, ComputerAccessPayload payload, boolean success, String error, String data) {
+        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
+                true, true, payload.action() + "\0" + error + "\0" + data));
     }
 
     private static void taskState(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {

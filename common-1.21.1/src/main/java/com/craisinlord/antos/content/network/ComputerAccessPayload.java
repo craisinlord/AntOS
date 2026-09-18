@@ -29,6 +29,8 @@ public record ComputerAccessPayload(BlockPos pos, int action, String value) impl
     public static final int LOCATE_STRUCTURE = 21;
     public static final int TASK_STATE = 22;
     public static final int ARCHIVE_VIEWED = 23;
+    public static final int BLOCKLE_STATE = 24;
+    public static final int BLOCKLE_GUESS = 25;
     public static final Type<ComputerAccessPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "computer_access"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ComputerAccessPayload> STREAM_CODEC = StreamCodec.composite(
             BlockPos.STREAM_CODEC, ComputerAccessPayload::pos,

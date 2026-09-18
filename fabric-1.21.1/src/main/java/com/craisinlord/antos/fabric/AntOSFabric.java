@@ -4,6 +4,7 @@ import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.antmail.AntmailEventData;
 import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
+import com.craisinlord.antos.content.computer.blockle.BlockleAnswers;
 import com.craisinlord.antos.content.computer.TaskDebugCommands;
 import com.craisinlord.antos.content.network.FloppyTextureSync;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -28,6 +29,7 @@ public final class AntOSFabric implements ModInitializer {
         AntOSFabricNetworking.register();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TaskDebugCommands.register(dispatcher));
         registerReloadListener("computer_data", ComputerGuideData.instance());
+        registerReloadListener("blockle_answers", BlockleAnswers.instance());
         registerReloadListener("antmail_data", AntmailEventData.instance());
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             FloppyTextureSync.tick(server);

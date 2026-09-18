@@ -2020,7 +2020,7 @@ public final class ComputerScreen extends Screen {
     private List<ComputerGame> installedGames() {
         List<ResourceLocation> disks = physicalDisks();
         if (ComputerGuideData.unlockAllGameEntries()) return ComputerGameRegistry.all().stream().toList();
-        return ComputerGameRegistry.all().stream().filter(game -> disks.contains(game.diskId())).toList();
+        return ComputerGameRegistry.all().stream().filter(game -> game.includedByDefault() || game.diskId() != null && disks.contains(game.diskId())).toList();
     }
 
     private java.util.Optional<ComputerGame.Session> gameSession(Window window) {

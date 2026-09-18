@@ -4,6 +4,7 @@ import com.craisinlord.antos.content.client.AntOSClientHooks;
 import com.craisinlord.antos.content.client.FloppyDiskModelProperties;
 import com.craisinlord.antos.content.client.FloppyTextureClientState;
 import com.craisinlord.antos.content.client.screen.ComputerScreen;
+import com.craisinlord.antos.content.client.game.AntOSComputerGames;
 import com.craisinlord.antos.content.client.renderer.ComputerRenderer;
 import com.craisinlord.antos.content.client.renderer.RewardDropRenderer;
 import com.craisinlord.antos.content.network.FloppyTextureSyncPayload;
@@ -18,6 +19,7 @@ import net.minecraft.client.Minecraft;
 public final class AntOSFabricClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
         AntOSFabricClientNetworking.register();
+        AntOSComputerGames.register();
         ClientPlayNetworking.registerGlobalReceiver(FloppyTextureSyncPayload.TYPE,
                 (payload, context) -> context.client().execute(() -> FloppyTextureClientState.update(payload)));
         FloppyDiskModelProperties.register(AntOSFabricContent.FLOPPY_DISK);

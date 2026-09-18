@@ -94,8 +94,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     public static boolean unlockAllGameEntries() {
+        // Games are registered on the client, so a server-side false value must not
+        // suppress a local client's choice to expose all installed games.
         Boolean synced = serverUnlockAllGameEntries;
-        return synced != null ? synced : AntOSSettings.unlockAllGameEntries();
+        return AntOSSettings.unlockAllGameEntries() || Boolean.TRUE.equals(synced);
     }
 
     public static List<Entry> entriesFor(List<ResourceLocation> diskIds) {

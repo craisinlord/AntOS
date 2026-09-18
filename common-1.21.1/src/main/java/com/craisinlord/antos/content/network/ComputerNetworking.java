@@ -92,6 +92,14 @@ public final class ComputerNetworking {
     public static void recordArchiveViewed(BlockPos pos, ResourceLocation entryId) {
         sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ARCHIVE_VIEWED, entryId.toString()));
     }
+
+    public static void requestBlockleState(BlockPos pos) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.BLOCKLE_STATE));
+    }
+
+    public static void submitBlockleGuess(BlockPos pos, String guess) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.BLOCKLE_GUESS, guess));
+    }
 }
 
 
