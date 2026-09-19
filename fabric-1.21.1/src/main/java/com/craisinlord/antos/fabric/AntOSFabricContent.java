@@ -34,6 +34,9 @@ public final class AntOSFabricContent {
     private AntOSFabricContent() {}
 
     public static void register() {
+        if (COMPUTER != null) {
+            return;
+        }
         FLOPPY_DISK_COMPONENT = Registry.register(BuiltInRegistries.DATA_COMPONENT_TYPE,
                 id("floppy_disk"), DataComponentType.<ResourceLocation>builder()
                         .persistent(ResourceLocation.CODEC).networkSynchronized(ResourceLocation.STREAM_CODEC).build());

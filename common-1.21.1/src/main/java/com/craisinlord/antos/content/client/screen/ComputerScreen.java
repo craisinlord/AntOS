@@ -73,6 +73,7 @@ public final class ComputerScreen extends Screen {
     private static final int PALE_GREEN = 0xFFB8FFB8;
     private static final int DARK_GREEN = 0xFF102010;
     private static final int BLACK = 0xFF030603;
+    private static final int HOVER_FILL = 0xFF173817;
     private static final int TITLE_BAR_HEIGHT = 20;
     private static final int WINDOW_CONTROL_WIDTH = 18;
     private static final int WINDOW_CONTROL_COUNT = 3;
@@ -283,6 +284,8 @@ public final class ComputerScreen extends Screen {
         int top = -HEIGHT / 2;
         int localMouseX = (int) ((mouseX - width / 2.0F) / scale);
         int localMouseY = (int) ((mouseY - height / 2.0F) / scale);
+        session.mouseX = localMouseX;
+        session.mouseY = localMouseY;
         graphics.fill(left - 5, top - 5, left + WIDTH + 5, top + HEIGHT + 5, GREEN);
         graphics.fill(left, top, left + WIDTH, top + HEIGHT, BLACK);
         graphics.fill(left + 5, top + 5, left + WIDTH - 5, top + HEIGHT - 5, DARK_GREEN);
@@ -321,6 +324,7 @@ public final class ComputerScreen extends Screen {
         box(g, formX, t + 150, formRight, t + 173, GREEN);
         String passwordText = "*".repeat((confirmingPassword ? confirmation : password).length());
         g.drawString(font, Component.literal(passwordText + (caretVisible() ? "|" : "")), formX + 6, t + 157, GREEN, false);
+        if (hovered(formX, t + 181, setup ? 150 : 100, 24)) drawHover(g, formX, t + 181, setup ? 150 : 100, 24);
         g.drawString(font, Component.literal(setup ? (confirmingPassword ? "[ ENTER ] CONFIRM" : "[ ENTER ] CONTINUE") : "[ ENTER ] LOGIN"), formX, t + 187, GREEN, false);
         if (recovery) {
             g.drawString(font, Component.literal("BACKUP FOUND // TASKS + ARCHIVE"), formX, t + 207, PALE_GREEN, false);
@@ -328,6 +332,8 @@ public final class ComputerScreen extends Screen {
             int buttonWidth = (formRight - formX - 8) / 2;
             int restoreColor = restoreWorkspace ? GREEN : 0xFF397039;
             int freshColor = restoreWorkspace ? 0xFF397039 : GREEN;
+            if (hovered(formX, buttonY, buttonWidth, 22)) drawHover(g, formX, buttonY, buttonWidth, 22);
+            if (hovered(formX + buttonWidth + 8, buttonY, formRight - formX - buttonWidth - 8, 22)) drawHover(g, formX + buttonWidth + 8, buttonY, formRight - formX - buttonWidth - 8, 22);
             box(g, formX, buttonY, formX + buttonWidth, buttonY + 22, restoreColor);
             box(g, formX + buttonWidth + 8, buttonY, formRight, buttonY + 22, freshColor);
             g.drawCenteredString(font, Component.literal("[ RESTORE ]"), formX + buttonWidth / 2, buttonY + 7, restoreColor);
@@ -361,7 +367,7 @@ public final class ComputerScreen extends Screen {
             int x = l + 24 + i % 4 * 94;
             int y = t + 48 + i / 4 * 76;
             boolean hover = inside(x - 6, y - 6, 76, 57, mouseX, mouseY);
-            if (hover) g.fill(x - 7, y - 7, x + 69, y + 51, 0xFF173817);
+            if (hover) drawHover(g, x - 7, y - 7, 76, 58);
             icon(g, app, x + 25, y + 2);
             if (app.equals("ANTMAIL") && antmailHasUnreadMessages()) drawNotificationBadge(g, x + 35, y + 6);
             g.drawString(font, Component.literal(app), x, y + 35, GREEN, false);
@@ -659,6 +665,11 @@ public final class ComputerScreen extends Screen {
         g.fill(controlsLeft, y, controlsLeft + 1, y + TITLE_BAR_HEIGHT, GREEN);
         g.fill(controlsLeft + WINDOW_CONTROL_WIDTH, y, controlsLeft + WINDOW_CONTROL_WIDTH + 1, y + TITLE_BAR_HEIGHT, GREEN);
         g.fill(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, controlsLeft + WINDOW_CONTROL_WIDTH * 2 + 1, y + TITLE_BAR_HEIGHT, GREEN);
+        for (int control = 0; control < WINDOW_CONTROL_COUNT; control++) {
+            if (hovered(controlsLeft + control * WINDOW_CONTROL_WIDTH, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT)) {
+                g.fill(controlsLeft + control * WINDOW_CONTROL_WIDTH, y, controlsLeft + (control + 1) * WINDOW_CONTROL_WIDTH, y + TITLE_BAR_HEIGHT, HOVER_FILL);
+            }
+        }
         g.drawCenteredString(font, Component.literal("_"), controlsLeft + WINDOW_CONTROL_WIDTH / 2, y + 5, PALE_GREEN);
         g.drawCenteredString(font, Component.literal(window.maximized ? "❐" : "□"), controlsLeft + WINDOW_CONTROL_WIDTH + WINDOW_CONTROL_WIDTH / 2, y + 5, PALE_GREEN);
         g.drawCenteredString(font, Component.literal("X"), controlsLeft + WINDOW_CONTROL_WIDTH * 2 + WINDOW_CONTROL_WIDTH / 2, y + 6, GREEN);
@@ -716,7 +727,7 @@ public final class ComputerScreen extends Screen {
         for (int categoryIndex = taskCategoryScroll; categoryIndex < categories.size() && categoryIndex < taskCategoryScroll + categoriesVisible; categoryIndex++) {
             String category = categories.get(categoryIndex);
             boolean selected = category.equals(selectedTaskCategory);
-            if (selected) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY + 14, 0xFF173817);
+            if (selected || hovered(x + 2, categoryY - 2, sidebarWidth - 4, 16)) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY + 14, HOVER_FILL);
             String label = Component.translatable(categoryTitleKey(category)).getString();
             g.drawString(font, Component.literal(trimToWidth(label.toUpperCase(Locale.ROOT), sidebarWidth - 12)), x + 6, categoryY, selected ? GREEN : 0xFF87B787, false);
             categoryY += 19;
@@ -773,6 +784,7 @@ public final class ComputerScreen extends Screen {
 
     private void renderTaskDetail(GuiGraphics g, com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task,
                                   int x, int y, int w, int h, Set<ResourceLocation> unlockedArchiveIds) {
+        if (hovered(x - 2, y, 100, 16)) drawHover(g, x - 2, y, 100, 16);
         g.drawString(font, Component.literal("< FIELD MAP"), x, y + 3, GREEN, false);
         g.fill(x, y + 17, x + w, y + 19, GREEN);
         int line = y + 25 - taskDetailScroll;
@@ -809,7 +821,10 @@ public final class ComputerScreen extends Screen {
             String label = entry == null ? archiveId.toString() : Component.translatable(entry.titleKey()).getString();
             int buttonY = line - 2;
             boolean unlocked = unlockedArchiveIds.contains(archiveId);
-            if (unlocked) taskArchiveButtons.add(new TaskArchiveButton(archiveId, x + 1, buttonY, x + w - 1, buttonY + 13));
+            if (unlocked) {
+                taskArchiveButtons.add(new TaskArchiveButton(archiveId, x + 1, buttonY, x + w - 1, buttonY + 13));
+                if (hovered(x + 1, buttonY, w - 2, 13)) drawHover(g, x + 1, buttonY, w - 2, 13);
+            }
             line = wrap(g, (unlocked ? "ARCHIVE // " : "ARCHIVE LOCKED // ") + label,
                     x + 2, line, w - 4, unlocked ? PALE_GREEN : 0xFF638063) + 2;
         }
@@ -883,6 +898,9 @@ public final class ComputerScreen extends Screen {
     private void renderTaskNode(GuiGraphics g, TaskNode node) {
         var task = node.task();
         int border = task.complete() ? PALE_GREEN : task.available() ? GREEN : 0xFF476047;
+        if (task.available() && hovered(node.left(), node.top(), node.right() - node.left(), node.bottom() - node.top())) {
+            g.fill(node.left() - 2, node.top() - 2, node.right() + 2, node.bottom() + 2, GREEN);
+        }
         g.fill(node.left(), node.top(), node.right(), node.bottom(), border);
         g.fill(node.left() + 2, node.top() + 2, node.right() - 2, node.bottom() - 2, task.available() ? 0xFF0B180B : 0xFF080D08);
         g.drawString(font, Component.literal(trimToWidth(Component.translatable(task.title()).getString(), 68)), node.left() + 5, node.top() + 7,
@@ -1006,7 +1024,7 @@ public final class ComputerScreen extends Screen {
                 int textX = maximized ? cellX + 3 : cellX + thumbnailSize + 10;
                 int textY = maximized ? rowTop + thumbnailSize + 5 : rowTop + 7;
                 boolean hover = inside(cellX, rowTop, cellWidth - 2, cellHeight - 2, session.archiveMouseX, session.archiveMouseY);
-                if (hover) g.fill(cellX, rowTop, cellX + cellWidth - 2, rowTop + cellHeight - 2, 0xFF173817);
+            if (hover) drawHover(g, cellX, rowTop, cellWidth - 2, cellHeight - 2);
                 g.fill(thumbX, thumbY, thumbX + thumbnailSize, thumbY + thumbnailSize, BLACK);
                 renderThumbnail(g, entry, thumbX + thumbnailSize / 2, thumbY + thumbnailSize / 2, hover, thumbnailSize);
                 int textWidth = maximized ? cellWidth - 8 : cellWidth - thumbnailSize - 12;
@@ -1281,6 +1299,7 @@ public final class ComputerScreen extends Screen {
     private void renderFileExplorer(GuiGraphics g, int x, int y, int w, int h) {
         var files = ComputerFileSystemClientState.get(position).files();
         g.drawString(font, Component.literal("FILE EXPLORER // " + trimToWidth(session.fileExplorerDirectory, w - 4)), x, y, GREEN, false);
+        if (!session.fileExplorerDirectory.equals("/") && hovered(x + w - 44, y - 3, 44, 16)) drawHover(g, x + w - 44, y - 3, 44, 16);
         if (!session.fileExplorerDirectory.equals("/")) g.drawString(font, Component.literal("[ UP ]"), x + w - 40, y, GREEN, false);
         g.drawString(font, Component.literal("TYPE                 PATH             SIZE"), x, y + 18, PALE_GREEN, false);
         int line = y + 34;
@@ -1290,7 +1309,8 @@ public final class ComputerScreen extends Screen {
             if (fields.length < 3 || !isDirectChild(fields[1], session.fileExplorerDirectory)) continue;
             if (fileIndex++ < session.fileExplorerScroll || line > y + h - 32) continue;
             boolean selected = fields[1].equals(session.fileExplorerSelected);
-            if (selected) g.fill(x - 3, line - 2, x + w - 3, line + 11, 0xFF173817);
+            boolean hover = hovered(x - 3, line - 2, w, 14);
+            if (selected || hover) g.fill(x - 3, line - 2, x + w - 3, line + 11, selected ? HOVER_FILL : HOVER_FILL);
             g.drawString(font, Component.literal(fileIcon(fields[0]) + " " + trimToWidth(fields[0], 30)), x, line, PALE_GREEN, false);
             g.drawString(font, Component.literal(trimToWidth(fields[1], 112)), x + 42, line, GREEN, false);
             g.drawString(font, Component.literal(trimToWidth(fields[2], 28)), x + w - 28, line, PALE_GREEN, false);
@@ -1340,6 +1360,7 @@ public final class ComputerScreen extends Screen {
         g.drawString(font, Component.literal("SYSTEM STATUS"), x, y, GREEN, false);
         g.drawString(font, Component.literal("CPU  " + (System.currentTimeMillis() / 100 % 87 + 12) + "%"), x, y + 18, PALE_GREEN, false);
         g.drawString(font, Component.literal("MEM  " + (System.currentTimeMillis() / 250 % 42 + 31) + "%"), x, y + 32, PALE_GREEN, false);
+        if (hovered(x, y + 40, Math.min(214, 208), 22)) drawHover(g, x, y + 40, Math.min(214, 208), 22);
         g.drawString(font, Component.literal(trimToWidth("WALLPAPER  " + wallpaperName() + "  [ CHANGE ]", 208)), x, y + 46, PALE_GREEN, false);
         g.drawString(font, Component.literal("PASSWORD  CHANGE IN FULL BUILD"), x, y + 60, GREEN, false);
         g.drawString(font, Component.literal("PHYSICAL DISKS"), x, y + 91, GREEN, false);
@@ -1350,9 +1371,10 @@ public final class ComputerScreen extends Screen {
             for (int i = 0; i < disks.size() && i < 3; i++) {
                 ResourceLocation disk = disks.get(i);
                 boolean active = disk.equals(selectedDisk);
-                if (active) g.fill(x - 3, y + 105 + i * 17, x + 205, y + 120 + i * 17, 0xFF173817);
-                g.drawString(font, Component.literal(trimToWidth(disk.toString(), 202)), x, y + 108 + i * 17, active ? GREEN : PALE_GREEN, false);
-            }
+            if (active || hovered(x - 3, y + 105 + i * 17, 208, 15)) g.fill(x - 3, y + 105 + i * 17, x + 205, y + 120 + i * 17, HOVER_FILL);
+            g.drawString(font, Component.literal(trimToWidth(disk.toString(), 202)), x, y + 108 + i * 17, active || hovered(x - 3, y + 105 + i * 17, 208, 15) ? GREEN : PALE_GREEN, false);
+        }
+            if (selectedDisk != null && hovered(x, y + 156, Math.min(205, 208), 20)) drawHover(g, x, y + 156, Math.min(205, 208), 20);
             g.drawString(font, Component.literal("[ EJECT SELECTED ]"), x, y + 162, selectedDisk == null ? 0xFF4A754A : GREEN, false);
         }
         g.drawString(font, Component.literal("LOG OUT"), x, y + 74, GREEN, false);
@@ -1368,7 +1390,7 @@ public final class ComputerScreen extends Screen {
             ComputerGuideData.Wallpaper wallpaper = available.get(session.wallpaperScroll + row);
             int rowY = y + 18 + row * 38;
             boolean selected = wallpaper.id().toString().equals(session.wallpaperId);
-            if (selected) g.fill(x, rowY - 2, x + 214, rowY + 34, 0xFF173817);
+            if (selected || hovered(x, rowY - 2, 214, 36)) g.fill(x, rowY - 2, x + 214, rowY + 34, HOVER_FILL);
             box(g, x, rowY - 2, x + 214, rowY + 34, selected ? PALE_GREEN : GREEN);
             drawWallpaperPreview(g, x + 5, rowY + 3, 48, 26, wallpaper.id().toString());
             String name = Component.translatable(wallpaper.titleKey()).getString();
@@ -1468,10 +1490,12 @@ public final class ComputerScreen extends Screen {
     private void renderPaintToolbar(GuiGraphics g, int x, int y) {
         for (int index = 0; index < 7; index++) {
             int buttonX = x + index * 28;
+            boolean hover = hovered(buttonX, y + 11, 22, 17);
+            if (hover) drawHover(g, buttonX, y + 11, 22, 17);
             if (index < 3 && ((index == 0 && session.paintTool == AntPaintTool.PENCIL)
                     || (index == 1 && session.paintTool == AntPaintTool.ERASER)
                     || (index == 2 && session.paintTool == AntPaintTool.FILL))) {
-                box(g, buttonX, y + 11, buttonX + 22, y + 28, GREEN);
+                box(g, buttonX, y + 11, buttonX + 22, y + 28, PALE_GREEN);
             }
             paintToolbarIcon(g, index, buttonX + 11, y + 19);
         }
@@ -1801,6 +1825,7 @@ public final class ComputerScreen extends Screen {
         session.textJustSavedAs = false;
         String editorTitle = session.textRenaming ? "RENAME // " + session.textRename + "_" : "ANTTEXT // " + session.textPath + (session.textDirty ? " *" : "");
         g.drawString(font, Component.literal(trimToWidth(editorTitle, Math.max(1, w - 104))), x, y, GREEN, false);
+        if (hovered(x, y + 12, Math.min(w, 210), 26)) drawHover(g, x, y + 12, Math.min(w, 210), 26);
         g.drawString(font, Component.literal(trimToWidth("NEW   OPEN   WRITE   SAVE   AS", w)), x, y + 18, PALE_GREEN, false);
         if (fileState.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_CREATE
                 || fileState.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_SAVE
@@ -1881,6 +1906,10 @@ public final class ComputerScreen extends Screen {
             g.drawString(font, Component.literal("[ ENTER ] REGISTER ADDRESS"), x, y + 88, GREEN, false);
         } else {
             g.drawString(font, Component.literal(trimToWidth(result.address(), 208)), x, y + 20, PALE_GREEN, false);
+            if (hovered(x, y + 30, 54, 24)) drawHover(g, x, y + 30, 54, 24);
+            if (hovered(x + 54, y + 30, 46, 24)) drawHover(g, x + 54, y + 30, 46, 24);
+            if (hovered(x + 100, y + 30, 54, 24)) drawHover(g, x + 100, y + 30, 54, 24);
+            if (hovered(x + 158, y + 30, 56, 24)) drawHover(g, x + 158, y + 30, 56, 24);
             if (session.antmailMode.equals("inbox")) box(g, x, y + 30, x + 54, y + 53, PALE_GREEN);
             if (session.antmailMode.equals("sent")) box(g, x + 54, y + 30, x + 100, y + 53, PALE_GREEN);
             if (session.antmailMode.equals("drafts")) box(g, x + 100, y + 30, x + 154, y + 53, PALE_GREEN);
@@ -2074,7 +2103,7 @@ public final class ComputerScreen extends Screen {
         List<ComputerGame> games = installedGames();
         for (int index = 0; index < games.size(); index++) {
             int rowTop = y + 18 + index * 16;
-            if (inside(x - 4, rowTop, 218, 16, mouseX, mouseY)) box(g, x - 4, rowTop, x + 214, rowTop + 16, GREEN);
+            if (inside(x - 4, rowTop, 218, 16, mouseX, mouseY)) drawHover(g, x - 4, rowTop, 218, 16);
             g.drawString(font, Component.literal(games.get(index).title() + "  [ ENTER ]"), x, y + 22 + index * 16, PALE_GREEN, false);
         }
         if (games.isEmpty()) {
@@ -2132,6 +2161,15 @@ public final class ComputerScreen extends Screen {
         g.fill(x1, y2 - 2, x2, y2, color);
         g.fill(x1, y1, x1 + 2, y2, color);
         g.fill(x2 - 2, y1, x2, y2, color);
+    }
+
+    private boolean hovered(int x, int y, int width, int height) {
+        return inside(x, y, width, height, session.mouseX, session.mouseY);
+    }
+
+    private void drawHover(GuiGraphics g, int x, int y, int width, int height) {
+        g.fill(x, y, x + width, y + height, HOVER_FILL);
+        box(g, x, y, x + width, y + height, GREEN);
     }
 
     @Override
