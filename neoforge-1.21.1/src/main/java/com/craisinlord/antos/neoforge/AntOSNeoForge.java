@@ -3,6 +3,7 @@ package com.craisinlord.antos.neoforge;
 import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.antmail.AntmailEventData;
 import com.craisinlord.antos.content.antmail.AntmailServerData;
+import com.craisinlord.antos.content.antazon.AntazonData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.computer.blockle.BlockleAnswers;
 import com.craisinlord.antos.content.computer.TaskDebugCommands;
@@ -35,6 +36,7 @@ public final class AntOSNeoForge {
         event.addListener(ComputerGuideData.instance());
         event.addListener(BlockleAnswers.instance());
         event.addListener(AntmailEventData.instance());
+        event.addListener(AntazonData.instance());
     }
 
     private void onServerTick(ServerTickEvent.Post event) {

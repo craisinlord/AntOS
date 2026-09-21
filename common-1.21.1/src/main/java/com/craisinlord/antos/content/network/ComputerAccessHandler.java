@@ -11,6 +11,8 @@ import com.craisinlord.antos.content.computer.blockle.BlockleAnswers;
 import com.craisinlord.antos.content.computer.blockle.BlockleDictionary;
 import com.craisinlord.antos.content.computer.blockle.BlockleGame;
 import com.craisinlord.antos.content.computer.blockle.BlockleSavedData;
+import com.craisinlord.antos.content.antazon.AntazonData;
+import com.craisinlord.antos.content.antazon.AntazonService;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -74,6 +76,11 @@ public final class ComputerAccessHandler {
             case ComputerAccessPayload.ARCHIVE_VIEWED -> archiveViewed(player, computer, payload);
             case ComputerAccessPayload.BLOCKLE_STATE -> blockle(player, computer, payload, false);
             case ComputerAccessPayload.BLOCKLE_GUESS -> blockle(player, computer, payload, true);
+            case ComputerAccessPayload.ANTAZON_STATE -> antazonState(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_PURCHASE -> antazonPurchase(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_WISHLIST -> antazonWishlist(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_ORDERS -> antazonOrders(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_REVIEW -> antazonReview(player, computer, payload);
             default -> send(player, payload, ComputerAccessResultPayload.INVALID);
         }
     }
@@ -123,6 +130,148 @@ public final class ComputerAccessHandler {
         if (solved || state.guesses.size() >= 6) encoded.append('|').append(solved ? "SOLVED" : "FAILED").append('|').append(answer.word()).append('|').append(answer.itemId());
         else encoded.append('|').append("PLAYING");
         sendBlockle(player, payload, true, "", encoded.toString());
+    }
+
+    private static void antazonState(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        com.google.gson.JsonArray products = new com.google.gson.JsonArray();
+        for (AntazonData.Product product : AntazonData.products()) {
+            com.google.gson.JsonObject row = new com.google.gson.JsonObject();
+            row.addProperty("id", product.id().toString());
+            row.addProperty("name", product.name());
+            row.addProperty("description", product.description());
+            row.addProperty("category", product.category());
+            row.addProperty("enabled", product.enabled());
+            row.addProperty("stock", product.availability().serverStock());
+            row.addProperty("restock_days", product.availability().restockMinecraftDays());
+            long day = player.server.overworld().getDayTime() / 24000L;
+            row.addProperty("deal_active", product.deal().active(day));
+            row.addProperty("deal_label", product.deal().label());
+            row.addProperty("deal_discount", product.deal().discountPercent());
+            com.google.gson.JsonObject thumbnail = new com.google.gson.JsonObject();
+            thumbnail.addProperty("item", product.thumbnail().item());
+            thumbnail.addProperty("entity", product.thumbnail().entity());
+            row.add("thumbnail", thumbnail);
+            com.google.gson.JsonArray gallery = new com.google.gson.JsonArray();
+            for (AntazonData.PreviewAsset asset : product.gallery()) {
+                com.google.gson.JsonObject galleryAsset = new com.google.gson.JsonObject();
+                galleryAsset.addProperty("item", asset.item());
+                galleryAsset.addProperty("entity", asset.entity());
+                gallery.add(galleryAsset);
+            }
+            row.add("gallery", gallery);
+            row.addProperty("quantity", product.quantity());
+            com.google.gson.JsonArray payments = new com.google.gson.JsonArray();
+            for (AntazonData.Payment payment : product.payments()) {
+                com.google.gson.JsonObject paymentRow = new com.google.gson.JsonObject();
+                paymentRow.addProperty("type", payment.type());
+                paymentRow.addProperty("resource", payment.resource());
+                paymentRow.addProperty("amount", payment.amount());
+                payments.add(paymentRow);
+            }
+            row.add("payments", payments);
+            com.google.gson.JsonArray reviews = new com.google.gson.JsonArray();
+            for (AntazonData.Review review : product.reviews()) {
+                com.google.gson.JsonObject reviewRow = new com.google.gson.JsonObject();
+                reviewRow.addProperty("author", review.author());
+                reviewRow.addProperty("title", review.title());
+                reviewRow.addProperty("body", review.body());
+                reviewRow.addProperty("rating", review.rating());
+                reviewRow.addProperty("badge", review.badge());
+                reviews.add(reviewRow);
+            }
+            for (var review : com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).reviews(product.id())) {
+                com.google.gson.JsonObject reviewRow = new com.google.gson.JsonObject();
+                reviewRow.addProperty("author", "Player " + review.player().toString().substring(0, 8));
+                reviewRow.addProperty("title", review.title());
+                reviewRow.addProperty("body", review.body());
+                reviewRow.addProperty("rating", review.rating());
+                reviewRow.addProperty("badge", "VERIFIED PURCHASE");
+                reviews.add(reviewRow);
+            }
+            row.add("reviews", reviews);
+            products.add(row);
+        }
+        sendAntazon(player, payload, true, "", products.toString());
+    }
+
+    private static void antazonPurchase(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        String[] request = payload.value().split("\u0000", 3);
+        if (request.length != 3) {
+            sendAntazon(player, payload, false, "invalid_request", "");
+            return;
+        }
+        try {
+            ResourceLocation productId = ResourceLocation.parse(request[0]);
+            int units = Integer.parseInt(request[2]);
+            AntazonService.PurchaseResult result = AntazonService.purchase(player, computer, productId, request[1], units);
+            sendAntazon(player, payload, result.success(), result.status(), result.orderId() == null ? "" : result.orderId() + "\0" + result.units());
+        } catch (RuntimeException exception) {
+            sendAntazon(player, payload, false, "invalid_request", "");
+        }
+    }
+
+    private static void sendAntazon(ServerPlayer player, ComputerAccessPayload payload, boolean success, String error, String data) {
+        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
+                true, true, payload.action() + "\0" + error + "\0" + data));
+    }
+
+    private static void antazonWishlist(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        try {
+            if (!payload.value().isBlank()) AntazonService.toggleWishlist(player, ResourceLocation.parse(payload.value()));
+            com.google.gson.JsonArray ids = new com.google.gson.JsonArray();
+            for (ResourceLocation id : com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).wishlist(player.getUUID())) ids.add(id.toString());
+            sendAntazon(player, payload, true, "", ids.toString());
+        } catch (RuntimeException exception) {
+            sendAntazon(player, payload, false, "invalid_request", "");
+        }
+    }
+
+    private static void antazonOrders(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        com.google.gson.JsonArray orders = new com.google.gson.JsonArray();
+        for (var order : com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).orders(player.getUUID())) {
+            com.google.gson.JsonObject row = new com.google.gson.JsonObject();
+            row.addProperty("product", order.product().toString());
+            row.addProperty("option", order.option());
+            row.addProperty("units", order.units());
+            row.addProperty("game_time", order.gameTime());
+            row.addProperty("status", order.status());
+            orders.add(row);
+        }
+        sendAntazon(player, payload, true, "", orders.toString());
+    }
+
+    private static void antazonReview(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        String[] request = payload.value().split("\u0000", 4);
+        if (request.length != 4) {
+            sendAntazon(player, payload, false, "invalid_request", "");
+            return;
+        }
+        try {
+            var result = AntazonService.submitReview(player, ResourceLocation.parse(request[0]), Integer.parseInt(request[1]), request[2], request[3]);
+            sendAntazon(player, payload, result.success(), result.status(), "");
+        } catch (RuntimeException exception) {
+            sendAntazon(player, payload, false, "invalid_request", "");
+        }
     }
 
     private static void sendBlockle(ServerPlayer player, ComputerAccessPayload payload, boolean success, String error, String data) {

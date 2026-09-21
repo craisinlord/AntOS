@@ -1,6 +1,6 @@
 # AntOS
 
-AntOS adds an ant-themed computer to Minecraft 1.21.1. Its desktop includes an Archive, file tools, a terminal, Antmail, games, paint, and a Tasks app. Floppy disks unlock Archive entries, wallpapers, tasks, and games. Modpack authors can add their own content with data packs or resource packs.
+AntOS adds an ant-themed computer to Minecraft 1.21.1. Its desktop includes an Archive, file tools, a terminal, Antmail, Antazon, games, paint, and a Tasks app. Floppy disks unlock Archive entries, wallpapers, tasks, and games. Modpack authors can add their own content with data packs or resource packs.
 
 ## For players
 
@@ -32,6 +32,7 @@ On first launch AntOS creates `config/antos.json`. Restart the game or server af
     "textEditor": true,
     "paint": true,
     "antmail": true,
+    "antazon": true,
     "games": true,
     "trash": true,
     "tasks": true
@@ -40,6 +41,62 @@ On first launch AntOS creates `config/antos.json`. Restart the game or server af
 ```
 
 Set either `unlockAllArchiveEntries` or `unlockAllGameEntries` to `true` to unlock all loaded entries or registered games without their disks. Disable individual desktop apps by setting their values to `false`.
+
+### Antazon
+
+Antazon is the in-game nest supply shop. It supports catalog browsing, product pages, quantity purchases, multiple item payment options, task-based unlocks, shared server stock, Minecraft-time restocking, player limits, cooldowns, seeded reviews, verified player reviews, daily deals, a shopping cart, persistent server wishlists, order history, and Archive-style item or mob previews. Successful purchases arrive through the existing falling chest delivery system. Purchases are final and are not refundable.
+
+The bundled catalog includes daily rations, a limited cavern lighting kit, a weekly royal nest upgrade, and the example datapack's task-unlocked research crate so the main purchase, restock, cooldown, limit, deal, review, and task-unlock paths can be tested.
+
+Add products at `data/<namespace>/antazon/product/<path>.json`; the product ID is `<namespace>:<path>`. Product data is loaded during server data reloads. The product must define `quantity`, at least one payment, and one reward. Optional `thumbnail` and `gallery` objects use `{ "item": "namespace:item" }` or `{ "entity": "namespace:entity" }` and control the catalog thumbnail and product-page previews.
+
+```json
+{
+  "name": "Reinforced Nest Bundle",
+  "description": "A supply bundle for expanding a busy nest.",
+  "category": "building_supplies",
+  "tags": ["building", "starter"],
+  "quantity": 1,
+  "payments": [
+    { "type": "item", "resource": "minecraft:emerald", "amount": 8 },
+    { "type": "item", "resource": "minecraft:diamond", "amount": 1 }
+  ],
+  "unlock_tasks": ["examplemod:field_basics"],
+  "unlock_mode": "all",
+  "availability": {
+    "server_stock": 20,
+    "restock_after_minecraft_days": 3,
+    "cooldown_minecraft_days": 1,
+    "player_limit": 2,
+    "player_limit_reset": "minecraft_week"
+  },
+  "delivery": "falling_chest",
+  "rewards": [
+    { "item": "minecraft:iron_ingot", "count": 16 },
+    { "item": "minecraft:oak_planks", "count": 32 }
+  ],
+  "reviews": [
+    {
+      "id": "queen_ant_001",
+      "author": "Queen Ant",
+      "title": "Reliable starter supplies",
+      "body": "Arrived quickly and held up through the first expansion.",
+      "rating": 5,
+      "badge": "NEST VERIFIED"
+    }
+  ],
+  "deal": {
+    "enabled": true,
+    "label": "NEST DEAL",
+    "discount_percent": 20,
+    "cycle_minecraft_days": 1
+  }
+}
+```
+
+Payment choices are tried in data-file order, and the first affordable option is used. Current payment support is item-based. Each product has one purchase definition: `quantity` controls how many reward sets arrive, and `payments` lists the accepted payment choices. `rewards` defines the contents of one reward set. `server_stock` is shared by the server; set it to `0` for unlimited stock. `player_limit_reset` accepts `none`, `minecraft_day`, or `minecraft_week`.
+
+Products can reference any loaded task IDs with `unlock_tasks`. Use `unlock_mode` of `all` or `any`. Daily deals use Minecraft days and apply their discount on the server during active cycle days. Reviews in product data are configured shop reviews; players can add one verified review after a delivered purchase. Wishlists and order history are saved on the shared server. AntMail can compose product links and wishlist messages from Antazon, and recipients can open shared product links directly in the shop.
 
 ## For modpack developers
 

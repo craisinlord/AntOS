@@ -100,6 +100,32 @@ public final class ComputerNetworking {
     public static void submitBlockleGuess(BlockPos pos, String guess) {
         sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.BLOCKLE_GUESS, guess));
     }
+
+    public static void requestAntazon(BlockPos pos) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_STATE));
+    }
+
+    public static void purchaseAntazon(BlockPos pos, ResourceLocation productId, String optionId, int units) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_PURCHASE,
+                productId + "\0" + optionId + "\0" + units));
+    }
+
+    public static void toggleAntazonWishlist(BlockPos pos, ResourceLocation productId) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_WISHLIST, productId.toString()));
+    }
+
+    public static void requestAntazonWishlist(BlockPos pos) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_WISHLIST, ""));
+    }
+
+    public static void requestAntazonOrders(BlockPos pos) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_ORDERS));
+    }
+
+    public static void reviewAntazonProduct(BlockPos pos, ResourceLocation productId, int rating, String title, String body) {
+        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_REVIEW,
+                productId + "\0" + rating + "\0" + title + "\0" + body));
+    }
 }
 
 

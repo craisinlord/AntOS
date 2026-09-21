@@ -12,6 +12,10 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class RewardDropEntity extends Entity {
+    private static final double SPAWN_HEIGHT = 64.0D;
     private static final String REWARDS_TAG = "Rewards";
     private static final String RECIPIENT_TAG = "Recipient";
     private static final int MAX_REWARD_STACKS = 108;
@@ -28,6 +33,14 @@ public final class RewardDropEntity extends Entity {
 
     public RewardDropEntity(EntityType<? extends RewardDropEntity> type, Level level) {
         super(type, level);
+    }
+
+    public static double spawnHeight(Level level, net.minecraft.core.BlockPos landing) {
+        return Math.min(landing.getY() + SPAWN_HEIGHT, level.getMaxBuildHeight() - 2.0D);
+    }
+
+    public static void announceIncoming(ServerPlayer recipient) {
+        recipient.sendSystemMessage(Component.literal("Antazon delivery incoming!").withStyle(ChatFormatting.GOLD));
     }
 
     public void setRewards(List<ItemStack> stacks, ServerPlayer recipient) {
@@ -53,6 +66,10 @@ public final class RewardDropEntity extends Entity {
         Vec3 velocity = getDeltaMovement();
         setDeltaMovement(velocity.x * 0.98D, Math.max(-0.9D, velocity.y - 0.04D), velocity.z * 0.98D);
         move(MoverType.SELF, getDeltaMovement());
+        if (tickCount % 8 == 0 && getDeltaMovement().y < 0.0D) {
+            ((ServerLevel) level()).playSound(null, blockPosition(), SoundEvents.ELYTRA_FLYING,
+                    SoundSource.NEUTRAL, 0.75F, 0.9F + random.nextFloat() * 0.2F);
+        }
         if (onGround() || tickCount > 200) impactServer();
     }
 
@@ -60,6 +77,8 @@ public final class RewardDropEntity extends Entity {
         if (impacted || !(level() instanceof ServerLevel serverLevel)) return;
         impacted = true;
         serverLevel.broadcastEntityEvent(this, (byte) 60);
+        serverLevel.playSound(null, blockPosition(), SoundEvents.CHEST_CLOSE,
+                SoundSource.BLOCKS, 1.0F, 0.7F + random.nextFloat() * 0.15F);
         serverLevel.playSound(null, blockPosition(), net.minecraft.sounds.SoundEvents.WOOD_BREAK,
                 net.minecraft.sounds.SoundSource.BLOCKS, 0.8F, 0.85F + random.nextFloat() * 0.25F);
         for (ItemStack stack : rewards) {

@@ -17,6 +17,7 @@ public final class ComputerAccessClientState {
         ComputerTasksClientState.update(result);
         ComputerStructureLocatorClientState.update(result);
         ComputerTerminalClientState.update(result);
+        AntazonClientState.update(result);
         if (result.data().startsWith(com.craisinlord.antos.content.network.ComputerAccessPayload.ARCHIVE_STATE + "\0")) {
             String[] envelope = result.data().split("\u0000", 3);
             if (envelope.length == 3) {
@@ -34,6 +35,7 @@ public final class ComputerAccessClientState {
         ComputerTasksClientState.clear(pos);
         ComputerArchiveUnlockClientState.clear(pos);
         ComputerTerminalClientState.clear(pos);
+        AntazonClientState.clear(pos);
     }
 
     public static ComputerAccessResultPayload get(BlockPos pos) {

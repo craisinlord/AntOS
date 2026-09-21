@@ -41,7 +41,10 @@ public final class ComputerTasksClientState {
                         row.get("x").getAsInt(), row.get("y").getAsInt(),
                         row.getAsJsonArray("requires").asList().stream().map(value -> value.getAsString()).toList(),
                         row.getAsJsonArray("archive_entries").asList().stream().map(value -> value.getAsString()).toList(),
-                        row.get("done").getAsInt(), row.get("total").getAsInt(), List.copyOf(objectives)));
+                        row.get("done").getAsInt(), row.get("total").getAsInt(), row.has("has_rewards") && row.get("has_rewards").getAsBoolean(),
+                        row.has("icon_item") ? row.get("icon_item").getAsString() : "",
+                        row.has("icon_entity") ? row.get("icon_entity").getAsString() : "",
+                        List.copyOf(objectives)));
             }
             TASKS.put(result.pos(), List.copyOf(rows));
             ERRORS.remove(result.pos());
@@ -54,6 +57,7 @@ public final class ComputerTasksClientState {
     public static void clear(BlockPos pos) { TASKS.remove(pos); RECEIVED.remove(pos); ERRORS.remove(pos); }
     public record TaskRow(String id, String title, String description, boolean available, boolean complete, boolean visible,
                           String category, int x, int y, List<String> requires, List<String> archiveEntries,
-                          int done, int total, List<TaskObjective> objectives) { }
+                          int done, int total, boolean hasRewards, String iconItem, String iconEntity,
+                          List<TaskObjective> objectives) { }
     public record TaskObjective(String description, int progress, int count, boolean optional) { }
 }

@@ -55,6 +55,7 @@ public final class AntOSSettings {
             case "TEXT" -> apps.textEditor;
             case "PAINT" -> apps.paint;
             case "ANTMAIL" -> apps.antmail;
+            case "ANTAZON" -> apps.antazon;
             case "GAMES" -> apps.games;
             case "TRASH" -> apps.trash;
             case "TASKS" -> apps.tasks;
@@ -81,6 +82,7 @@ public final class AntOSSettings {
         private boolean textEditor = true;
         private boolean paint = true;
         private boolean antmail = true;
+        private boolean antazon = true;
         private boolean games = true;
         private boolean trash = true;
         private boolean tasks = true;

@@ -77,6 +77,14 @@ public final class ComputerTasks {
         return ComputerGuideData.tasks().stream().filter(candidate -> candidate.id().equals(id)).findFirst().orElse(null);
     }
 
+    public static boolean isTaskComplete(ServerPlayer player, ComputerBlockEntity computer, ResourceLocation taskId) {
+        if (player == null || computer == null || taskId == null || task(taskId) == null) return false;
+        ComputerTaskProgress progress = computer.taskProgress();
+        java.util.UUID workspaceId = computer.workspaceId();
+        if (workspaceId != null) progress.mergeFrom(ComputerWorkspaceData.access(player.server).progress(workspaceId));
+        return progress.isComplete(taskId);
+    }
+
     public static String updateAndEncode(ServerPlayer player, ComputerBlockEntity computer) {
         ComputerTaskProgress progress = computer.taskProgress();
         evaluateProgress(player, computer, progress, false);
@@ -89,6 +97,21 @@ public final class ComputerTasks {
             row.addProperty("x", task.x()); row.addProperty("y", task.y());
             row.addProperty("complete", progress.isComplete(task.id())); row.addProperty("visible", visible(task, progress));
             row.addProperty("available", available(task, progress) || progress.isComplete(task.id()));
+            row.addProperty("has_rewards", !task.rewards().isEmpty());
+            String iconItem = "";
+            String iconEntity = "";
+            for (ComputerGuideData.Objective objective : task.objectives()) {
+                if (objective.type().equals("item")) { iconItem = objective.target(); break; }
+                if (objective.type().equals("entity_killed") || objective.type().equals("entity_killed_by")) { iconEntity = objective.target(); break; }
+            }
+            if (iconItem.isBlank() && iconEntity.isBlank()) {
+                for (ComputerGuideData.TaskReward reward : task.rewards()) {
+                    if (reward.type().equals("item") && reward.itemId() != null) { iconItem = reward.itemId().toString(); break; }
+                }
+            }
+            if (iconItem.isBlank() && iconEntity.isBlank()) iconItem = "minecraft:paper";
+            row.addProperty("icon_item", iconItem);
+            row.addProperty("icon_entity", iconEntity);
             JsonArray prerequisites = new JsonArray(); task.requires().forEach(id -> prerequisites.add(id.toString())); row.add("requires", prerequisites);
             JsonArray archiveEntries = new JsonArray(); task.archiveEntries().forEach(id -> archiveEntries.add(id.toString())); row.add("archive_entries", archiveEntries);
             int total = 0, done = 0;
@@ -242,8 +265,9 @@ public final class ComputerTasks {
         BlockPos landing = rewardLandingSpots(player, 1).stream().findFirst()
                 .orElse(player.blockPosition().relative(player.getDirection(), 1));
         RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
-        drop.setPos(landing.getX() + 0.5D, landing.getY() + 8.0D, landing.getZ() + 0.5D);
+        drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
         drop.setRewards(stacks, player);
+        RewardDropEntity.announceIncoming(player);
         level.addFreshEntity(drop);
     }
 
