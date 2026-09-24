@@ -16,37 +16,25 @@ public final class AntOSNeoForgeNetworking {
 
     private static void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
         var registrar = event.registrar("1");
-        registrar.playToServer(ComputerAccessPayload.TYPE, ComputerAccessPayload.STREAM_CODEC,
+        registrar.playToServer(AnternetComputerPayload.TYPE, AnternetComputerPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
-                    if (context.player() instanceof ServerPlayer player) ComputerAccessHandler.handle(player, payload);
+                    if (context.player() instanceof ServerPlayer player) ComputerAccessHandler.handleAnternet(player, payload);
                 }));
-        registrar.playToServer(AntmailSetupPayload.TYPE, AntmailSetupPayload.STREAM_CODEC,
+        registrar.playToServer(AnternetAccountPayload.TYPE, AnternetAccountPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AnternetAccountHandler.handle(player, payload))));
+        registrar.playToServer(AntmailAnternetPayload.TYPE, AntmailAnternetPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToServer(AntmailStateRequestPayload.TYPE, AntmailStateRequestPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToServer(AntmailMessageRequestPayload.TYPE, AntmailMessageRequestPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToServer(AntmailSendPayload.TYPE, AntmailSendPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToServer(AntmailReadPayload.TYPE, AntmailReadPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToServer(AntmailDeletePayload.TYPE, AntmailDeletePayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToServer(AntmailDraftPayload.TYPE, AntmailDraftPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToServer(AntmailRetryPayload.TYPE, AntmailRetryPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
-        registrar.playToClient(ComputerAccessResultPayload.TYPE, ComputerAccessResultPayload.STREAM_CODEC,
-                (payload, context) -> context.enqueueWork(() -> {
-                    com.craisinlord.antos.content.client.ComputerAccessClientState.update(payload);
-                    com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.update(payload);
-                }));
-        registrar.playToClient(AntmailResultPayload.TYPE, AntmailResultPayload.STREAM_CODEC,
+        registrar.playToClient(AnternetComputerResultPayload.TYPE, AnternetComputerResultPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.ComputerAccessClientState.updateAnternet(payload)));
+        registrar.playToClient(AnternetAccountResultPayload.TYPE, AnternetAccountResultPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.AnternetAccountClientState.update(payload)));
+        registrar.playToClient(AntmailAnternetResultPayload.TYPE, AntmailAnternetResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.AntmailClientState.update(payload)));
         registrar.playToClient(FloppyTextureSyncPayload.TYPE, FloppyTextureSyncPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.FloppyTextureClientState.update(payload)));
 
-        ComputerAccessHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
+        ComputerAccessHandler.setAnternetResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
+        AnternetAccountHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         AntmailServerHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         FloppyTextureSync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
     }

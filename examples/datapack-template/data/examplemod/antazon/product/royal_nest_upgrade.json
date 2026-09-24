@@ -1,0 +1,46 @@
+{
+  "name": "computer.antos.product.royal_nest_upgrade.name",
+  "description": "computer.antos.product.royal_nest_upgrade.description",
+  "category": "construction",
+  "tags": ["premium", "building", "queen"],
+  "thumbnail": { "item": "minecraft:amethyst_block" },
+  "gallery": [
+    { "item": "minecraft:gold_block" },
+    { "entity": "minecraft:bee" }
+  ],
+  "quantity": 1,
+  "payments": [
+    { "type": "antcoins", "resource": "antcoins", "amount": 168 }
+  ],
+  "unlock_tasks": [],
+  "unlock_mode": "all",
+  "availability": {
+    "server_stock": 3,
+    "restock_after_minecraft_days": 7,
+    "cooldown_minecraft_days": 3,
+    "player_limit": 1,
+    "player_limit_reset": "minecraft_week"
+  },
+  "delivery": "falling_chest",
+  "rewards": [
+    { "item": "minecraft:polished_deepslate", "count": 64 },
+    { "item": "minecraft:amethyst_block", "count": 16 },
+    { "item": "minecraft:gold_block", "count": 4 }
+  ],
+  "reviews": [
+    {
+      "id": "queen_royal_001",
+      "author": "Queen Ant",
+      "title": "computer.antos.product.royal_nest_upgrade.review.chamber.title",
+      "body": "computer.antos.product.royal_nest_upgrade.review.chamber.body",
+      "rating": 5,
+      "badge": "QUEEN APPROVED"
+    }
+  ],
+  "deal": {
+    "enabled": true,
+    "label": "computer.antos.product.royal_nest_upgrade.deal",
+    "discount_percent": 10,
+    "cycle_minecraft_days": 7
+  }
+}

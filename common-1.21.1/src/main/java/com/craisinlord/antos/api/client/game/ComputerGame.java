@@ -2,7 +2,6 @@ package com.craisinlord.antos.api.client.game;
 
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 
 /** Public client API for games displayed in the AntOS Games app. */
@@ -18,7 +17,7 @@ public interface ComputerGame {
     String title();
 
     /** Creates per-open-game state for this computer. */
-    Session create(BlockPos computerPosition);
+    Session create();
 
     interface Session {
         default void tick() {}

@@ -1,0 +1,45 @@
+{
+  "name": "computer.antos.product.daily_antling_rations.name",
+  "description": "computer.antos.product.daily_antling_rations.description",
+  "category": "food",
+  "tags": ["food", "daily", "starter"],
+  "thumbnail": { "item": "minecraft:bread" },
+  "gallery": [
+    { "item": "minecraft:carrot" },
+    { "item": "minecraft:apple" }
+  ],
+  "quantity": 8,
+  "payments": [
+    { "type": "antcoins", "resource": "antcoins", "amount": 48 }
+  ],
+  "unlock_tasks": [],
+  "unlock_mode": "all",
+  "availability": {
+    "server_stock": 0,
+    "restock_after_minecraft_days": 0,
+    "cooldown_minecraft_days": 1,
+    "player_limit": 1,
+    "player_limit_reset": "minecraft_day"
+  },
+  "delivery": "falling_chest",
+  "rewards": [
+    { "item": "minecraft:bread", "count": 8 },
+    { "item": "minecraft:carrot", "count": 16 }
+  ],
+  "reviews": [
+    {
+      "id": "cook_queen_001",
+      "author": "Kitchen Queen",
+      "title": "computer.antos.product.daily_antling_rations.review.line.title",
+      "body": "computer.antos.product.daily_antling_rations.review.line.body",
+      "rating": 5,
+      "badge": "NEST VERIFIED"
+    }
+  ],
+  "deal": {
+    "enabled": true,
+    "label": "computer.antos.product.daily_antling_rations.deal",
+    "discount_percent": 15,
+    "cycle_minecraft_days": 1
+  }
+}

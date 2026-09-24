@@ -2,7 +2,6 @@ package com.craisinlord.antos.content.client;
 
 import com.craisinlord.antos.content.network.ComputerAccessPayload;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
-import net.minecraft.core.BlockPos;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,10 +9,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ComputerFileSystemClientState {
-    private static final Map<BlockPos, State> STATES = new ConcurrentHashMap<>();
+    private static final Map<String, State> STATES = new ConcurrentHashMap<>();
 
     private ComputerFileSystemClientState() {
     }
+
+    public static void clearAll() { STATES.clear(); }
 
     public static void update(ComputerAccessResultPayload payload) {
         if (payload.data().isEmpty()) return;
@@ -34,7 +35,7 @@ public final class ComputerFileSystemClientState {
                 && action != ComputerAccessPayload.FILE_MOVE) {
             return;
         }
-        State state = STATES.computeIfAbsent(payload.pos(), ignored -> new State());
+        State state = STATES.computeIfAbsent(ComputerWorkspaceClientKey.of(), ignored -> new State());
         state.success = payload.result() == ComputerAccessResultPayload.SUCCESS;
         state.error = envelope[1];
         if (state.success) state.error = "";
@@ -65,8 +66,8 @@ public final class ComputerFileSystemClientState {
         }
     }
 
-    public static State get(BlockPos pos) {
-        return STATES.computeIfAbsent(pos, ignored -> new State());
+    public static State get() {
+        return STATES.computeIfAbsent(ComputerWorkspaceClientKey.of(), ignored -> new State());
     }
 
     public static final class State {

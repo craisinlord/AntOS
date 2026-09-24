@@ -4,6 +4,7 @@ import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.antmail.AntmailEventData;
 import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.antazon.AntazonData;
+import com.craisinlord.antos.content.antazon.AntazonSellData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.computer.blockle.BlockleAnswers;
 import com.craisinlord.antos.content.computer.TaskDebugCommands;
@@ -16,6 +17,7 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.AddReloadListenerEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
 @Mod(AntOS.MODID)
 public final class AntOSNeoForge {
@@ -26,6 +28,7 @@ public final class AntOSNeoForge {
         NeoForge.EVENT_BUS.addListener(this::registerReloadListeners);
         NeoForge.EVENT_BUS.addListener(this::registerCommands);
         NeoForge.EVENT_BUS.addListener(this::onServerTick);
+        NeoForge.EVENT_BUS.addListener(this::onPlayerLogout);
         AntOS.LOGGER.info("AntOS NeoForge initialized");
     }
 
@@ -37,6 +40,7 @@ public final class AntOSNeoForge {
         event.addListener(BlockleAnswers.instance());
         event.addListener(AntmailEventData.instance());
         event.addListener(AntazonData.instance());
+        event.addListener(AntazonSellData.instance());
     }
 
     private void onServerTick(ServerTickEvent.Post event) {
@@ -44,5 +48,11 @@ public final class AntOSNeoForge {
         FloppyTextureSync.tick(server);
         AntmailServerData.access(server).drainAvailable(server);
         AntmailEventData.onTick(server);
+    }
+
+    private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(player);
+        }
     }
 }

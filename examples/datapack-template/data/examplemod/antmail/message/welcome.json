@@ -1,6 +1,6 @@
 {
   "sender": "fieldoffice",
-  "subject": "A note from the field",
-  "body": "Welcome to the colony network.",
+  "subject": "antazon.examplemod.welcome.subject",
+  "body": "antazon.examplemod.welcome.body",
   "trigger": { "type": "random", "value": "0.05" }
 }

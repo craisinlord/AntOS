@@ -6,19 +6,21 @@ AntOS adds an ant-themed computer to Minecraft 1.21.1. Its desktop includes an A
 
 AntOS supports **Fabric** and **NeoForge**. It requires **GeckoLib** on either loader. Fabric also requires Fabric API. Install the AntOS file for your loader alongside those dependencies.
 
-Place and use the computer block to open its desktop. A computer can be picked up: mining it turns it into a portable computer item that keeps installed disks and local computer data. Place the item to restore the computer. In **Settings**, select an installed disk and choose **EJECT SELECTED** to remove it; if your inventory is full, it drops nearby.
+Use a computer block or an Antroid Phone to access the Anternet desktop. Both devices sign in with an Anternet username and password. The login screen remembers the last username on that client to reduce repeat typing.
 
-Insert a floppy disk to unlock its Archive entries, wallpaper, and tasks. Disk-installed games appear while their disk is installed. Archive unlocks and task progress remain with that computer's progression workspace when disks are removed.
+Insert a floppy disk into a computer to add it to the signed-in profile. Archive entries, wallpapers, and tasks unlocked by the disk are saved with that profile; disk-installed games are available while the disk remains installed. In **Settings**, choose **EJECT SELECTED** to drop a disk at the player's current location. Disks stored on older computers migrate into the profile the first time that profile is opened on that computer; the migration keeps the installed disk IDs.
 
 ### Progress and backups
 
-The server saves Archive unlocks and task progress in a workspace associated with the Minecraft UUID of the player who initializes it. When that player opens a new computer, they can restore the existing workspace or start a separate one. The server backup remains available if the computer item is lost.
+The server saves workspace files, desktop preferences, task/archive progress, and installed disk IDs in a profile-owned workspace. The Minecraft server world stores these profiles; accounts do not transfer between unrelated servers. Computers and phones are access devices rather than workspace storage, so the same signed-in profile is available from either device.
 
-The portable computer item carries local files, wallpapers, passwords, and installed disks. These local settings are not part of the server progression backup. In multiplayer, task objectives based on inventory, advancements, and statistics use the player opening the Tasks app; task progress is shared by the computer.
+You can give another player your Anternet username and password so they can access the same profile at the same time from their own device. Anyone with the password has full access; AntOS does not currently provide read-only or per-app sharing permissions. Only share credentials with players you trust. The client remembers the last username, not the password. In multiplayer, task objectives based on inventory, advancements, and statistics use the player viewing the Tasks app; profile task progress is shared.
+
+Antmail addresses and mailboxes belong to Anternet profiles. Each profile automatically receives `<username>@antmail.com`; no separate Antmail setup is required. Antazon account data is also profile-based. Antazon shipping crates remain physical: link a nearby crate once from a computer, then use the profile's Antazon functions from a computer or phone.
 
 ### Configuration
 
-On first launch AntOS creates `config/antos.json`. Restart the game or server after editing it. The unlock options are controlled by the server; desktop app toggles are client-side.
+On first launch AntOS creates `config/antos.json`. Restart the game or server after editing it. The unlock options are controlled by the server; desktop app toggles are read by the client and are client-side.
 
 ```json
 {
@@ -32,15 +34,15 @@ On first launch AntOS creates `config/antos.json`. Restart the game or server af
     "textEditor": true,
     "paint": true,
     "antmail": true,
-    "antazon": true,
+    "antazon": false,
     "games": true,
     "trash": true,
-    "tasks": true
+    "tasks": false
   }
 }
 ```
 
-Set either `unlockAllArchiveEntries` or `unlockAllGameEntries` to `true` to unlock all loaded entries or registered games without their disks. Disable individual desktop apps by setting their values to `false`.
+Set either `unlockAllArchiveEntries` or `unlockAllGameEntries` to `true` to unlock all loaded entries or registered games without their disks. Antazon and Tasks are disabled by default; set `desktopApps.antazon` and/or `desktopApps.tasks` to `true` to enable them. Disable other individual desktop apps by setting their values to `false`.
 
 ## For modpack developers
 
@@ -57,6 +59,13 @@ ArchiveEntityPreviewRegistry.register(
         entity -> {
             if (entity instanceof FieldBeetleEntity beetle) beetle.setArchivePose();
         });
+```
+
+For targets that are not vanilla structures (grid-placed features, boss spawn sites, and so on), give the entry a `locator` ID and a `dimension`, then register a server-side lookup with ArchiveLocatorRegistry.register(ResourceLocation, Locator) during common initialization. When the entry is opened, AntOS calls the locator on the server thread with the target dimension's level and its shared spawn as the origin, and shows the returned position as `LOCATION // x, y, z`. Return `null` when nothing is in range. Locators should find existing positions only and must not spawn entities or otherwise change the world.
+```java
+ArchiveLocatorRegistry.register(
+        ResourceLocation.fromNamespaceAndPath("examplemod", "beetle_nest"),
+        (level, origin) -> BeetleNestGrid.nearestNest(level, origin));
 ```
 
 ```json
@@ -113,11 +122,13 @@ Supported objective types are `item`, `advancement`, `stat`, `mail_read`, `archi
 
 For structure visits, use a vanilla advancement with the `minecraft:location` trigger and a `structures` location predicate, then reference its ID in an `advancement` objective. The template includes a stronghold example. A locator result alone does not count as visiting the structure.
 
-Task rewards are issued once when the task completes. Supported rewards are `item`, `experience`, `experience_levels`, `advancement`, `effect`, `archive`, and `mail`; item rewards appear as dropped items near the player. A mail reward requires the player to have registered an Antmail address. The template includes a task chain and reward examples.
+Task rewards are issued once when the task completes. Supported rewards are `item`, `experience`, `experience_levels`, `advancement`, `effect`, `archive`, and `mail`; item rewards appear as dropped items near the player. Mail rewards are delivered to the player's automatically assigned Antmail address. The template includes a task chain and reward examples.
 
 ### Antmail messages
 
-Add `data/<namespace>/antmail/message/<path>.json`. Random messages are checked once per in-game day per registered address. Advancement messages are sent when a player with a registered address earns the specified advancement.
+Add `data/<namespace>/antmail/message/<path>.json`. Random messages are checked once per in-game day per Anternet profile. Advancement messages are sent to the profile address when a player earns the specified advancement.
+
+AntMail automatically turns explicit Archive render markers in message bodies into render attachments. Use `@item:<namespace>:<path>`, `@entity:<namespace>:<path>`, `@enchantment:<namespace>:<path>`, `@potion:<namespace>:<path>`, or `@recipe:<namespace>:<path>` in a body. The marker is removed from the displayed text and the matching preview is shown below the message. This works for data-driven story mail, task mail rewards, and regular AntMail messages; ordinary IDs without a marker remain plain text.
 
 ```json
 {
@@ -132,7 +143,7 @@ Use `trigger.type` of `random` with a chance from `0` to `1`, or `advancement` w
 
 ### Antazon
 
-Antazon is the in-game online supply shop. It supports catalog browsing, product pages, purchases, multiple item payment options, task-based unlocks, shared server stock, Minecraft-time restocking, player limits, cooldowns, seeded reviews, verified player reviews, daily deals, a shopping cart, persistent server wishlists, order history, and Archive-style item or mob previews. Successful purchases arrive through the falling chest delivery system. Purchases are final and are not refundable.
+Antazon is the in-game supply shop and AntCoin exchange. It supports catalog browsing, AntCoin purchases, selling configured items from a nearby chest for AntCoins, task-based unlocks, shared server stock, Minecraft-time restocking, player limits, cooldowns, seeded reviews, verified player reviews, daily deals, a shopping cart, persistent server wishlists, order history, and Archive-style item or mob previews. Successful purchases arrive through the falling chest delivery system. Purchases are final and are not refundable.
 
 Add products at `data/<namespace>/antazon/product/<path>.json`; the product ID is `<namespace>:<path>`. Product data is loaded during server data reloads. The product must define `quantity`, at least one payment, and one reward. Optional `thumbnail` and `gallery` objects use `{ "item": "namespace:item" }` or `{ "entity": "namespace:entity" }` and control the catalog thumbnail and product-page previews.
 
@@ -144,8 +155,7 @@ Add products at `data/<namespace>/antazon/product/<path>.json`; the product ID i
   "tags": ["building", "starter"],
   "quantity": 1,
   "payments": [
-    { "type": "item", "resource": "minecraft:emerald", "amount": 8 },
-    { "type": "item", "resource": "minecraft:diamond", "amount": 1 }
+    { "type": "antcoins", "resource": "antcoins", "amount": 56 }
   ],
   "unlock_tasks": ["examplemod:field_basics"],
   "unlock_mode": "all",
@@ -180,7 +190,9 @@ Add products at `data/<namespace>/antazon/product/<path>.json`; the product ID i
 }
 ```
 
-Payment choices are tried in data-file order, and the first affordable option is used. Current payment support is item-based. Each product has one purchase definition: `quantity` controls how many reward sets arrive, and `payments` lists the accepted payment choices. `rewards` defines the contents of one reward set. `server_stock` is shared by the server; set it to `0` for unlimited stock. `player_limit_reset` accepts `none`, `minecraft_day`, or `minecraft_week`.
+Product payments use `type: "antcoins"`; the resource is conventionally `antcoins` and the amount is the AntCoin price. Sell rules live at `data/<namespace>/antazon/sell/<path>.json` with an `item` ID and AntCoin `value`. In the Antazon Sell tab, place items in a single chest next to the computer, select every occupied sellable slot, and ship the chest. The chest is consumed and each purchase delivery includes a replacement chest.
+
+Payment choices are tried in data-file order, and the first affordable option is used. AntOS's built-in products use AntCoins. Each product has one purchase definition: `quantity` controls how many reward sets arrive, and `payments` lists the accepted payment choices. `rewards` defines the contents of one reward set. `server_stock` is shared by the server; set it to `0` for unlimited stock. `player_limit_reset` accepts `none`, `minecraft_day`, or `minecraft_week`.
 
 Products can reference any loaded task IDs with `unlock_tasks`. Use `unlock_mode` of `all` or `any`. Daily deals use Minecraft days and apply their discount on the server during active cycle days. Reviews in product data are configured shop reviews; players can add one verified review after a delivered purchase. Wishlists and order history are saved on the shared server. AntMail can compose product links and wishlist messages from Antazon, and recipients can open shared product links directly in the shop.
 
@@ -208,10 +220,10 @@ Mods can register task objective types with `TaskObjectiveRegistry` and report s
 
 Task commands require operator permission and target a loaded computer. Use a task ID loaded from a data pack.
 
-- `/antos tasks inspect <x y z> <namespace:task>` shows completion and objective counts.
-- `/antos tasks grant <x y z> <namespace:task>` makes a task available.
-- `/antos tasks complete <x y z> <namespace:task>` completes it, grants rewards, and checks dependent tasks.
-- `/antos tasks setprogress <x y z> <namespace:task> <objective> <count>` updates event-driven objective progress.
-- `/antos tasks reset <x y z>` clears task progress while preserving Archive unlocks.
+- `/antos tasks inspect <namespace:task>` shows completion and objective counts for your signed-in Anternet workspace.
+- `/antos tasks grant <namespace:task>` makes a task available.
+- `/antos tasks complete <namespace:task>` completes it, grants rewards, and checks dependent tasks.
+- `/antos tasks setprogress <namespace:task> <objective> <count>` updates event-driven objective progress.
+- `/antos tasks reset` clears task progress while preserving Archive unlocks.
 
 On startup and data pack reload, AntOS checks content references and reports problems in the server log. Invalid definitions may be skipped; check the log if content is missing in game.

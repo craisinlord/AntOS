@@ -2,7 +2,6 @@ package com.craisinlord.antos.content.client.game;
 
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.api.client.game.ComputerGameRegistry;
-import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 
 public final class AntOSComputerGames {
@@ -16,8 +15,8 @@ public final class AntOSComputerGames {
             @Override public ResourceLocation diskId() { return null; }
             @Override public boolean includedByDefault() { return true; }
             @Override public String title() { return "BLOCKLE"; }
-            @Override public Session create(BlockPos position) {
-                BlockleProgram program = new BlockleProgram(position);
+            @Override public Session create() {
+                BlockleProgram program = new BlockleProgram();
                 program.setInstalled(true);
                 program.requestState();
                 return new Session() {

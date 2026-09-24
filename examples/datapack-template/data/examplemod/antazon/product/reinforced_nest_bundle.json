@@ -1,0 +1,53 @@
+{
+  "name": "computer.antos.product.reinforced_nest_bundle.name",
+  "description": "computer.antos.product.reinforced_nest_bundle.description",
+  "category": "building_supplies",
+  "tags": ["building", "starter", "nest"],
+  "thumbnail": { "item": "minecraft:iron_ingot" },
+  "gallery": [
+    { "item": "minecraft:oak_planks" },
+    { "item": "minecraft:stone" }
+  ],
+  "quantity": 1,
+  "payments": [
+    { "type": "antcoins", "resource": "antcoins", "amount": 56 }
+  ],
+  "unlock_tasks": [],
+  "unlock_mode": "all",
+  "availability": {
+    "server_stock": 20,
+    "restock_after_minecraft_days": 3,
+    "cooldown_minecraft_days": 0,
+    "player_limit": 2,
+    "player_limit_reset": "minecraft_week"
+  },
+  "delivery": "falling_chest",
+  "rewards": [
+    { "item": "minecraft:iron_ingot", "count": 16 },
+    { "item": "minecraft:oak_planks", "count": 32 }
+  ],
+  "reviews": [
+    {
+      "id": "queen_ant_001",
+      "author": "Queen Ant",
+      "title": "computer.antos.product.reinforced_nest_bundle.review.reliable.title",
+      "body": "computer.antos.product.reinforced_nest_bundle.review.reliable.body",
+      "rating": 5,
+      "badge": "NEST VERIFIED"
+    },
+    {
+      "id": "worker_014",
+      "author": "Worker 14",
+      "title": "Good value in a pack",
+      "body": "The larger package is the better deal for a growing tunnel network.",
+      "rating": 4,
+      "badge": "EARLY FORAGER"
+    }
+  ],
+  "deal": {
+    "enabled": true,
+    "label": "computer.antos.product.reinforced_nest_bundle.deal",
+    "discount_percent": 20,
+    "cycle_minecraft_days": 1
+  }
+}

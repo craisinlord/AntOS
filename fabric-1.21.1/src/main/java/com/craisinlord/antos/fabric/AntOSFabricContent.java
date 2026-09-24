@@ -5,6 +5,7 @@ import com.craisinlord.antos.content.block.ComputerBlock;
 import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
 import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.item.ComputerItem;
+import com.craisinlord.antos.content.item.AntroidPhoneItem;
 import com.craisinlord.antos.content.item.FloppyDiskItem;
 import com.craisinlord.antos.content.entity.RewardDropEntity;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
@@ -29,6 +30,7 @@ public final class AntOSFabricContent {
     public static BlockEntityType<ComputerBlockEntity> COMPUTER_BLOCK_ENTITY;
     public static Item FLOPPY_DISK;
     public static Item COMPUTER_ITEM;
+    public static Item ANTROID_PHONE;
     public static EntityType<RewardDropEntity> REWARD_DROP_ENTITY;
 
     private AntOSFabricContent() {}
@@ -46,12 +48,14 @@ public final class AntOSFabricContent {
                 FabricBlockEntityTypeBuilder.create((pos, state) -> new ComputerBlockEntity(pos, state, () -> COMPUTER_BLOCK_ENTITY), COMPUTER).build());
         FLOPPY_DISK = Registry.register(BuiltInRegistries.ITEM, id("floppy_disk"), new FloppyDiskItem(new Item.Properties()));
         COMPUTER_ITEM = Registry.register(BuiltInRegistries.ITEM, id("computer"), new ComputerItem(COMPUTER, new Item.Properties()));
+        ANTROID_PHONE = Registry.register(BuiltInRegistries.ITEM, id("antroid_phone"), new AntroidPhoneItem(new Item.Properties().stacksTo(1)));
         REWARD_DROP_ENTITY = Registry.register(BuiltInRegistries.ENTITY_TYPE, id("reward_drop"), EntityType.Builder
                 .of(RewardDropEntity::new, MobCategory.MISC).sized(0.8F, 0.8F).clientTrackingRange(8).updateInterval(2).build("antos:reward_drop"));
         AntOSObjects.bind(() -> FLOPPY_DISK, () -> FLOPPY_DISK_COMPONENT, () -> COMPUTER_BLOCK_ENTITY, () -> COMPUTER_ITEM,
-                () -> REWARD_DROP_ENTITY);
+                () -> REWARD_DROP_ENTITY, () -> ANTROID_PHONE);
         ItemGroupEvents.modifyEntriesEvent(CreativeModeTabs.FUNCTIONAL_BLOCKS).register(entries -> entries.accept(COMPUTER_ITEM));
         ItemGroupEvents.modifyEntriesEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(entries -> entries.accept(FLOPPY_DISK));
+        ItemGroupEvents.modifyEntriesEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(entries -> entries.accept(ANTROID_PHONE));
     }
 
     public static ResourceLocation id(String path) { return ResourceLocation.fromNamespaceAndPath(AntOS.MODID, path); }

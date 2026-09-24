@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Objects;
 
-public sealed interface AntmailAttachment permits AntmailAttachment.TextFile, AntmailAttachment.PaintImage {
+public sealed interface AntmailAttachment permits AntmailAttachment.TextFile, AntmailAttachment.PaintImage, AntmailAttachment.Antcoins, AntmailAttachment.Render {
     String TYPE_TAG = "Type";
     String NAME_TAG = "Name";
 
@@ -20,6 +20,8 @@ public sealed interface AntmailAttachment permits AntmailAttachment.TextFile, An
         return switch (tag.getString(TYPE_TAG)) {
             case "text_file" -> TextFile.fromTag(tag);
             case "paint_image" -> PaintImage.fromTag(tag);
+            case "antcoins" -> Antcoins.fromTag(tag);
+            case "render" -> Render.fromTag(tag);
             default -> throw new IllegalArgumentException("Unknown Antmail attachment type");
         };
     }
@@ -90,6 +92,54 @@ public sealed interface AntmailAttachment permits AntmailAttachment.TextFile, An
 
         static PaintImage fromTag(CompoundTag tag) {
             return new PaintImage(tag.getString(NAME_TAG), tag.getInt("Width"), tag.getInt("Height"), tag.getByteArray("Pixels"));
+        }
+    }
+
+    record Antcoins(long amount) implements AntmailAttachment {
+        public Antcoins {
+            if (amount < 1) throw new IllegalArgumentException("Antcoin amount must be positive");
+        }
+
+        @Override public String fileName() { return "ANTCOINS"; }
+        @Override public int byteSize() { return Long.BYTES; }
+
+        @Override
+        public CompoundTag toTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putString(TYPE_TAG, "antcoins");
+            tag.putLong("Amount", amount);
+            return tag;
+        }
+
+        static Antcoins fromTag(CompoundTag tag) { return new Antcoins(tag.getLong("Amount")); }
+    }
+
+    /** A client-side preview backed by one of AntOS's existing render systems. */
+    record Render(String kind, String resourceId) implements AntmailAttachment {
+        public Render {
+            if (!AntmailRenderMarkers.isSupportedKind(kind)) throw new IllegalArgumentException("Unsupported render kind");
+            resourceId = validateResourceId(resourceId);
+        }
+
+        @Override public String fileName() { return "RENDER // " + kind + ":" + resourceId; }
+        @Override public int byteSize() { return kind.length() + resourceId.length(); }
+
+        @Override
+        public CompoundTag toTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putString(TYPE_TAG, "render");
+            tag.putString("Kind", kind);
+            tag.putString("Id", resourceId);
+            return tag;
+        }
+
+        static Render fromTag(CompoundTag tag) { return new Render(tag.getString("Kind"), tag.getString("Id")); }
+
+        private static String validateResourceId(String value) {
+            if (value == null || value.isBlank() || value.length() > 256 || !value.contains(":")) {
+                throw new IllegalArgumentException("Invalid render resource ID");
+            }
+            return value;
         }
     }
 

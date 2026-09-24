@@ -4,7 +4,6 @@ import com.craisinlord.antos.content.antmail.AntmailAttachment;
 import com.craisinlord.antos.content.antmail.AntmailDebug;
 import com.craisinlord.antos.content.antmail.AntmailDraft;
 import com.craisinlord.antos.content.antmail.AntmailWire;
-import net.minecraft.core.BlockPos;
 
 import java.util.List;
 import java.util.UUID;
@@ -24,54 +23,48 @@ public final class AntmailNetworking {
         senderConfigured = sender != null;
     }
 
-    public static void setup(BlockPos pos, String username) {
-        AntmailDebug.log("C2S setup request pos=" + pos + " usernameLength=" + username.length());
-        sendPayload(new AntmailSetupPayload(pos, username));
+    public static void requestState() {
+        requestState(AntmailStateRequestPayload.INBOX, 0, 0L);
     }
 
-    public static void requestState(BlockPos pos) {
-        requestState(pos, AntmailStateRequestPayload.INBOX, 0, 0L);
+    public static void requestState(int folder, int page) {
+        requestState(folder, page, 0L);
     }
 
-    public static void requestState(BlockPos pos, int folder, int page) {
-        requestState(pos, folder, page, 0L);
+    public static void requestState(int folder, int page, long knownVersion) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.STATE, "", "", "", "", "", ((long) folder << 32) | (page & 0xffffffffL), knownVersion));
     }
 
-    public static void requestState(BlockPos pos, int folder, int page, long knownVersion) {
-        AntmailDebug.log("C2S state request pos=" + pos + " folder=" + folder + " page=" + page + " knownVersion=" + knownVersion);
-        sendPayload(new AntmailStateRequestPayload(pos, folder, page, knownVersion));
+    public static void requestMessage(UUID messageId) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.MESSAGE, messageId.toString(), "", "", "", "", 0L, 0L));
     }
 
-    public static void requestMessage(BlockPos pos, UUID messageId) {
-        sendPayload(new AntmailMessageRequestPayload(pos, messageId.toString()));
+    public static void send(String recipient, String subject, String body, List<AntmailAttachment> attachments) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), "", 0L, 0L));
     }
 
-    public static void send(BlockPos pos, String recipient, String subject, String body, List<AntmailAttachment> attachments) {
-        sendPayload(new AntmailSendPayload(pos, recipient, subject, body, AntmailWire.encodeAttachments(attachments)));
+    public static void markRead(UUID messageId) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.READ, messageId.toString(), "true", "", "", "", 0L, 0L));
     }
 
-    public static void markRead(BlockPos pos, UUID messageId) {
-        sendPayload(new AntmailReadPayload(pos, messageId.toString(), true));
+    public static void markUnread(UUID messageId) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.READ, messageId.toString(), "false", "", "", "", 0L, 0L));
     }
 
-    public static void markUnread(BlockPos pos, UUID messageId) {
-        sendPayload(new AntmailReadPayload(pos, messageId.toString(), false));
+    public static void delete(UUID messageId, boolean sent) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.DELETE, messageId.toString(), Boolean.toString(sent), "", "", "", 0L, 0L));
     }
 
-    public static void delete(BlockPos pos, UUID messageId, boolean sent) {
-        sendPayload(new AntmailDeletePayload(pos, messageId.toString(), sent));
+    public static void saveDraft(AntmailDraft draft) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.DRAFT, Integer.toString(AntmailDraftPayload.SAVE), AntmailWire.encodeTag(draft.toTag()), "", "", "", 0L, 0L));
     }
 
-    public static void saveDraft(BlockPos pos, AntmailDraft draft) {
-        sendPayload(new AntmailDraftPayload(pos, AntmailDraftPayload.SAVE, AntmailWire.encodeTag(draft.toTag())));
+    public static void deleteDraft(UUID draftId) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.DRAFT, Integer.toString(AntmailDraftPayload.DELETE), draftId.toString(), "", "", "", 0L, 0L));
     }
 
-    public static void deleteDraft(BlockPos pos, UUID draftId) {
-        sendPayload(new AntmailDraftPayload(pos, AntmailDraftPayload.DELETE, draftId.toString()));
-    }
-
-    public static void retry(BlockPos pos, UUID messageId) {
-        sendPayload(new AntmailRetryPayload(pos, messageId.toString()));
+    public static void retry(UUID messageId) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.RETRY, messageId.toString(), "", "", "", "", 0L, 0L));
     }
 
     private static void sendPayload(Object payload) {

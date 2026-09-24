@@ -1,0 +1,40 @@
+{
+  "name": "antazon.examplemod.task_reward_crate.name",
+  "description": "antazon.examplemod.task_reward_crate.description",
+  "category": "task_rewards",
+  "tags": ["tasks", "research", "unlock"],
+  "thumbnail": { "item": "minecraft:chest" },
+  "gallery": [
+    { "item": "minecraft:paper" },
+    { "item": "minecraft:experience_bottle" }
+  ],
+  "quantity": 1,
+  "payments": [
+    { "type": "item", "resource": "minecraft:emerald", "amount": 10 }
+  ],
+  "unlock_tasks": ["examplemod:field_basics"],
+  "unlock_mode": "all",
+  "availability": {
+    "server_stock": 4,
+    "restock_after_minecraft_days": 4,
+    "cooldown_minecraft_days": 1,
+    "player_limit": 1,
+    "player_limit_reset": "minecraft_week"
+  },
+  "delivery": "falling_chest",
+  "rewards": [
+    { "item": "minecraft:iron_ingot", "count": 24 },
+    { "item": "minecraft:paper", "count": 16 },
+    { "item": "minecraft:experience_bottle", "count": 4 }
+  ],
+  "reviews": [
+    {
+      "id": "researcher_003",
+      "author": "Researcher 3",
+      "title": "antazon.examplemod.task_reward_crate.review.title",
+      "body": "antazon.examplemod.task_reward_crate.review.body",
+      "rating": 5,
+      "badge": "TASK VERIFIED"
+    }
+  ]
+}

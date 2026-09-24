@@ -1,11 +1,11 @@
 package com.craisinlord.antos.content.client.screen;
 
 import com.craisinlord.antos.AntOS;
-import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
 import com.craisinlord.antos.content.client.ComputerAccessClientState;
 import com.craisinlord.antos.content.client.AntazonClientState;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
 import com.craisinlord.antos.content.client.AntmailClientState;
+import com.craisinlord.antos.content.client.AnternetAccountClientState;
 import com.craisinlord.antos.content.antmail.AntmailAddress;
 import com.craisinlord.antos.content.antmail.AntmailMailbox;
 import com.craisinlord.antos.content.antmail.AntmailMessage;
@@ -16,9 +16,11 @@ import com.craisinlord.antos.content.antmail.AntmailDraft;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.api.client.archive.ArchiveEntityPreviewRegistry;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
-import com.craisinlord.antos.content.network.AntmailResultPayload;
+import com.craisinlord.antos.content.network.AntmailAnternetResultPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 import com.craisinlord.antos.content.network.AntmailNetworking;
+import com.craisinlord.antos.content.network.AnternetAccountNetworking;
+import com.craisinlord.antos.content.network.AnternetAccountResultPayload;
 import com.craisinlord.antos.content.computer.paint.AntPaintCanvas;
 import com.craisinlord.antos.content.computer.paint.AntPaintHistory;
 import com.craisinlord.antos.content.computer.paint.AntPaintTool;
@@ -83,22 +85,33 @@ public final class ComputerScreen extends Screen {
     private static final int WINDOW_CONTROL_COUNT = 3;
     private static final String[] BOOT_MESSAGES = {"ANTS MARCHING...", "COMPUTER COMPUTING...", "HCFS BREWING...", "WAKING THE QUEEN..."};
     private static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
+
+    public static void clearCachedSessions() {
+        SESSIONS.clear();
+    }
     private static final String[] ICONS = {"ARCHIVE", "FILES", "SETTINGS", "TASKS", "TERMINAL", "TEXT", "PAINT", "ANTMAIL", "ANTAZON", "GAMES", "TRASH"};
     private static final Map<String, String> TITLES = Map.ofEntries(Map.entry("ARCHIVE", "ANTARCHIVE"), Map.entry("FILES", "FILE EXPLORER"),
             Map.entry("SETTINGS", "SYSTEM SETTINGS"), Map.entry("WALLPAPERS", "DESKTOP WALLPAPERS"), Map.entry("TASKS", "TASKS"),
             Map.entry("TERMINAL", "ANTOS TERMINAL"), Map.entry("TEXT", "ANTTEXT EDITOR"), Map.entry("PAINT", "ANTPAINT"),
             Map.entry("ANTMAIL", "ANTMAIL"), Map.entry("ANTAZON", "ANTAZON // SUPPLIES"), Map.entry("GAMES", "INSTALLED GAMES"), Map.entry("TRASH", "RECYCLE BIN"));
     private static final Map<ResourceLocation, int[]> WALLPAPER_TEXTURE_SIZES = new HashMap<>();
-    private final net.minecraft.core.BlockPos position;
     private final String sessionKey;
     private final Session session;
     private boolean loggedIn;
-    private String password = "";
-    private String confirmation = "";
-    private boolean confirmingPassword;
-    private boolean restoreWorkspace = true;
     private String loginMessage = "";
     private int loginMessageTicks;
+    private String accountUsername = AntOSSettings.lastAnternetUsername();
+    private String accountPassword = "";
+    private boolean creatingAccount;
+    private boolean accountPasswordFocused;
+    private boolean accountWaiting;
+    private long faceIdStatusAtOpen;
+    private boolean faceIdAutoLoginStarted;
+    private String accountMessage = "SIGN IN OR CREATE AN ACCOUNT";
+    private String faceIdMessage = "";
+    private boolean faceIdWaiting;
+    private long faceIdRevisionAtRequest;
+    private boolean faceIdExpectedLinked;
     private ComputerAccessResultPayload accessResult;
     private int observedResult = -1;
     private Window dragging;
@@ -129,19 +142,27 @@ public final class ComputerScreen extends Screen {
     private final Map<String, LivingEntity> archiveEntityPreviews = new HashMap<>();
     private final Set<String> unavailableArchiveEntities = new HashSet<>();
 
-    public ComputerScreen(net.minecraft.core.BlockPos position) {
+    public ComputerScreen() {
         super(Component.translatable("screen.antos.computer"));
-        this.position = position;
-        String dimension = Minecraft.getInstance().level == null ? "" : Minecraft.getInstance().level.dimension().location().toString();
-        this.sessionKey = dimension + ":" + position.asLong();
+        var accountResult = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
+        this.sessionKey = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
         this.session = SESSIONS.computeIfAbsent(sessionKey, ignored -> new Session());
+        this.loggedIn = accountResult != null && accountResult.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS;
+        if (!loggedIn || AntOSSettings.hasCompletedComputerTour(accountResult.accountId())) {
+            this.session.onboardingCompleted = true;
+            this.session.onboardingStep = -1;
+        } else {
+            this.session.onboardingCompleted = false;
+            this.session.onboardingStep = 0;
+        }
         this.session.antmailPickingAttachment = false;
         this.session.windows.removeIf(window -> window.type.equals("GAMES") && window.gameOpen);
-        if (this.session.bootTicks < 0) this.session.bootTicks = 80;
-        ComputerAccessClientState.clear(position);
-        ComputerNetworking.open(position);
-        this.accessResult = ComputerAccessClientState.get(position);
-        this.loggedIn = accessResult != null && accessResult.authenticated();
+        if (this.session.bootTicks < 0) this.session.bootTicks = AntOSSettings.consumeInitialBoot() ? 80 : 0;
+        ComputerAccessClientState.clear();
+        ComputerNetworking.open();
+        this.accessResult = ComputerAccessClientState.get();
+        faceIdStatusAtOpen = AnternetAccountClientState.faceIdStatusRevision();
+        AnternetAccountNetworking.checkFaceId();
         if (loggedIn) {
             requestAntmailState();
             session.antmailRefreshTicks = 40;
@@ -153,59 +174,53 @@ public final class ComputerScreen extends Screen {
         }
     }
 
+    public static void openComputer() {
+        Minecraft.getInstance().setScreen(new ComputerScreen());
+    }
+
+    public static void openPhone() {
+        Minecraft.getInstance().setScreen(new ComputerScreen());
+    }
+
     @Override
     public void tick() {
         if (session.bootTicks > 0) session.bootTicks--;
         if (loginMessageTicks > 0) loginMessageTicks--;
-        ComputerAccessResultPayload currentResult = ComputerAccessClientState.get(position);
-        if (com.craisinlord.antos.content.client.AntazonClientState.hasWishlistSnapshot(position)) {
+        ComputerAccessResultPayload currentResult = ComputerAccessClientState.get();
+        if (com.craisinlord.antos.content.client.AntazonClientState.hasWishlistSnapshot()) {
             session.antazonWishlist.clear();
-            session.antazonWishlist.addAll(com.craisinlord.antos.content.client.AntazonClientState.wishlist(position));
+            session.antazonWishlist.addAll(com.craisinlord.antos.content.client.AntazonClientState.wishlist());
         }
         if (currentResult != null) {
             accessResult = currentResult;
             if (currentResult.result() != observedResult) {
                 observedResult = currentResult.result();
                 if (currentResult.result() == ComputerAccessResultPayload.SUCCESS) {
-                    loginMessage = "ACCESS GRANTED // WELCOME";
+                    loginMessage = Component.translatable("computer.antos.status.access_granted").getString();
                     loginMessageTicks = 40;
-                } else if (currentResult.result() == ComputerAccessResultPayload.RECOVERY_AVAILABLE) {
-                    restoreWorkspace = true;
-                    loginMessage = "SAVED WORKSPACE FOUND // RESTORE OR START FRESH";
-                    loginMessageTicks = 120;
                 } else if (currentResult.result() == ComputerAccessResultPayload.INVALID_PASSWORD) {
-                    loginMessage = "ACCESS DENIED // PASSWORD REJECTED";
+                    loginMessage = Component.translatable("computer.antos.status.access_denied").getString();
                     loginMessageTicks = 100;
                 } else if (currentResult.result() == ComputerAccessResultPayload.BUSY) {
-                    loginMessage = "TERMINAL BUSY // USER PRESENT";
+                    loginMessage = Component.translatable("computer.antos.status.terminal_busy").getString();
                     loginMessageTicks = 100;
                 }
             }
         }
-        AntmailResultPayload mailResult = AntmailClientState.get(position);
+        AntmailAnternetResultPayload mailResult = AntmailClientState.get();
         syncAntmailPaintAttachment();
         if (loggedIn && --session.antmailRefreshTicks <= 0) {
             requestAntmailState();
             session.antmailRefreshTicks = 40;
         }
+        if (session.antazonWalletRefreshTicks > 0 && --session.antazonWalletRefreshTicks == 0)
+            ComputerNetworking.requestAntazonWallet();
         if (loggedIn && session.windows.stream().anyMatch(window -> window.type.equals("TASKS")) && --taskRefreshTicks <= 0) {
-            ComputerNetworking.requestTasks(position);
+            ComputerNetworking.requestTasks();
             taskRefreshTicks = 40;
         }
-        if (loggedIn && AntmailClientState.getMailbox(position) == null) session.antmailStateWaitTicks++;
+        if (loggedIn && AntmailClientState.getMailbox() == null) session.antmailStateWaitTicks++;
         else session.antmailStateWaitTicks = 0;
-        if (session.antmailRegistrationPending && mailResult != null) {
-            String expectedAddress = session.antmailUsername + "@antmail.com";
-            if (mailResult.address().equalsIgnoreCase(expectedAddress)) {
-                session.antmailStatus = "ADDRESS REGISTERED";
-                session.antmailRegistrationPending = false;
-                requestAntmailState();
-            } else if (mailResult.detail().startsWith("registration_failed:")) {
-                String reason = mailResult.detail().substring("registration_failed:".length()).trim();
-                session.antmailStatus = "ADDRESS REGISTRATION FAILED // " + (reason.isBlank() ? "SERVER REJECTED" : reason.toUpperCase());
-                session.antmailRegistrationPending = false;
-            }
-        }
         if (!session.antmailRetryMessageId.isBlank() && mailResult != null
                 && mailResult != session.antmailRetryBaseline
                 && session.antmailRetryMessageId.equals(mailResult.messageId())
@@ -216,26 +231,57 @@ public final class ComputerScreen extends Screen {
             session.antmailRetryTicks = 0;
             requestAntmailState(true);
         } else if (!session.antmailRetryMessageId.isBlank() && --session.antmailRetryTicks <= 0) {
-            session.antmailStatus = "RETRY TIMED OUT // TRY AGAIN";
+            session.antmailStatus = Component.translatable("computer.antos.status.retry_timed_out").getString();
             session.antmailRetryMessageId = "";
             session.antmailRetryBaseline = null;
             requestAntmailState(true);
         }
-        if (!loggedIn && accessResult != null && accessResult.authenticated()) {
-            loggedIn = true;
-            session.authenticated = true;
-            session.lastUse = System.currentTimeMillis();
-            session.antmailRefreshTicks = 40;
-            requestAntmailState();
+        var accountSession = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
+        if (!loggedIn && !creatingAccount && !accountWaiting && !faceIdAutoLoginStarted
+                && AnternetAccountClientState.faceIdStatusRevision() > faceIdStatusAtOpen) {
+            faceIdAutoLoginStarted = true;
+            if (AnternetAccountClientState.faceIdLinked()) {
+                accountWaiting = true;
+                accountMessage = "SIGNING IN WITH FACE ID...";
+                AnternetAccountClientState.clearResult();
+                AnternetAccountNetworking.faceIdLogin();
+            }
         }
-        if (loggedIn && (accessResult == null || !accessResult.authenticated())) {
+        if (!loggedIn && accountWaiting && accountSession != null) {
+            accountWaiting = false;
+            if (accountSession.result() == AnternetAccountResultPayload.SUCCESS) {
+                AntOSSettings.setLastAnternetUsername(accountSession.username());
+                Minecraft.getInstance().setScreen(new ComputerScreen());
+                return;
+            }
+            accountMessage = switch (accountSession.result()) {
+                case AnternetAccountResultPayload.USERNAME_TAKEN -> "USERNAME UNAVAILABLE";
+                case AnternetAccountResultPayload.INVALID_CREDENTIALS -> "USERNAME OR PASSWORD NOT RECOGNIZED";
+                case AnternetAccountResultPayload.RATE_LIMITED -> "PLEASE WAIT BEFORE TRYING AGAIN";
+                default -> "INVALID DETAILS // CHECK AND RETRY";
+            };
+        }
+        if (loggedIn && faceIdWaiting
+                && AnternetAccountClientState.faceIdStatusRevision() > faceIdRevisionAtRequest) {
+            String error = AnternetAccountClientState.faceIdError();
+            if (!error.isBlank()) {
+                faceIdWaiting = false;
+                faceIdMessage = error;
+            } else if (faceIdLinkedToCurrentAccount() == faceIdExpectedLinked) {
+                faceIdWaiting = false;
+                faceIdMessage = "";
+            }
+        }
+        boolean hasAccountSession = accountSession != null
+                && accountSession.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS;
+        if (loggedIn && !hasAccountSession) {
             loggedIn = false;
             session.authenticated = false;
             session.windows.clear();
             session.antmailPickingAttachment = false;
         }
         if (loggedIn && !session.desktopRequested) {
-            ComputerNetworking.requestDesktopState(position);
+            ComputerNetworking.requestDesktopState();
             session.desktopRequested = true;
         }
         if (currentResult != null && currentResult.data().startsWith("11\u0000")) {
@@ -257,7 +303,7 @@ public final class ComputerScreen extends Screen {
             } catch (RuntimeException ignored) {
             }
         }
-        ComputerAccessResultPayload terminalResult = com.craisinlord.antos.content.client.ComputerTerminalClientState.consume(position);
+        ComputerAccessResultPayload terminalResult = com.craisinlord.antos.content.client.ComputerTerminalClientState.consume();
         if (terminalResult != null) {
             try {
                 var terminal = AntmailWire.decodeTag(terminalResult.data().substring(3));
@@ -267,7 +313,7 @@ public final class ComputerScreen extends Screen {
                 for (int index = 0; index < lines.size(); index++) session.terminalOutput.add(lines.getString(index));
                 String openPath = terminal.getString("Open");
                 if (!openPath.isBlank()) {
-                    ComputerNetworking.openFile(position, openPath);
+                    ComputerNetworking.openFile(openPath);
                     open(openPath.endsWith(".antpaint") ? "PAINT" : "TEXT");
                 }
                 while (session.terminalOutput.size() > 40) session.terminalOutput.remove(0);
@@ -318,39 +364,51 @@ public final class ComputerScreen extends Screen {
 
     private void renderLogin(GuiGraphics g, int l, int t) {
         g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 28, t + 25, GREEN, false);
-        g.drawString(font, Component.literal("BOOT SEQUENCE COMPLETE"), l + 28, t + 43, PALE_GREEN, false);
+        g.drawString(font, Component.literal("ANTERNET // ACCOUNT"), l + 28, t + 43, PALE_GREEN, false);
         g.fill(l + 28, t + 59, l + WIDTH - 28, t + 61, GREEN);
-        ComputerBlockEntity computer = computer();
-        boolean setup = (accessResult != null && !accessResult.hasPassword()) || (computer != null && !computer.hasPassword());
-        boolean recovery = accessResult != null && accessResult.result() == ComputerAccessResultPayload.RECOVERY_AVAILABLE;
-        int formX = setup ? l + 110 : l + 242;
-        int formRight = setup ? l + 330 : l + WIDTH - 28;
-        g.drawString(font, Component.literal(setup ? "INITIALIZE COMPUTER" : "LOGIN REQUIRED"), formX, t + 105, GREEN, false);
-        g.drawString(font, Component.literal(setup ? (confirmingPassword ? "CONFIRM PASSWORD" : "CREATE PASSWORD") : "PASSWORD"), formX, t + 132, PALE_GREEN, false);
-        g.fill(formX, t + 150, formRight, t + 173, BLACK);
-        box(g, formX, t + 150, formRight, t + 173, GREEN);
-        String passwordText = "*".repeat((confirmingPassword ? confirmation : password).length());
-        g.drawString(font, Component.literal(passwordText + (caretVisible() ? "|" : "")), formX + 6, t + 157, GREEN, false);
-        if (hovered(formX, t + 181, setup ? 150 : 100, 24)) drawHover(g, formX, t + 181, setup ? 150 : 100, 24);
-        g.drawString(font, Component.literal(setup ? (confirmingPassword ? "[ ENTER ] CONFIRM" : "[ ENTER ] CONTINUE") : "[ ENTER ] LOGIN"), formX, t + 187, GREEN, false);
-        if (recovery) {
-            g.drawString(font, Component.literal("BACKUP FOUND // TASKS + ARCHIVE"), formX, t + 207, PALE_GREEN, false);
-            int buttonY = t + 218;
-            int buttonWidth = (formRight - formX - 8) / 2;
-            int restoreColor = restoreWorkspace ? GREEN : 0xFF397039;
-            int freshColor = restoreWorkspace ? 0xFF397039 : GREEN;
-            if (hovered(formX, buttonY, buttonWidth, 22)) drawHover(g, formX, buttonY, buttonWidth, 22);
-            if (hovered(formX + buttonWidth + 8, buttonY, formRight - formX - buttonWidth - 8, 22)) drawHover(g, formX + buttonWidth + 8, buttonY, formRight - formX - buttonWidth - 8, 22);
-            box(g, formX, buttonY, formX + buttonWidth, buttonY + 22, restoreColor);
-            box(g, formX + buttonWidth + 8, buttonY, formRight, buttonY + 22, freshColor);
-            g.drawCenteredString(font, Component.literal("[ RESTORE ]"), formX + buttonWidth / 2, buttonY + 7, restoreColor);
-            g.drawCenteredString(font, Component.literal("[ FRESH START ]"), formX + buttonWidth + 8 + (formRight - formX - buttonWidth - 8) / 2, buttonY + 7, freshColor);
-            g.drawString(font, Component.literal("[ ESC ] POWER DOWN"), formX, t + 248, PALE_GREEN, false);
-            if (loginMessageTicks > 0) wrapLimited(g, loginMessage, formX, t + 264, 220, t + HEIGHT - 8, PALE_GREEN);
-        } else {
-            g.drawString(font, Component.literal("[ ESC ] POWER DOWN"), formX, t + 205, PALE_GREEN, false);
-            if (loginMessageTicks > 0) wrapLimited(g, loginMessage, formX, t + 232, setup ? 220 : 165, t + HEIGHT - 8, PALE_GREEN);
-        }
+        int buttonX = l + WIDTH / 2 - 70;
+        loginButton(g, buttonX, t + 70, 66, 20, "LOG IN", !creatingAccount);
+        loginButton(g, buttonX + 74, t + 70, 66, 20, "CREATE", creatingAccount);
+        g.drawString(font, Component.literal("USERNAME"), l + 28, t + 99, PALE_GREEN, false);
+        g.fill(l + 28, t + 109, l + WIDTH - 28, t + 132, BLACK);
+        box(g, l + 28, t + 109, l + WIDTH - 28, t + 132, accountPasswordFocused ? 0xFF527952 : GREEN);
+        g.drawString(font, Component.literal(accountUsername + (accountPasswordFocused ? "" : "_")), l + 34, t + 117, PALE_GREEN, false);
+        g.drawString(font, Component.literal("PASSWORD"), l + 28, t + 140, PALE_GREEN, false);
+        g.fill(l + 28, t + 150, l + WIDTH - 28, t + 173, BLACK);
+        box(g, l + 28, t + 150, l + WIDTH - 28, t + 173, accountPasswordFocused ? GREEN : 0xFF527952);
+        g.drawString(font, Component.literal("*".repeat(accountPassword.length()) + (accountPasswordFocused ? "_" : "")), l + 34, t + 158, PALE_GREEN, false);
+        loginButton(g, buttonX, t + 184, 140, 22, accountWaiting ? "CONNECTING..." : creatingAccount ? "CREATE ACCOUNT" : "SIGN IN", true);
+        g.drawCenteredString(font, Component.literal(accountMessage), l + WIDTH / 2, t + 218,
+                accountMessage.contains("UNAVAILABLE") || accountMessage.contains("NOT RECOGNIZED") ? 0xFFFF7777 : PALE_GREEN);
+        g.drawCenteredString(font, Component.literal("Turn on FACE ID in settings to skip login"), l + WIDTH / 2, t + HEIGHT - 14, PALE_GREEN);
+    }
+
+    private void submitFaceIdLink() {
+        faceIdWaiting = true;
+        faceIdExpectedLinked = true;
+        faceIdRevisionAtRequest = AnternetAccountClientState.faceIdStatusRevision();
+        faceIdMessage = "LINKING PLAYER...";
+        AnternetAccountNetworking.linkFaceId("");
+    }
+
+    private void loginButton(GuiGraphics g, int x, int y, int width, int height, String label, boolean selected) {
+        if (hovered(x, y, width, height)) drawHover(g, x, y, width, height);
+        box(g, x, y, x + width, y + height, selected || hovered(x, y, width, height) ? GREEN : 0xFF527952);
+        g.drawCenteredString(font, Component.literal(label), x + width / 2, y + (height - 8) / 2, selected ? GREEN : PALE_GREEN);
+    }
+
+    private void submitAccount() {
+        if (accountWaiting) return;
+        String username = accountUsername.trim();
+        if (username.length() < 3) { accountMessage = "USERNAME NEEDS AT LEAST 3 CHARACTERS"; return; }
+        if (accountPassword.isEmpty()) { accountMessage = "PASSWORD CANNOT BE EMPTY"; return; }
+        accountWaiting = true;
+        accountMessage = creatingAccount ? "CREATING ACCOUNT..." : "SIGNING IN...";
+        AnternetAccountClientState.clear();
+        AnternetAccountNetworking.checkFaceId();
+        if (creatingAccount) AnternetAccountNetworking.create(username, accountPassword);
+        else AnternetAccountNetworking.login(username, accountPassword);
+        accountPassword = "";
     }
 
     private void renderDesktop(GuiGraphics g, int l, int t, int mouseX, int mouseY) {
@@ -394,9 +452,8 @@ public final class ComputerScreen extends Screen {
         List<String> apps = onboardingApps();
         int appStep = session.onboardingStep - 1;
         boolean welcome = session.onboardingStep == 0;
-        boolean antmailPrompt = AntOSSettings.appEnabled("ANTMAIL") && session.onboardingStep == apps.size() + 1;
         g.fill(l + 9, t + 34, l + WIDTH - 9, t + HEIGHT - 9, 0xC4000000);
-        if (!welcome && !antmailPrompt && appStep >= 0 && appStep < apps.size()) {
+        if (!welcome && appStep >= 0 && appStep < apps.size()) {
             String app = apps.get(appStep);
             int desktopIndex = desktopApps().indexOf(app);
             if (desktopIndex >= 0) {
@@ -453,17 +510,6 @@ public final class ComputerScreen extends Screen {
             onboardingButton(g, panelX + panelW - 110, actionY, 88, "[ SKIP ]", hovered(panelX + panelW - 110, actionY, 88, 22));
             return;
         }
-        if (antmailPrompt) {
-            boolean ready = onboardingAntmailReady();
-            g.drawString(font, Component.literal("SET UP ANTMAIL"), contentX, panelY + 43, GREEN, false);
-            g.drawString(font, Component.literal(ready ? "YOUR ADDRESS IS READY" : "YOUR INBOX"), contentX, panelY + 62, PALE_GREEN, false);
-            wrap(g, ready ? "Antmail is already configured on this computer. Open it to read messages and manage your address." : "Receive task rewards, world events, tips, and messages from other players at your own Antmail address.", contentX, panelY + 91, panelW - 44, PALE_GREEN);
-            g.drawString(font, Component.literal(ready ? "YOU CAN CHANGE THIS LATER FROM THE ANTMAIL APP." : "YOU CAN DO THIS LATER FROM THE ANTMAIL APP."), contentX, panelY + 145, GREEN, false);
-            g.drawString(font, Component.literal("FINAL STEP // ANTMAIL"), contentX, panelY + 166, PALE_GREEN, false);
-            onboardingButton(g, contentX, actionY, 152, ready ? "[ OPEN ANTMAIL ]" : "[ CREATE ANTMAIL ]", hovered(contentX, actionY, 152, 22));
-            onboardingButton(g, panelX + panelW - 110, actionY, 88, "[ LATER ]", hovered(panelX + panelW - 110, actionY, 88, 22));
-            return;
-        }
         finishOnboarding();
     }
 
@@ -484,17 +530,12 @@ public final class ComputerScreen extends Screen {
         return desktopIndex / 4 < 2 ? top + 126 : top + 43;
     }
 
-    private boolean onboardingAntmailReady() {
-        AntmailMailbox mailbox = mailbox(AntmailClientState.getMailbox(position));
-        return mailbox != null && mailbox.address() != null && !mailbox.address().fullAddress().isBlank();
-    }
-
     private String onboardingAppTitle(String app) {
         return switch (app) {
             case "ARCHIVE" -> "LEARN ABOUT THE WORLD";
             case "TASKS" -> "TRACK YOUR TASKS";
             case "ANTMAIL" -> "STAY CONNECTED";
-            case "ANTAZON" -> "SHOP FOR SUPPLIES";
+            case "ANTAZON" -> "BUY AND SELL THROUGH ANTAZON";
             case "SETTINGS" -> "CUSTOMIZE ANTOS";
             case "TERMINAL" -> "RUN COMMANDS";
             case "TEXT" -> "WRITE DOCUMENTS";
@@ -511,7 +552,7 @@ public final class ComputerScreen extends Screen {
             case "ARCHIVE" -> "Discover creatures, items, recipes, and locations. Insert floppy disks to unlock new entries and wallpapers.";
             case "TASKS" -> "Follow tasks, watch your progress, and earn useful rewards as you play.";
             case "ANTMAIL" -> "Read messages, receive task rewards, and send notes or attachments to other AntOS users.";
-            case "ANTAZON" -> "Browse supplies, save products, and order useful items for delivery.";
+            case "ANTAZON" -> "Buy supplies with Antcoins, or sell eligible items from a nearby chest to earn Antcoins. Deliveries include a chest for your next shipment.";
             case "SETTINGS" -> "Change wallpapers, manage installed disks, and adjust computer options.";
             case "TERMINAL" -> "Use commands to work with files and perform computer actions directly.";
             case "TEXT" -> "Write, edit, and save plain text documents.";
@@ -544,7 +585,7 @@ public final class ComputerScreen extends Screen {
     }
 
     private boolean antmailHasUnreadMessages() {
-        AntmailResultPayload result = AntmailClientState.getMailbox(position);
+        AntmailAnternetResultPayload result = AntmailClientState.getMailbox();
         AntmailMailbox mailbox = mailbox(result);
         return mailbox != null && mailbox.unreadCount() > 0;
     }
@@ -859,19 +900,19 @@ public final class ComputerScreen extends Screen {
     private void renderTasks(GuiGraphics g, int x, int y, int w, int h) {
         taskArchiveButtons.clear();
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> allRows =
-                com.craisinlord.antos.content.client.ComputerTasksClientState.get(position);
+                com.craisinlord.antos.content.client.ComputerTasksClientState.get();
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> visibleRows = allRows.stream()
                 .filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::visible).toList();
-        if (!com.craisinlord.antos.content.client.ComputerTasksClientState.hasSnapshot(position)) {
-            g.drawString(font, Component.literal("INDEX"), x + 5, y + 3, PALE_GREEN, false);
+        if (!com.craisinlord.antos.content.client.ComputerTasksClientState.hasSnapshot()) {
+            g.drawString(font, Component.literal("TASKS"), x + 5, y + 3, PALE_GREEN, false);
             g.fill(x + 2, y + 17, x + 80, y + 18, GREEN);
-            g.drawString(font, Component.literal("SYNCHRONIZING FIELD RECORDS..."), x + 96, y + 20, GREEN, false);
-            g.drawString(font, Component.literal("WAITING FOR COMPUTER DATABASE"), x + 96, y + 38, PALE_GREEN, false);
+            g.drawString(font, Component.literal("TASKS ARE LOADING..."), x + 96, y + 20, GREEN, false);
+            g.drawString(font, Component.literal("WAITING FOR THE COMPUTER"), x + 96, y + 38, PALE_GREEN, false);
             return;
         }
-        if (com.craisinlord.antos.content.client.ComputerTasksClientState.hasError(position)) {
-            g.drawString(font, Component.literal("TASK INDEX EXCEEDS SYNC LIMIT"), x + 96, y + 20, GREEN, false);
-            g.drawString(font, Component.literal("PACK AUTHOR: CHECK SERVER LOG"), x + 96, y + 38, PALE_GREEN, false);
+        if (com.craisinlord.antos.content.client.ComputerTasksClientState.hasError()) {
+            g.drawString(font, Component.literal("TASK LIST TOO LARGE TO LOAD"), x + 96, y + 20, GREEN, false);
+            g.drawString(font, Component.literal("ASK THE PACK AUTHOR FOR HELP"), x + 96, y + 38, PALE_GREEN, false);
             return;
         }
         List<String> categories = visibleRows.stream().map(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::category)
@@ -879,19 +920,26 @@ public final class ComputerScreen extends Screen {
         if (selectedTaskCategory.isBlank() || !categories.contains(selectedTaskCategory)) {
             selectedTaskCategory = categories.isEmpty() ? "" : categories.get(0);
         }
-        int sidebarWidth = 82;
+        int sidebarWidth = 102;
         int sidebarRight = x + sidebarWidth;
         g.fill(x, y, sidebarRight, y + h, 0xFF071007);
         g.fill(sidebarRight, y, sidebarRight + 1, y + h, GREEN);
-        int categoriesVisible = Math.max(1, (h - 28) / 19);
+        g.drawString(font, Component.literal("CATEGORIES"), x + 6, y + 3, GREEN, false);
+        g.fill(x + 5, y + 14, sidebarRight - 5, y + 15, DARK_GREEN);
+        int categoriesVisible = Math.max(1, (h - 32) / 19);
         taskCategoryScroll = Math.max(0, Math.min(taskCategoryScroll, Math.max(0, categories.size() - categoriesVisible)));
-        int categoryY = y + 18;
+        int categoryY = y + 20;
         for (int categoryIndex = taskCategoryScroll; categoryIndex < categories.size() && categoryIndex < taskCategoryScroll + categoriesVisible; categoryIndex++) {
             String category = categories.get(categoryIndex);
             boolean selected = category.equals(selectedTaskCategory);
             if (selected || hovered(x + 2, categoryY - 2, sidebarWidth - 4, 16)) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY + 14, HOVER_FILL);
             String label = Component.translatable(categoryTitleKey(category)).getString();
-            g.drawString(font, Component.literal(trimToWidth(label.toUpperCase(Locale.ROOT), sidebarWidth - 12)), x + 6, categoryY, selected ? GREEN : 0xFF87B787, false);
+            int categoryCount = (int) visibleRows.stream().filter(task -> task.category().equals(category)).count();
+            int completeCount = (int) visibleRows.stream().filter(task -> task.category().equals(category) && task.complete()).count();
+            String count = completeCount + "/" + categoryCount;
+            int categoryLabelWidth = Math.max(1, sidebarWidth - font.width(count) - 18);
+            g.drawString(font, Component.literal(trimToWidth(label.toUpperCase(Locale.ROOT), categoryLabelWidth)), x + 6, categoryY, selected ? GREEN : 0xFF87B787, false);
+            g.drawString(font, Component.literal(count), sidebarRight - font.width(count) - 6, categoryY, selected ? PALE_GREEN : 0xFF638063, false);
             categoryY += 19;
             if (categoryY > y + h - 12) break;
         }
@@ -910,15 +958,26 @@ public final class ComputerScreen extends Screen {
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> categoryRows = visibleRows.stream()
                 .filter(task -> task.category().equals(selectedTaskCategory)).toList();
         int mapX = sidebarRight + 9;
-        int mapY = y + 20;
+        int mapY = y + 30;
         int mapW = w - sidebarWidth - 9;
-        int mapH = h - 25;
-        String categoryLabel = Component.translatable(categoryTitleKey(selectedTaskCategory)).getString().toUpperCase(Locale.ROOT);
-        g.drawString(font, Component.literal(trimToWidth(categoryLabel, mapW - 78)), mapX, y + 3, GREEN, false);
+        int mapH = Math.max(1, h - 48);
         String progressLabel = categoryRows.stream().filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::complete).count()
-                + "/" + categoryRows.size() + " FILED";
-        g.drawString(font, Component.literal(progressLabel), mapX + Math.max(0, mapW - 70), y + 3, PALE_GREEN, false);
+                + "/" + categoryRows.size() + " COMPLETE";
+        String categoryLabel = Component.translatable(categoryTitleKey(selectedTaskCategory)).getString().toUpperCase(Locale.ROOT);
+        g.drawString(font, Component.literal(trimToWidth(categoryLabel, Math.max(1, mapW - font.width(progressLabel) - 8))), mapX, y + 3, GREEN, false);
+        g.drawString(font, Component.literal(progressLabel), mapX + Math.max(0, mapW - font.width(progressLabel)), y + 3, PALE_GREEN, false);
+        int legendX = mapX;
+        String[] legendLabels = {"DONE", "AVAILABLE", "LOCKED"};
+        int[] legendColors = {PALE_GREEN, GREEN, 0xFF638063};
+        for (int i = 0; i < legendLabels.length; i++) {
+            g.fill(legendX, y + 17, legendX + 5, y + 22, legendColors[i]);
+            g.drawString(font, Component.literal(legendLabels[i]), legendX + 8, y + 16, legendColors[i], false);
+            legendX += 8 + font.width(legendLabels[i]) + 11;
+        }
         enableComputerScissor(g, mapX, mapY, mapX + mapW, mapY + mapH);
+        int[] mapScrollLimits = taskMapScrollLimits(categoryRows, mapX, mapY, mapW, mapH);
+        taskMapScrollX = Math.min(taskMapScrollX, mapScrollLimits[0]);
+        taskMapScrollY = Math.min(taskMapScrollY, mapScrollLimits[1]);
         List<TaskNode> nodes = taskNodes(categoryRows, mapX, mapY, taskMapScrollX, taskMapScrollY);
         Map<String, TaskNode> nodesById = new HashMap<>();
         for (TaskNode node : nodes) nodesById.put(node.task().id(), node);
@@ -928,15 +987,14 @@ public final class ComputerScreen extends Screen {
                 if (parent != null) renderTaskConnection(g, parent, node, parent.task().complete());
             }
         }
-        for (TaskNode node : nodes) renderTaskNode(g, node);
+        for (TaskNode node : nodes) renderTaskNode(g, node, mapX, mapY, mapX + mapW, mapY + mapH);
         g.disableScissor();
-        g.drawString(font, Component.literal("CLICK A TILE FOR DETAILS  //  SCROLL TO EXPLORE"), mapX, y + h - 12, PALE_GREEN, false);
+        g.drawString(font, Component.literal(trimToWidth("SELECT TASK  //  SCROLL TO EXPLORE  //  SHIFT + SCROLL: SIDEWAYS", mapW)), mapX, y + h - 12, PALE_GREEN, false);
     }
 
     private Set<ResourceLocation> unlockedTaskArchiveIds(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task) {
-        ComputerBlockEntity computer = computer();
-        Set<ResourceLocation> diskIds = computer == null ? Set.of() : Set.copyOf(computer.diskIds());
-        Set<ResourceLocation> unlocked = Set.copyOf(com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position));
+        Set<ResourceLocation> diskIds = Set.copyOf(workspaceDiskIds());
+        Set<ResourceLocation> unlocked = Set.copyOf(com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get());
         if (task.id().equals(taskArchiveCacheId) && diskIds.equals(taskArchiveCacheDisks)
                 && unlocked.equals(taskArchiveCacheUnlocks)) return taskArchiveCacheVisible;
         Set<ResourceLocation> available = new HashSet<>();
@@ -950,19 +1008,32 @@ public final class ComputerScreen extends Screen {
 
     private void renderTaskDetail(GuiGraphics g, com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task,
                                   int x, int y, int w, int h, Set<ResourceLocation> unlockedArchiveIds) {
-        if (hovered(x - 2, y, 100, 16)) drawHover(g, x - 2, y, 100, 16);
-        g.drawString(font, Component.literal("< FIELD MAP"), x, y + 3, GREEN, false);
+        if (hovered(x - 2, y, 105, 16)) drawHover(g, x - 2, y, 105, 16);
+        g.drawString(font, Component.literal("< BACK TO MAP"), x, y + 3, GREEN, false);
+        String taskState = task.complete() ? "COMPLETE" : task.available() ? "AVAILABLE" : "LOCKED";
+        g.drawString(font, Component.literal(taskState), x + w - font.width(taskState), y + 3,
+                task.complete() ? PALE_GREEN : task.available() ? GREEN : 0xFF638063, false);
         g.fill(x, y + 17, x + w, y + 19, GREEN);
+        enableComputerScissor(g, x, y + 19, x + w, y + h - 17);
         int line = y + 25 - taskDetailScroll;
+        line = renderTaskSectionLabel(g, "OVERVIEW", x, line, w) + 3;
         line = wrap(g, Component.translatable(task.title()), x, line, w, task.complete() ? PALE_GREEN : GREEN) + 4;
         line = wrap(g, Component.translatable(task.description()), x, line, w, PALE_GREEN) + 5;
-        String status = task.complete() ? "FILE COMPLETE" : task.available() ? "IN PROGRESS" : "AWAITING PREVIOUS FILES";
-        status += task.total() == 0 ? " // NO REQUIRED OBJECTIVES" : " // " + task.done() + "/" + task.total() + " OBJECTIVES";
-        line = wrap(g, status, x, line, w, GREEN) + 5;
+        line = renderTaskSectionLabel(g, "PROGRESS", x, line, w) + 3;
+        String progress = task.total() == 0 ? "NO OBJECTIVES REQUIRED" : task.done() + " OF " + task.total() + " OBJECTIVES COMPLETE";
+        line = wrap(g, progress, x, line, w, GREEN) + 3;
+        if (task.total() > 0) {
+            int barY = line;
+            int barWidth = Math.max(1, w - 2);
+            g.fill(x, barY, x + barWidth, barY + 4, DARK_GREEN);
+            int filled = (int) ((long) barWidth * task.done() / task.total());
+            if (filled > 0) g.fill(x, barY, x + filled, barY + 4, task.complete() ? PALE_GREEN : GREEN);
+            line += 8;
+        }
         if (!task.requires().isEmpty()) {
-            line = wrap(g, "PREVIOUS FILES", x, line, w, GREEN) + 2;
+            line = renderTaskSectionLabel(g, "PREREQUISITES", x, line, w) + 3;
             List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> allRows =
-                    com.craisinlord.antos.content.client.ComputerTasksClientState.get(position);
+                    com.craisinlord.antos.content.client.ComputerTasksClientState.get();
             for (String requiredId : task.requires()) {
                 var required = allRows.stream().filter(candidate -> candidate.id().equals(requiredId)
                         && candidate.visible()).findFirst().orElse(null);
@@ -972,15 +1043,19 @@ public final class ComputerScreen extends Screen {
             }
             line += 3;
         }
+        if (!task.objectives().isEmpty()) line = renderTaskSectionLabel(g, "OBJECTIVES", x, line, w) + 3;
         for (var objective : task.objectives()) {
             boolean done = objective.progress() >= objective.count();
             String label = Component.translatable(objective.description()).getString();
-            line = wrap(g, (done ? "[X] " : "[ ] ") + label + "  " + objective.progress() + "/" + objective.count(),
+            line = wrap(g, (done ? "[X] " : "[ ] ") + objective.progress() + "/" + objective.count() + "  " + label,
                     x + 2, line, w - 4, done ? PALE_GREEN : GREEN) + 3;
         }
         line += 4;
-        if (task.hasRewards()) line = wrap(g, "REWARD // EXPRESS SHIPPED FROM ANTAZON", x, line, w, PALE_GREEN) + 4;
-        if (!task.archiveEntries().isEmpty()) line = wrap(g, "RELATED ARCHIVE FILES", x, line, w, GREEN) + 2;
+        if (task.hasRewards()) {
+            line = renderTaskSectionLabel(g, "REWARD", x, line, w) + 3;
+            line = wrap(g, "EXPRESS SHIPPED FROM ANTAZON", x, line, w, PALE_GREEN) + 4;
+        }
+        if (!task.archiveEntries().isEmpty()) line = renderTaskSectionLabel(g, "RELATED ARCHIVE FILES", x, line, w) + 3;
         for (String archiveValue : task.archiveEntries()) {
             ResourceLocation archiveId;
             try { archiveId = ResourceLocation.parse(archiveValue); } catch (RuntimeException ignored) { continue; }
@@ -989,17 +1064,29 @@ public final class ComputerScreen extends Screen {
             int buttonY = line - 2;
             boolean unlocked = unlockedArchiveIds.contains(archiveId);
             if (unlocked) {
-                taskArchiveButtons.add(new TaskArchiveButton(archiveId, x + 1, buttonY, x + w - 1, buttonY + 13));
+                if (buttonY >= y + 19 && buttonY + 13 <= y + h - 17) {
+                    taskArchiveButtons.add(new TaskArchiveButton(archiveId, x + 1, buttonY, x + w - 1, buttonY + 13));
+                }
                 if (hovered(x + 1, buttonY, w - 2, 13)) drawHover(g, x + 1, buttonY, w - 2, 13);
             }
             line = wrap(g, (unlocked ? "ARCHIVE // " : "ARCHIVE LOCKED // ") + label,
                     x + 2, line, w - 4, unlocked ? PALE_GREEN : 0xFF638063) + 2;
         }
-        if (line - taskDetailScroll > y + h - 12) g.drawString(font, Component.literal("SCROLL FOR DETAILS"), x + w - 122, y + h - 12, PALE_GREEN, false);
+        g.disableScissor();
+        int contentBottom = line + taskDetailScroll;
+        int maximumScroll = Math.max(0, contentBottom - (y + h - 22));
+        taskDetailScroll = Math.min(taskDetailScroll, maximumScroll);
+        if (maximumScroll > 0) g.drawString(font, Component.literal("SCROLL FOR DETAILS"), x + w - 122, y + h - 12, PALE_GREEN, false);
+    }
+
+    private int renderTaskSectionLabel(GuiGraphics g, String label, int x, int y, int width) {
+        g.drawString(font, Component.literal(label), x, y, GREEN, false);
+        g.fill(x, y + 10, x + width, y + 11, DARK_GREEN);
+        return y + 13;
     }
 
     private List<String> visibleTaskCategories() {
-        return com.craisinlord.antos.content.client.ComputerTasksClientState.get(position).stream()
+        return com.craisinlord.antos.content.client.ComputerTasksClientState.get().stream()
                 .filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::visible)
                 .map(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::category).distinct().sorted().toList();
     }
@@ -1040,6 +1127,14 @@ public final class ComputerScreen extends Screen {
         return result;
     }
 
+    private int[] taskMapScrollLimits(List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> tasks,
+                                      int mapX, int mapY, int mapW, int mapH) {
+        List<TaskNode> nodes = taskNodes(tasks, mapX, mapY, 0, 0);
+        int right = nodes.stream().mapToInt(TaskNode::right).max().orElse(mapX + mapW);
+        int bottom = nodes.stream().mapToInt(node -> node.bottom() + 12).max().orElse(mapY + mapH);
+        return new int[]{Math.max(0, right - (mapX + mapW - 8)), Math.max(0, bottom - (mapY + mapH - 8))};
+    }
+
     private int taskDepth(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task,
                           Map<String, com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> byId,
                           Map<String, Integer> cache, Set<String> visiting) {
@@ -1062,7 +1157,7 @@ public final class ComputerScreen extends Screen {
         g.fill(Math.min(mid, x2), y2 - 1, Math.max(mid, x2) + 1, y2 + 1, color);
     }
 
-    private void renderTaskNode(GuiGraphics g, TaskNode node) {
+    private void renderTaskNode(GuiGraphics g, TaskNode node, int mapLeft, int mapTop, int mapRight, int mapBottom) {
         var task = node.task();
         int border = task.complete() ? PALE_GREEN : task.available() ? GREEN : 0xFF476047;
         boolean isHovered = hovered(node.left(), node.top(), node.right() - node.left(), node.bottom() - node.top());
@@ -1072,15 +1167,18 @@ public final class ComputerScreen extends Screen {
         g.fill(node.left(), node.top(), node.right(), node.bottom(), border);
         g.fill(node.left() + 2, node.top() + 2, node.right() - 2, node.bottom() - 2, task.available() ? 0xFF0B180B : 0xFF080D08);
         renderTaskIcon(g, task, node.left() + TASK_NODE_SIZE / 2, node.top() + TASK_NODE_SIZE / 2);
-        String state = task.complete() ? "FILED" : task.available() ? task.done() + "/" + task.total() : "LOCKED";
+        String state = task.complete() ? "DONE" : task.available() ? task.done() + "/" + task.total() : "LOCKED";
         int stateColor = task.available() || task.complete() ? PALE_GREEN : 0xFF638063;
         if (isHovered) {
             String title = trimToWidth(Component.translatable(task.title()).getString(), 120);
             int titleWidth = font.width(title) + 8;
-            int titleX = node.right() + 5;
-            g.fill(titleX - 2, node.top() - 2, titleX + titleWidth, node.top() + 11, 0xFF071007);
-            box(g, titleX - 2, node.top() - 2, titleX + titleWidth, node.top() + 11, GREEN);
-            g.drawString(font, Component.literal(title), titleX + 2, node.top() + 1, border, false);
+            int tooltipX = node.right() + 5;
+            if (tooltipX + titleWidth > mapRight - 2) tooltipX = node.left() - titleWidth - 5;
+            tooltipX = Math.max(mapLeft + 2, Math.min(tooltipX, mapRight - titleWidth - 2));
+            int tooltipY = Math.max(mapTop + 2, Math.min(node.top() - 2, mapBottom - 13));
+            g.fill(tooltipX - 2, tooltipY, tooltipX + titleWidth, tooltipY + 13, 0xFF071007);
+            box(g, tooltipX - 2, tooltipY, tooltipX + titleWidth, tooltipY + 13, GREEN);
+            g.drawString(font, Component.literal(title), tooltipX + 2, tooltipY + 2, border, false);
         }
         g.drawString(font, Component.literal(state), node.left() + (TASK_NODE_SIZE - font.width(state)) / 2, node.bottom() + 3, stateColor, false);
     }
@@ -1125,10 +1223,8 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderArchive(GuiGraphics g, int x, int y, int w, int h, boolean maximized) {
-        List<ComputerGuideData.Entry> entries = List.of();
-        if (Minecraft.getInstance().level != null && Minecraft.getInstance().level.getBlockEntity(position) instanceof ComputerBlockEntity computer) {
-            entries = ComputerGuideData.entriesFor(computer.diskIds(), com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position));
-        }
+        List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(workspaceDiskIds(),
+                com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get());
 
         ComputerGuideData.Entry selected = null;
         if (session.archiveEntryId != null) {
@@ -1154,7 +1250,9 @@ public final class ComputerScreen extends Screen {
             if (!selected.recipeId().isBlank()) line = renderArchiveRecipe(g, selected.recipeId(), x, line, w) + 2;
             if (!selected.structureId().isBlank()) {
                 line = wrap(g, "STRUCTURE // " + selected.structureId(), x, line, w, PALE_GREEN) + 2;
-                line = wrap(g, com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.get(position), x, line, w, GREEN) + 2;
+                line = wrap(g, com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.get(), x, line, w, GREEN) + 2;
+            } else if (!selected.locatorId().isBlank()) {
+                line = wrap(g, com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.get(), x, line, w, GREEN) + 2;
             }
             if (!selected.dimensionId().isBlank()) line = wrap(g, "DIMENSION // " + selected.dimensionId(), x, line, w, PALE_GREEN);
             g.disableScissor();
@@ -1487,42 +1585,182 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderFileExplorer(GuiGraphics g, int x, int y, int w, int h) {
-        var files = ComputerFileSystemClientState.get(position).files();
-        g.drawString(font, Component.literal("FILE EXPLORER // " + trimToWidth(session.fileExplorerDirectory, w - 4)), x, y, GREEN, false);
-        if (!session.fileExplorerDirectory.equals("/") && hovered(x + w - 44, y - 3, 44, 16)) drawHover(g, x + w - 44, y - 3, 44, 16);
-        if (!session.fileExplorerDirectory.equals("/")) g.drawString(font, Component.literal("[ UP ]"), x + w - 40, y, GREEN, false);
-        g.drawString(font, Component.literal("TYPE                 PATH             SIZE"), x, y + 18, PALE_GREEN, false);
-        int line = y + 34;
-        int fileIndex = 0;
-        for (String file : files) {
-            String[] fields = file.split("\\t", 3);
-            if (fields.length < 3 || !isDirectChild(fields[1], session.fileExplorerDirectory)) continue;
-            if (fileIndex++ < session.fileExplorerScroll || line > y + h - 32) continue;
-            boolean selected = fields[1].equals(session.fileExplorerSelected);
-            boolean hover = hovered(x - 3, line - 2, w, 14);
-            if (selected || hover) g.fill(x - 3, line - 2, x + w - 3, line + 11, selected ? HOVER_FILL : HOVER_FILL);
-            g.drawString(font, Component.literal(fileIcon(fields[0]) + " " + trimToWidth(fields[0], 30)), x, line, PALE_GREEN, false);
-            g.drawString(font, Component.literal(trimToWidth(fields[1], 112)), x + 42, line, GREEN, false);
-            g.drawString(font, Component.literal(trimToWidth(fields[2], 28)), x + w - 28, line, PALE_GREEN, false);
-            line += 14;
+        var state = ComputerFileSystemClientState.get();
+        List<String[]> rows = fileExplorerRows();
+        int rowTop = y + 57;
+        int rowBottom = y + h - 39;
+        int visible = Math.max(1, (rowBottom - rowTop) / 14);
+        int maximum = Math.max(0, rows.size() - visible);
+        session.fileExplorerMaximumScroll = maximum;
+        session.fileExplorerScroll = Math.max(0, Math.min(maximum, session.fileExplorerScroll));
+        g.drawString(font, Component.literal("FILE EXPLORER"), x, y, GREEN, false);
+        drawFileExplorerBreadcrumbs(g, x, y + 12, w);
+        String[] labels = {"NEW", "MOVE", "RENAME", "DELETE", "REFRESH"};
+        int[] widths = {34, 36, 42, 40, 48};
+        int actionX = x;
+        boolean hasSelection = fileExplorerSelectionMutable();
+        for (int index = 0; index < labels.length; index++) {
+            boolean enabled = index == 0 || index == 4 || hasSelection;
+            drawFileExplorerButton(g, actionX, y + 25, widths[index], labels[index], enabled);
+            actionX += widths[index] + 2;
         }
-        if (line == y + 34) g.drawString(font, Component.literal("NO FILES // OPEN TERMINAL TO CREATE ONE"), x, y + 38, PALE_GREEN, false);
-        else {
-            var state = ComputerFileSystemClientState.get(position);
-            String footer = session.fileExplorerCreatingDirectory ? "NEW FOLDER: " + session.fileExplorerRename + "_"
-                    : session.fileExplorerMoving ? "MOVE TO PATH: " + session.fileExplorerRename + "_"
-                    : session.fileExplorerRenaming ? "RENAME: " + session.fileExplorerRename + "_"
-                    : session.fileExplorerDeleteConfirm ? "DELETE SELECTED FILE? [ ENTER / ESC ]" : "[ CTRL+N NEW ] [ CTRL+M MOVE ] [ DEL ] [ CTRL+R RENAME ]";
-            if (state.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_DELETE
-                    || state.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_MOVE) {
-                footer += state.lastMutationSuccess() ? " // OK" : " // ERR: " + state.lastMutationError();
+        g.fill(x, y + 43, x + w, y + 44, DARK_GREEN);
+        g.drawString(font, Component.literal("TYPE  NAME"), x + 2, y + 47, GREEN, false);
+        String sizeHeader = "SIZE";
+        g.drawString(font, Component.literal(sizeHeader), x + w - font.width(sizeHeader) - 8, y + 47, GREEN, false);
+        drawScrollbar(g, x + w - 4, rowTop, Math.max(1, rowBottom - rowTop), visible, rows.size(), session.fileExplorerScroll, maximum);
+        for (int index = session.fileExplorerScroll; index < rows.size() && index < session.fileExplorerScroll + visible; index++) {
+            String[] fields = rows.get(index);
+            int line = rowTop + (index - session.fileExplorerScroll) * 14;
+            boolean selected = fields[1].equals(session.fileExplorerSelected);
+            boolean hover = hovered(x, line - 2, w - 6, 13);
+            if (selected || hover) g.fill(x, line - 2, x + w - 6, line + 11, selected ? 0xFF204820 : HOVER_FILL);
+            String icon = fields[0].equals("DIRECTORY") ? "[D]" : fields[0].equals("TEXT") ? "[T]" : "[I]";
+            String name = fields[1].substring(fields[1].lastIndexOf('/') + 1);
+            String size = trimToWidth(fields[2], 32);
+            int sizeWidth = font.width(size);
+            g.drawString(font, Component.literal(icon), x + 2, line, fields[0].equals("DIRECTORY") ? GREEN : PALE_GREEN, false);
+            g.drawString(font, Component.literal(trimToWidth(name, Math.max(12, w - sizeWidth - 48))), x + 26, line,
+                    selected ? PALE_GREEN : GREEN, false);
+            g.drawString(font, Component.literal(size), x + w - sizeWidth - 8, line, PALE_GREEN, false);
+        }
+        if (rows.isEmpty()) {
+            String message = !state.success() && state.error().isBlank() ? "SYNCING FILES..."
+                    : !state.error().isBlank() ? "COULD NOT LOAD // " + state.error() : "THIS FOLDER IS EMPTY";
+            g.drawString(font, Component.literal(trimToWidth(message, w - 12)), x + 3, rowTop + 4, PALE_GREEN, false);
+            if (state.success() && state.error().isBlank()) g.drawString(font, Component.literal("USE NEW TO ADD A FOLDER"), x + 3, rowTop + 17, GREEN, false);
+        }
+        g.fill(x, y + h - 34, x + w, y + h - 33, DARK_GREEN);
+        String selectedDetails = fileExplorerSelectedDetails(rows);
+        g.drawString(font, Component.literal(trimToWidth(selectedDetails, w - 4)), x, y + h - 28, PALE_GREEN, false);
+        String footer = fileExplorerFooter(state);
+        g.drawString(font, Component.literal(trimToWidth(footer, w - 4)), x, y + h - 15, GREEN, false);
+    }
+
+    private List<String[]> fileExplorerRows() {
+        return ComputerFileSystemClientState.get().files().stream().map(file -> file.split("\\t", 3))
+                .filter(fields -> fields.length >= 3 && isDirectChild(fields[1], session.fileExplorerDirectory))
+                .sorted((left, right) -> {
+                    int directoryOrder = Boolean.compare(!left[0].equals("DIRECTORY"), !right[0].equals("DIRECTORY"));
+                    if (directoryOrder != 0) return directoryOrder;
+                    String leftName = left[1].substring(left[1].lastIndexOf('/') + 1);
+                    String rightName = right[1].substring(right[1].lastIndexOf('/') + 1);
+                    return String.CASE_INSENSITIVE_ORDER.compare(leftName, rightName);
+                }).toList();
+    }
+
+    private void drawFileExplorerBreadcrumbs(GuiGraphics g, int x, int y, int w) {
+        List<String> paths = fileExplorerVisibleBreadcrumbPaths(w);
+        int cursor = x;
+        for (int index = 0; index < paths.size(); index++) {
+            String path = paths.get(index);
+            String label = path.isEmpty() ? "..." : index == 0 ? "/" : path.substring(path.lastIndexOf('/') + 1);
+            String segment = path.isEmpty() ? "..." : index == 0 ? "[/]" : trimToWidth(label, Math.max(10, w / 3));
+            if (hovered(cursor - 1, y - 2, font.width(segment) + 3, 12)) drawHover(g, cursor - 1, y - 2, font.width(segment) + 3, 12);
+            g.drawString(font, Component.literal(segment), cursor, y, index == paths.size() - 1 ? PALE_GREEN : GREEN, false);
+            cursor += font.width(segment);
+            if (index + 1 < paths.size()) {
+                g.drawString(font, Component.literal(" > "), cursor, y, DARK_GREEN, false);
+                cursor += font.width(" > ");
             }
-            g.drawString(font, Component.literal(trimToWidth(footer, w - 4)), x, y + h - 16, PALE_GREEN, false);
         }
     }
 
-    private String fileIcon(String type) {
-        return type.equals("DIRECTORY") ? "[D]" : type.equals("TEXT") ? "[T]" : "[I]";
+    private List<String> fileExplorerVisibleBreadcrumbPaths(int width) {
+        List<String> paths = fileExplorerBreadcrumbPaths();
+        int totalWidth = 0;
+        for (String path : paths) {
+            String label = path.equals("/") ? "[/]" : path.substring(path.lastIndexOf('/') + 1);
+            totalWidth += font.width(label) + font.width(" > ");
+        }
+        if (totalWidth <= width) return paths;
+        if (paths.size() > 2) return List.of("/", "", paths.get(paths.size() - 2), paths.get(paths.size() - 1));
+        return List.of("/", "", paths.get(paths.size() - 1));
+    }
+
+    private List<String> fileExplorerBreadcrumbPaths() {
+        List<String> paths = new ArrayList<>(List.of("/"));
+        String current = "";
+        for (String part : session.fileExplorerDirectory.split("/")) {
+            if (part.isBlank()) continue;
+            current += "/" + part;
+            paths.add(current);
+        }
+        return paths;
+    }
+
+    private String fileExplorerBreadcrumbAt(double mouseX, double mouseY, int x, int y) {
+        List<String> paths = fileExplorerVisibleBreadcrumbPaths(windowWidth(activeWindow) - 16);
+        int cursor = x;
+        for (int index = 0; index < paths.size(); index++) {
+            String path = paths.get(index);
+            if (path.isEmpty()) {
+                cursor += font.width("...") + font.width(" > ");
+                continue;
+            }
+            String label = index == 0 ? "[/]" : trimToWidth(path.substring(path.lastIndexOf('/') + 1), Math.max(10, (windowWidth(activeWindow) - 16) / 3));
+            String segment = label;
+            int segmentWidth = font.width(segment);
+            if (inside(cursor - 1, y - 2, segmentWidth + 3, 12, mouseX, mouseY)) return paths.get(index);
+            cursor += segmentWidth;
+            if (index + 1 < paths.size()) cursor += font.width(" > ");
+        }
+        return null;
+    }
+
+    private int fileExplorerButtonAt(int x) {
+        int[] widths = {34, 36, 42, 40, 48};
+        int cursor = 0;
+        for (int index = 0; index < widths.length; index++) {
+            if (x >= cursor && x < cursor + widths[index]) return index;
+            cursor += widths[index] + 2;
+        }
+        return -1;
+    }
+
+    private void drawFileExplorerButton(GuiGraphics g, int x, int y, int width, String label, boolean enabled) {
+        boolean hover = enabled && hovered(x, y, width, 14);
+        g.fill(x, y, x + width, y + 14, hover ? HOVER_FILL : DARK_GREEN);
+        box(g, x, y, x + width, y + 14, enabled ? hover ? PALE_GREEN : GREEN : 0xFF315531);
+        g.drawCenteredString(font, Component.literal(label), x + width / 2, y + 3, enabled ? PALE_GREEN : 0xFF4A754A);
+    }
+
+    private String fileExplorerSelectedDetails(List<String[]> rows) {
+        for (String[] fields : rows) {
+            if (fields[1].equals(session.fileExplorerSelected)) {
+                String name = fields[1].substring(fields[1].lastIndexOf('/') + 1);
+                return fields[0] + " // " + name + " // " + fields[2];
+            }
+        }
+        return session.fileExplorerDirectory.equals("/") ? "ROOT DIRECTORY" : session.fileExplorerDirectory;
+    }
+
+    private boolean fileExplorerSelectionMutable() {
+        return !session.fileExplorerSelected.isBlank() && !session.fileExplorerSelected.equals("/")
+                && !ComputerFileSystem.isProtected(session.fileExplorerSelected)
+                && ComputerFileSystemClientState.get().files().stream().anyMatch(file -> {
+                    String[] fields = file.split("\\t", 3);
+                    return fields.length >= 2 && fields[1].equals(session.fileExplorerSelected);
+                });
+    }
+
+    private String fileExplorerFooter(ComputerFileSystemClientState.State state) {
+        if (session.fileExplorerDeleteConfirm) return "DELETE " + session.fileExplorerSelected + "? ENTER / ESC";
+        if (session.fileExplorerCreatingDirectory) return "FOLDER: " + session.fileExplorerRename + "_  ENTER / ESC";
+        if (session.fileExplorerMoving) return "MOVE TO: " + session.fileExplorerRename + "_  ENTER / ESC";
+        if (session.fileExplorerRenaming) return "RENAME: " + session.fileExplorerRename + "_  ENTER / ESC";
+        if (state.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_DELETE
+                || state.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_MOVE
+                || state.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_CREATE) {
+            String action = switch (state.lastMutationAction()) {
+                case com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_DELETE -> "DELETED";
+                case com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_MOVE -> "MOVED";
+                default -> "CREATED";
+            };
+            return state.lastMutationSuccess() ? action + " // " + state.lastMutationPath()
+                    : "ERROR // " + state.lastMutationError();
+        }
+        return "CTRL+N NEW  CTRL+M MOVE  CTRL+R RENAME  DEL DELETE";
     }
 
     private boolean isDirectChild(String path, String directory) {
@@ -1547,29 +1785,72 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderSettings(GuiGraphics g, int x, int y, int h) {
-        g.drawString(font, Component.literal("SYSTEM STATUS"), x, y, GREEN, false);
-        g.drawString(font, Component.literal("CPU  " + (System.currentTimeMillis() / 100 % 87 + 12) + "%"), x, y + 18, PALE_GREEN, false);
-        g.drawString(font, Component.literal("MEM  " + (System.currentTimeMillis() / 250 % 42 + 31) + "%"), x, y + 32, PALE_GREEN, false);
-        if (hovered(x, y + 40, Math.min(214, 208), 22)) drawHover(g, x, y + 40, Math.min(214, 208), 22);
-        g.drawString(font, Component.literal(trimToWidth("WALLPAPER  " + wallpaperName() + "  [ CHANGE ]", 208)), x, y + 46, PALE_GREEN, false);
-        g.drawString(font, Component.literal("PASSWORD  CHANGE IN FULL BUILD"), x, y + 60, GREEN, false);
-        if (hovered(x + 92, y + 70, Math.min(116, Math.max(0, 214 - 92)), 18)) drawHover(g, x + 92, y + 70, Math.min(116, Math.max(0, 214 - 92)), 18);
-        g.drawString(font, Component.literal("[ REPLAY INTRO ]"), x + 94, y + 74, PALE_GREEN, false);
-        g.drawString(font, Component.literal("PHYSICAL DISKS"), x, y + 91, GREEN, false);
+        g.drawString(font, Component.literal("SETTINGS"), x, y, GREEN, false);
+        g.drawString(font, Component.literal("SYSTEM STATUS"), x, y + 15, GREEN, false);
+        drawSettingsValue(g, x, y + 27, "CPU", (System.currentTimeMillis() / 100 % 87 + 12) + "%");
+        drawSettingsValue(g, x, y + 39, "MEMORY", (System.currentTimeMillis() / 250 % 42 + 31) + "%");
+        g.fill(x, y + 52, x + 214, y + 53, DARK_GREEN);
+        g.drawString(font, Component.literal("APPEARANCE"), x, y + 57, GREEN, false);
+        drawSettingsButton(g, x, y + 69, 214, "WALLPAPER", trimToWidth(wallpaperName(), 110), true);
+        boolean faceIdLinked = AnternetAccountClientState.faceIdLinked();
+        boolean linkedToCurrentAccount = faceIdLinkedToCurrentAccount();
+        if (faceIdLinked && !linkedToCurrentAccount) {
+            drawSettingsButton(g, x, y + 85, 214, "FACE ID", "IN USE", false);
+        } else if (faceIdLinked) {
+            drawSettingsButton(g, x, y + 85, 214, "FACE ID", faceIdMessage.isBlank() ? "ON  [ UNLINK ]" : trimToWidth(faceIdMessage, 112), true);
+        } else {
+            drawSettingsButton(g, x, y + 85, 214, "FACE ID", faceIdMessage.isBlank() ? "OFF  [ ENABLE ]" : trimToWidth(faceIdMessage, 112), true);
+        }
+        g.fill(x, y + 103, x + 214, y + 104, DARK_GREEN);
+        g.drawString(font, Component.literal("HELP"), x, y + 108, GREEN, false);
+        drawSettingsButton(g, x, y + 120, 104, "ANTOS", "REPLAY", true);
+        drawSettingsButton(g, x + 110, y + 120, 104, "ANTAZON", "REPLAY", true);
+        g.fill(x, y + 139, x + 214, y + 140, DARK_GREEN);
+        g.drawString(font, Component.literal("INSTALLED DISKS"), x, y + 144, GREEN, false);
         List<ResourceLocation> disks = physicalDisks();
         if (disks.isEmpty()) {
-            g.drawString(font, Component.literal("NONE INSTALLED"), x, y + 108, PALE_GREEN, false);
+            g.drawString(font, Component.literal("NONE INSTALLED"), x, y + 159, PALE_GREEN, false);
         } else {
             for (int i = 0; i < disks.size() && i < 3; i++) {
                 ResourceLocation disk = disks.get(i);
                 boolean active = disk.equals(selectedDisk);
-            if (active || hovered(x - 3, y + 105 + i * 17, 208, 15)) g.fill(x - 3, y + 105 + i * 17, x + 205, y + 120 + i * 17, HOVER_FILL);
-            g.drawString(font, Component.literal(trimToWidth(disk.toString(), 202)), x, y + 108 + i * 17, active || hovered(x - 3, y + 105 + i * 17, 208, 15) ? GREEN : PALE_GREEN, false);
+                String diskLabel = trimToWidth(disk.toString(), 202);
+                int rowY = y + 158 + i * 10;
+                boolean diskHover = hovered(x, rowY - 1, 214, 9);
+                if (active || diskHover) g.fill(x, rowY - 1, x + 214, rowY + 8, HOVER_FILL);
+                g.drawString(font, Component.literal((active ? "> " : "  ") + trimToWidth(diskLabel, 194)), x, rowY, active || diskHover ? GREEN : PALE_GREEN, false);
+            }
         }
-            if (selectedDisk != null && hovered(x, y + 156, Math.min(205, 208), 20)) drawHover(g, x, y + 156, Math.min(205, 208), 20);
-            g.drawString(font, Component.literal("[ EJECT SELECTED ]"), x, y + 162, selectedDisk == null ? 0xFF4A754A : GREEN, false);
+        drawSettingsButton(g, x + 112, y + 189, 102, "DISK", "EJECT", selectedDisk != null);
+        drawSettingsButton(g, x, y + 189, 102, "ACCOUNT", "LOG OUT", true);
+    }
+
+    private void drawSettingsValue(GuiGraphics g, int x, int y, String label, String value) {
+        g.drawString(font, Component.literal(label), x + 4, y, PALE_GREEN, false);
+        g.drawString(font, Component.literal(value), x + 164, y, PALE_GREEN, false);
+    }
+
+    private void drawSettingsButton(GuiGraphics g, int x, int y, int width, String label, String value, boolean enabled) {
+        boolean hover = enabled && hovered(x, y, width, 15);
+        g.fill(x, y, x + width, y + 15, hover ? HOVER_FILL : DARK_GREEN);
+        box(g, x, y, x + width, y + 15, enabled ? (hover ? PALE_GREEN : GREEN) : 0xFF4A754A);
+        int valueWidth = font.width(value);
+        g.drawString(font, Component.literal(trimToWidth(label, Math.max(0, width - valueWidth - 12))), x + 4, y + 4, enabled ? PALE_GREEN : 0xFF4A754A, false);
+        g.drawString(font, Component.literal(value), x + width - valueWidth - 5, y + 4, enabled ? GREEN : 0xFF4A754A, false);
+    }
+
+    private void drawSettingsHover(GuiGraphics g, String label, int x, int textY) {
+        int textWidth = Math.min(font.width(label), 214);
+        if (textWidth > 0 && hovered(x - 2, textY - 2, textWidth + 4, 13)) {
+            drawHover(g, x - 2, textY - 2, textWidth + 4, 13);
         }
-        g.drawString(font, Component.literal("LOG OUT"), x, y + 74, GREEN, false);
+    }
+
+    private boolean faceIdLinkedToCurrentAccount() {
+        var current = AnternetAccountClientState.latest();
+        java.util.UUID linkedAccount = AnternetAccountClientState.faceIdAccountId();
+        return current != null && current.result() == AnternetAccountResultPayload.SUCCESS
+                && linkedAccount != null && linkedAccount.equals(current.accountId());
     }
 
     private void renderWallpapers(GuiGraphics g, int x, int y, int h) {
@@ -1643,7 +1924,7 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderPaint(GuiGraphics g, int x, int y, int w, int h) {
-        var fileState = ComputerFileSystemClientState.get(position);
+        var fileState = ComputerFileSystemClientState.get();
         if (!session.paintDirty && fileState.openedPath().endsWith(".antpaint")
                 && (!fileState.openedPath().equals(session.paintLoadedPath)
                 || !fileState.openedContents().equals(session.paintLoadedContents)) && !fileState.openedContents().isEmpty()) {
@@ -1982,7 +2263,7 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderTextEditor(GuiGraphics g, int x, int y, int w, int h) {
-        var fileState = ComputerFileSystemClientState.get(position);
+        var fileState = ComputerFileSystemClientState.get();
         if (session.textDirty
                 && fileState.lastMutationSuccess()
                 && (fileState.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_CREATE
@@ -2015,20 +2296,25 @@ public final class ComputerScreen extends Screen {
             session.textCursor = session.textContent.length();
         }
         session.textJustSavedAs = false;
-        String editorTitle = session.textRenaming ? "RENAME // " + session.textRename + "_" : "ANTTEXT // " + session.textPath + (session.textDirty ? " *" : "");
-        g.drawString(font, Component.literal(trimToWidth(editorTitle, Math.max(1, w - 104))), x, y, GREEN, false);
-        if (hovered(x, y + 12, Math.min(w, 210), 26)) drawHover(g, x, y + 12, Math.min(w, 210), 26);
-        g.drawString(font, Component.literal(trimToWidth("NEW   OPEN   WRITE   SAVE   AS", w)), x, y + 18, PALE_GREEN, false);
+        String editorTitle = session.textRenaming ? "RENAME // " + session.textRename + "_"
+                : session.textPath.substring(session.textPath.lastIndexOf('/') + 1) + (session.textDirty ? " *" : "");
+        g.drawString(font, Component.literal(trimToWidth(editorTitle, Math.max(1, w - 92))), x, y, GREEN, false);
         if (fileState.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_CREATE
                 || fileState.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_SAVE
                 || fileState.lastMutationAction() == com.craisinlord.antos.content.network.ComputerAccessPayload.FILE_MOVE) {
-            String status = fileState.lastMutationSuccess() ? "OPERATION OK" : "OPERATION ERROR // " + fileState.lastMutationError();
-            String displayStatus = trimToWidth(status, Math.min(100, w));
-            g.drawString(font, Component.literal(displayStatus), x + w - font.width(displayStatus), y, fileState.lastMutationSuccess() ? PALE_GREEN : GREEN, false);
+            String status = session.textDirty ? "UNSAVED" : fileState.lastMutationSuccess() ? "SAVED" : "ERROR";
+            g.drawString(font, Component.literal(status), x + w - font.width(status), y, fileState.lastMutationSuccess() ? PALE_GREEN : GREEN, false);
         }
-        g.fill(x + 4, y + 36, x + w - 4, y + h - 4, BLACK);
+        String[] toolbarLabels = {"NEW", "OPEN", "WRITE", "SAVE", "SAVE AS"};
+        int[] toolbarX = {0, 36, 76, 116, 152};
+        int[] toolbarWidths = {34, 38, 38, 34, 62};
+        for (int i = 0; i < toolbarLabels.length; i++) {
+            drawTextEditorButton(g, x + toolbarX[i], y + 14, Math.min(toolbarWidths[i], Math.max(0, w - toolbarX[i])), 20, toolbarLabels[i]);
+        }
+        g.fill(x + 4, y + 38, x + w - 4, y + h - 4, BLACK);
+        box(g, x + 4, y + 38, x + w - 4, y + h - 4, session.textFocused ? PALE_GREEN : DARK_GREEN);
         if (session.textListing) {
-            g.drawString(font, Component.literal("SELECT FILE"), x + 10, y + 46, GREEN, false);
+            g.drawString(font, Component.literal("OPEN A TEXT FILE"), x + 10, y + 45, GREEN, false);
             List<String> textFiles = fileState.files().stream().filter(file -> {
                 String[] fields = file.split("\\t", 3);
                 return fields.length >= 3 && fields[0].equals("TEXT");
@@ -2037,46 +2323,56 @@ public final class ComputerScreen extends Screen {
             int maximum = Math.max(0, textFiles.size() - visibleFiles);
             session.textPickerMaximumScroll = maximum;
             session.textPickerScroll = Math.max(0, Math.min(session.textPickerScroll, maximum));
-            drawScrollbar(g, x + w - 8, y + 62, Math.max(1, h - 112), visibleFiles, textFiles.size(), session.textPickerScroll, maximum);
+            drawScrollbar(g, x + w - 8, y + 61, Math.max(1, h - 111), visibleFiles, textFiles.size(), session.textPickerScroll, maximum);
             int shown = 0;
             for (int index = session.textPickerScroll; index < textFiles.size() && shown < visibleFiles; index++, shown++) {
                 String file = textFiles.get(index);
                 String[] fields = file.split("\\t", 3);
-                g.drawString(font, Component.literal(fields[1]), x + 10, y + 62 + shown * 14, PALE_GREEN, false);
+                int rowY = y + 61 + shown * 14;
+                if (hovered(x + 8, rowY - 2, w - 20, 12)) g.fill(x + 8, rowY - 2, x + w - 12, rowY + 10, HOVER_FILL);
+                String name = fields[1].substring(fields[1].lastIndexOf('/') + 1);
+                g.drawString(font, Component.literal(trimToWidth(name, w - 34)), x + 10, rowY, PALE_GREEN, false);
             }
-            if (textFiles.isEmpty()) g.drawString(font, Component.literal("NO TEXT FILES"), x + 10, y + 62, PALE_GREEN, false);
+            if (textFiles.isEmpty()) g.drawString(font, Component.literal("NO TEXT FILES FOUND"), x + 10, y + 61, PALE_GREEN, false);
         } else {
             String content = session.textContent.isEmpty() ? "TYPE HERE..." : session.textContent;
             if (session.textFocused && caretVisible()) content = content.substring(0, Math.min(session.textCursor, content.length())) + "|"
                     + content.substring(Math.min(session.textCursor, content.length()));
-            List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(content), w - 28);
-            int maxLines = Math.max(1, (h - 88) / 11);
+            List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(content), w - 32);
+            int maxLines = Math.max(1, (h - 92) / 11);
             int maximum = Math.max(0, lines.size() - maxLines);
             session.textMaximumScroll = maximum;
             session.textScroll = Math.max(0, Math.min(session.textScroll, maximum));
-            drawScrollbar(g, x + w - 8, y + 42, Math.max(1, h - 84), maxLines, lines.size(), session.textScroll, maximum);
+            drawScrollbar(g, x + w - 8, y + 44, Math.max(1, h - 88), maxLines, lines.size(), session.textScroll, maximum);
             for (int i = session.textScroll; i < lines.size() && i < session.textScroll + maxLines; i++) {
-                g.drawString(font, lines.get(i), x + 10, y + 46 + (i - session.textScroll) * 11, GREEN, false);
+                g.drawString(font, lines.get(i), x + 10, y + 48 + (i - session.textScroll) * 11, session.textFocused ? PALE_GREEN : GREEN, false);
             }
         }
         if (session.textDeleteConfirm) {
             g.drawString(font, Component.literal("DELETE CURRENT FILE? [ ENTER / ESC ]"), x, y + h - 28, PALE_GREEN, false);
-        } else {
-            g.drawString(font, Component.literal(trimToWidth("[CTRL+S] SAVE  [CTRL+SHIFT+S] SAVE AS", w)), x, y + h - 39, PALE_GREEN, false);
-            g.drawString(font, Component.literal(trimToWidth("[CTRL+R] RENAME  [CTRL+DEL] DELETE  [ESC] CLOSE", w)), x, y + h - 26, PALE_GREEN, false);
         }
     }
 
+    private void drawTextEditorButton(GuiGraphics g, int x, int y, int width, int height, String label) {
+        if (width <= 0) return;
+        boolean hover = hovered(x, y, width, height);
+        g.fill(x, y, x + width, y + height, hover ? HOVER_FILL : DARK_GREEN);
+        box(g, x, y, x + width, y + height, hover ? PALE_GREEN : GREEN);
+        g.drawCenteredString(font, Component.literal(label), x + width / 2, y + 6, hover ? GREEN : PALE_GREEN);
+    }
+
     private void renderAntmail(GuiGraphics g, int x, int y, int h) {
-        var result = AntmailClientState.getMailbox(position);
-        AntmailResultPayload lastResponse = AntmailClientState.get(position);
-        boolean unconfigured = (result != null && result.address().isBlank())
-                || (result == null && lastResponse != null && ("unconfigured".equals(lastResponse.detail())
-                || "address_not_found".equals(lastResponse.detail()) || lastResponse.detail().startsWith("registration_failed:")));
-        g.drawString(font, Component.literal("ANTMAIL // COMPUTER ADDRESS"), x, y, GREEN, false);
+        var result = AntmailClientState.getMailbox();
+        AntmailAnternetResultPayload lastResponse = AntmailClientState.get();
+        g.drawString(font, Component.literal("ANTMAIL"), x, y, GREEN, false);
+        if (result != null) {
+            g.drawString(font, Component.literal(trimToWidth(result.address(), 132)), x, y + 12, PALE_GREEN, false);
+            if (hovered(x + 154, y - 2, 60, 20)) drawHover(g, x + 154, y - 2, 60, 20);
+            g.drawString(font, Component.literal(session.antmailMode.equals("compose") ? "SAVE DRAFT" : "+ COMPOSE"), x + 158, y + 3, GREEN, false);
+        }
         session.antmailAttachmentStartLine = -1;
         session.antmailVisibleAttachmentCount = 0;
-        if (result == null && !unconfigured) {
+        if (result == null) {
             g.drawString(font, Component.literal("CONTACTING ANTMAIL NETWORK"), x, y + 20, GREEN, false);
             String waitStatus = lastResponse != null && !lastResponse.detail().isBlank()
                     ? "SERVER // " + lastResponse.detail().toUpperCase()
@@ -2084,132 +2380,168 @@ public final class ComputerScreen extends Screen {
             g.drawString(font, Component.literal(trimToWidth(waitStatus, 208)), x, y + 40, PALE_GREEN, false);
             box(g, x, y + 56, x + 150, y + 79, GREEN);
             g.drawString(font, Component.literal("[ RETRY STATE LINK ]"), x + 6, y + 63, GREEN, false);
-        } else if (unconfigured) {
-            String registrationStatus = lastResponse != null && lastResponse.detail().startsWith("registration_failed:")
-                    ? "REGISTRATION FAILED // " + lastResponse.detail().substring("registration_failed:".length()).toUpperCase()
-                    : "NO ADDRESS CONFIGURED";
-            g.drawString(font, Component.literal(trimToWidth(registrationStatus, 208)), x, y + 20, PALE_GREEN, false);
-            g.drawString(font, Component.literal("USERNAME // 3-16 CHARACTERS"), x, y + 40, GREEN, false);
-            g.fill(x, y + 56, x + 206, y + 79, BLACK);
-            box(g, x, y + 56, x + 206, y + 79, GREEN);
-            String username = session.antmailUsername + "@antmail.com";
-            g.drawString(font, Component.literal(trimToWidth(session.antmailFocused && caretVisible()
-                    ? insertCaret(username, session.antmailCursor) : username, 194)), x + 6, y + 63, GREEN, false);
-            g.drawString(font, Component.literal("[ ENTER ] REGISTER ADDRESS"), x, y + 88, GREEN, false);
         } else {
-            g.drawString(font, Component.literal(trimToWidth(result.address(), 208)), x, y + 20, PALE_GREEN, false);
-            if (hovered(x, y + 30, 54, 24)) drawHover(g, x, y + 30, 54, 24);
-            if (hovered(x + 54, y + 30, 46, 24)) drawHover(g, x + 54, y + 30, 46, 24);
-            if (hovered(x + 100, y + 30, 54, 24)) drawHover(g, x + 100, y + 30, 54, 24);
-            if (hovered(x + 158, y + 30, 56, 24)) drawHover(g, x + 158, y + 30, 56, 24);
-            if (session.antmailMode.equals("inbox")) box(g, x, y + 30, x + 54, y + 53, PALE_GREEN);
-            if (session.antmailMode.equals("sent")) box(g, x + 54, y + 30, x + 100, y + 53, PALE_GREEN);
-            if (session.antmailMode.equals("drafts")) box(g, x + 100, y + 30, x + 154, y + 53, PALE_GREEN);
-            g.drawString(font, Component.literal("INBOX"), x + 6, y + 38, session.antmailMode.equals("inbox") ? PALE_GREEN : GREEN, false);
-            g.drawString(font, Component.literal("SENT"), x + 60, y + 38, session.antmailMode.equals("sent") ? PALE_GREEN : GREEN, false);
-            g.drawString(font, Component.literal("DRAFTS"), x + 106, y + 38, session.antmailMode.equals("drafts") ? PALE_GREEN : GREEN, false);
-            box(g, x + 158, y + 30, x + 214, y + 53, session.antmailMode.equals("compose") ? PALE_GREEN : GREEN);
-            g.drawString(font, Component.literal("COMPOSE"), x + 163, y + 38, session.antmailMode.equals("compose") ? PALE_GREEN : GREEN, false);
+            if (hovered(x, y + 26, 54, 22)) drawHover(g, x, y + 26, 54, 22);
+            if (hovered(x + 54, y + 26, 46, 22)) drawHover(g, x + 54, y + 26, 46, 22);
+            if (hovered(x + 100, y + 26, 54, 22)) drawHover(g, x + 100, y + 26, 54, 22);
+            if (session.antmailMode.equals("inbox")) box(g, x, y + 26, x + 54, y + 48, PALE_GREEN);
+            if (session.antmailMode.equals("sent")) box(g, x + 54, y + 26, x + 100, y + 48, PALE_GREEN);
+            if (session.antmailMode.equals("drafts")) box(g, x + 100, y + 26, x + 154, y + 48, PALE_GREEN);
+            g.drawString(font, Component.literal("INBOX"), x + 5, y + 33, session.antmailMode.equals("inbox") ? PALE_GREEN : GREEN, false);
+            int unread = mailbox(result) == null ? 0 : mailbox(result).unreadCount();
+            if (unread > 0) g.drawString(font, Component.literal(String.valueOf(unread)), x + 39, y + 33, GREEN, false);
+            g.drawString(font, Component.literal("SENT"), x + 60, y + 33, session.antmailMode.equals("sent") ? PALE_GREEN : GREEN, false);
+            g.drawString(font, Component.literal("DRAFTS"), x + 105, y + 33, session.antmailMode.equals("drafts") ? PALE_GREEN : GREEN, false);
+            g.fill(x, y + 51, x + 214, y + 52, GREEN);
             if (session.antmailMode.equals("compose")) {
+                g.drawString(font, Component.literal("TO"), x, y + 60, GREEN, false);
                 g.drawString(font, Component.literal(trimToWidth(session.antmailFocused && session.antmailField == 1 && caretVisible()
-                        ? insertCaret(session.antmailRecipient, session.antmailCursor) : session.antmailRecipient, 180)), x + 28, y + 52, PALE_GREEN, false);
+                        ? insertCaret(session.antmailRecipient, session.antmailCursor) : session.antmailRecipient, 184)), x + 27, y + 60, PALE_GREEN, false);
+                g.fill(x, y + 73, x + 214, y + 74, 0xFF315531);
+                g.drawString(font, Component.literal("SUBJECT"), x, y + 80, GREEN, false);
                 g.drawString(font, Component.literal(trimToWidth(session.antmailFocused && session.antmailField == 2 && caretVisible()
-                        ? insertCaret(session.antmailSubject, session.antmailCursor) : session.antmailSubject, 156)), x + 52, y + 66, PALE_GREEN, false);
-                g.drawString(font, Component.literal("TO"), x, y + 52, GREEN, false);
-                g.drawString(font, Component.literal("SUBJECT"), x, y + 66, GREEN, false);
-                g.drawString(font, Component.literal("BODY"), x, y + 80, GREEN, false);
-                String body = session.antmailBody.isEmpty() ? "TYPE MESSAGE..." : session.antmailBody;
+                        ? insertCaret(session.antmailSubject, session.antmailCursor) : session.antmailSubject, 170)), x + 44, y + 80, PALE_GREEN, false);
+                g.fill(x, y + 93, x + 214, y + 94, 0xFF315531);
+                g.drawString(font, Component.literal("MESSAGE"), x, y + 99, GREEN, false);
+                String body = session.antmailBody.isEmpty() ? "Write your message..." : session.antmailBody;
                 wrapLimited(g, session.antmailFocused && session.antmailField == 3 && caretVisible()
-                        ? insertCaret(body, session.antmailCursor) : body, x, y + 94, 208, y + 124, PALE_GREEN);
-                g.drawString(font, Component.literal(trimToWidth("[ " + (session.antmailAttachText ? "X" : " ") + " ] TEXT FILE   [ " + (session.antmailAttachPaint ? "X" : " ") + " ] PAINTING", 208)), x, y + 128, PALE_GREEN, false);
+                        ? insertCaret(body, session.antmailCursor) : body, x, y + 111, 208, y + 135, PALE_GREEN);
+                List<String> attachmentLabels = new ArrayList<>();
+                if (session.antmailAttachText) attachmentLabels.add("TEXT FILE");
+                if (session.antmailAttachPaint) attachmentLabels.add("PAINTING");
+                if (session.antmailAttachCoins) attachmentLabels.add("COINS " + session.antmailCoinAmount);
+                String attachmentSummary = attachmentLabels.isEmpty() ? "NO ATTACHMENTS" : String.join(" + ", attachmentLabels);
+                box(g, x, y + 138, x + 112, y + 158, session.antmailAttachmentMenu ? GREEN : PALE_GREEN);
+                g.drawString(font, Component.literal("+ ATTACH"), x + 5, y + 144, GREEN, false);
+                g.drawString(font, Component.literal(trimToWidth(attachmentSummary, 95)), x + 117, y + 144, PALE_GREEN, false);
+                if (session.antmailAttachmentMenu) {
+                    g.fill(x, y + 160, x + 112, y + 212, BLACK);
+                    box(g, x, y + 160, x + 112, y + 212, GREEN);
+                    g.drawString(font, Component.literal("TEXT FILE..."), x + 6, y + 165, PALE_GREEN, false);
+                    g.drawString(font, Component.literal("PAINTING..."), x + 6, y + 180, PALE_GREEN, false);
+                    g.drawString(font, Component.literal(session.antmailAttachCoins ? "REMOVE ANTCOINS" : "ANTCOINS..."), x + 6, y + 195, PALE_GREEN, false);
+                }
                 if (session.antmailPickingAttachment) {
-                    g.fill(x + 4, y + 42, x + 210, y + h - 40, BLACK);
-                    box(g, x + 4, y + 42, x + 210, y + h - 40, GREEN);
-                    g.drawString(font, Component.literal("SELECT FILE TO ATTACH"), x + 10, y + 48, GREEN, false);
-                    box(g, x + 190, y + 43, x + 205, y + 58, GREEN);
-                    g.drawCenteredString(font, Component.literal("X"), x + 197, y + 46, GREEN);
-                    int line = y + 64;
-                    for (String file : ComputerFileSystemClientState.get(position).files()) {
+                    g.fill(x + 4, y + 94, x + 210, y + h - 40, BLACK);
+                    box(g, x + 4, y + 94, x + 210, y + h - 40, GREEN);
+                    g.drawString(font, Component.literal("SELECT A FILE"), x + 10, y + 100, GREEN, false);
+                    box(g, x + 190, y + 95, x + 205, y + 110, GREEN);
+                    g.drawCenteredString(font, Component.literal("X"), x + 197, y + 98, GREEN);
+                    int line = y + 116;
+                    for (String file : ComputerFileSystemClientState.get().files()) {
                         String[] fields = file.split("\\t", 3);
-                        if (fields.length < 2 || (!fields[0].equals("TEXT") && !fields[0].equals("IMAGE")) || line > y + h - 52) continue;
+                        if (fields.length < 2 || (session.antmailPickingPaint ? !fields[0].equals("IMAGE") : !fields[0].equals("TEXT")) || line > y + h - 52) continue;
                         g.drawString(font, Component.literal(trimToWidth(fields[1], 190)), x + 10, line, PALE_GREEN, false);
                         line += 14;
                     }
                 }
-                g.drawString(font, Component.literal("[ ENTER ] SEND"), x, y + h - 28, GREEN, false);
+                g.fill(x, y + h - 26, x + 214, y + h - 25, GREEN);
+                box(g, x + 154, y + h - 25, x + 214, y + h - 5, GREEN);
+                g.drawCenteredString(font, Component.literal("SEND"), x + 184, y + h - 19, GREEN);
             } else if (session.antmailMode.equals("message")) {
                 AntmailMessage message = selectedAntmailMessage(result);
                 if (message != null) {
                     boolean showRetry = session.antmailSent && !message.deliveryStatus().equals("DELIVERED");
                     int attachmentBottom = y + h - (showRetry ? 54 : 36);
-                    g.drawString(font, Component.literal("< BACK // " + (session.antmailSent ? "SENT" : "INBOX")), x, y + 40, GREEN, false);
-                    g.drawString(font, Component.literal(trimToWidth(session.antmailSent ? message.recipient().fullAddress() : message.sender().fullAddress(), 208)), x, y + 62, PALE_GREEN, false);
-                    g.drawString(font, Component.literal(trimToWidth(message.subject(), 208)), x, y + 78, GREEN, false);
-                    String sharedProduct = antazonProductLink(message.body());
-                    if (!sharedProduct.isBlank()) g.drawString(font, Component.literal("[ OPEN ANTAZON PRODUCT ]"), x, y + 86, GREEN, false);
-                    List<net.minecraft.util.FormattedCharSequence> bodyLines = font.split(Component.literal(message.body()), 198);
-                    int bodyVisible = Math.max(1, (attachmentBottom - (y + 98) - 8) / 11);
+                    g.drawString(font, Component.literal("< BACK TO " + (session.antmailSent ? "SENT" : "INBOX")), x, y + 40, GREEN, false);
+                    g.drawString(font, Component.literal("DELETE"), x + 178, y + 40, GREEN, false);
+                    g.drawString(font, Component.literal("FROM  " + trimToWidth(message.sender().fullAddress(), 178)), x, y + 60, PALE_GREEN, false);
+                    g.drawString(font, Component.literal("TO    " + trimToWidth(message.recipient().fullAddress(), 178)), x, y + 73, PALE_GREEN, false);
+                    String localizedSubject = localizedMailText(message.subject());
+                    String localizedBody = localizedMailText(message.body());
+                    g.drawString(font, Component.literal(trimToWidth(localizedSubject, 208)), x, y + 89, GREEN, false);
+                    String sharedProduct = antazonProductLink(localizedBody);
+                    if (!sharedProduct.isBlank()) g.drawString(font, Component.literal("[ OPEN ANTAZON PRODUCT ]"), x, y + 101, GREEN, false);
+                    List<net.minecraft.util.FormattedCharSequence> bodyLines = font.split(Component.literal(localizedBody), 198);
+                    int bodyVisible = Math.max(1, (attachmentBottom - (y + 112) - 8) / 11);
                     int bodyMaximum = Math.max(0, bodyLines.size() - bodyVisible);
                     session.antmailDetailScroll = Math.max(0, Math.min(session.antmailDetailScroll, bodyMaximum));
                     session.antmailDetailMaximumScroll = bodyMaximum;
-                    drawScrollbar(g, x + 210, y + 98, Math.max(1, attachmentBottom - (y + 98) - 8), bodyVisible,
+                    drawScrollbar(g, x + 210, y + 112, Math.max(1, attachmentBottom - (y + 112) - 8), bodyVisible,
                             bodyLines.size(), session.antmailDetailScroll, bodyMaximum);
                     int bodyEnd = Math.min(bodyLines.size(), session.antmailDetailScroll + bodyVisible);
                     for (int bodyIndex = session.antmailDetailScroll; bodyIndex < bodyEnd; bodyIndex++) {
-                        g.drawString(font, bodyLines.get(bodyIndex), x, y + 98 + (bodyIndex - session.antmailDetailScroll) * 11, PALE_GREEN, false);
+                        g.drawString(font, bodyLines.get(bodyIndex), x, y + 112 + (bodyIndex - session.antmailDetailScroll) * 11, PALE_GREEN, false);
                     }
-                    int messageLine = y + 98 + (bodyEnd - session.antmailDetailScroll) * 11 + 4;
+                    int messageLine = y + 112 + (bodyEnd - session.antmailDetailScroll) * 11 + 4;
                     if (!message.attachments().isEmpty() && messageLine + 9 <= attachmentBottom) {
                         session.antmailAttachmentStartLine = messageLine;
                         for (AntmailAttachment attachment : message.attachments()) {
                             if (messageLine + 9 > attachmentBottom) break;
-                            g.drawString(font, Component.literal(trimToWidth("[ SAVE ATTACHMENT ] " + attachment.fileName(), 208)), x, messageLine, GREEN, false);
+                            if (attachment instanceof AntmailAttachment.Render render) {
+                                int previewSize = render.kind().equals("entity") ? 56 : 42;
+                                int boxWidth = Math.min(previewSize, 72);
+                                g.fill(x, messageLine, x + boxWidth, messageLine + previewSize, DARK_GREEN);
+                                archiveGreenTint = false;
+                                if (render.kind().equals("recipe")) {
+                                    renderArchiveRecipe(g, render.resourceId(), x, messageLine, boxWidth, 12);
+                                } else {
+                                    renderArchiveAsset(g, render.kind().equals("item") ? render.resourceId() : "",
+                                            render.kind().equals("entity") ? render.resourceId() : "",
+                                            render.kind().equals("enchantment") ? render.resourceId() : "",
+                                            render.kind().equals("potion") ? render.resourceId() : "",
+                                            x + boxWidth / 2, messageLine + previewSize / 2, boxWidth, 0.0F, 0.85F);
+                                }
+                                String label = render.kind().toUpperCase(Locale.ROOT) + " // " + render.resourceId();
+                                g.drawString(font, Component.literal(trimToWidth(label, 208 - boxWidth - 6)), x + boxWidth + 6, messageLine + previewSize / 2 - 4, PALE_GREEN, false);
+                                messageLine += previewSize + 8;
+                            } else {
+                                String attachmentLabel = attachment instanceof AntmailAttachment.Antcoins coins ? "[ ANTCOIN TRANSFER ] " + coins.amount() + " ANTCOINS" : "[ SAVE ATTACHMENT ] " + attachment.fileName();
+                                g.drawString(font, Component.literal(trimToWidth(attachmentLabel, 208)), x, messageLine, GREEN, false);
+                                messageLine += 14;
+                            }
                             session.antmailVisibleAttachmentCount++;
-                            messageLine += 14;
                         }
                     }
                     if (showRetry) {
                         String retryLabel = session.antmailRetryMessageId.equals(message.id().toString()) ? "[ RETRYING... ]" : "[ RETRY DELIVERY ]";
                         g.drawString(font, Component.literal(retryLabel), x, y + h - 46, GREEN, false);
                     }
-                    g.drawString(font, Component.literal("[ DELETE MESSAGE ]"), x, y + h - 28, GREEN, false);
                 }
             } else if (session.antmailMode.equals("drafts")) {
                 List<AntmailDraft> drafts = mailbox(result) == null ? List.of() : mailbox(result).drafts();
-                g.drawString(font, Component.literal("DRAFTS // " + drafts.size()), x, y + 62, GREEN, false);
-                int visible = Math.max(1, (h - 126) / 14);
+                    g.drawString(font, Component.literal("SAVED DRAFTS // " + drafts.size()), x, y + 58, GREEN, false);
+                    int visible = Math.max(1, (h - 122) / 25);
                 int maximum = Math.max(0, drafts.size() - visible);
                 session.antmailListScroll = Math.max(0, Math.min(session.antmailListScroll, maximum));
                 session.antmailListMaximumScroll = maximum;
-                drawScrollbar(g, x + 210, y + 80, Math.max(1, h - 126), visible, drafts.size(), session.antmailListScroll, maximum);
+                drawScrollbar(g, x + 210, y + 75, Math.max(1, h - 122), visible, drafts.size(), session.antmailListScroll, maximum);
                 for (int row = 0; row < visible && session.antmailListScroll + row < drafts.size(); row++) {
                     AntmailDraft draft = drafts.get(session.antmailListScroll + row);
-                    g.drawString(font, Component.literal(trimToWidth("* " + (draft.subject().isBlank() ? "UNTITLED DRAFT" : draft.subject()), 28)), x, y + 80 + row * 14, PALE_GREEN, false);
+                    int rowY = y + 76 + row * 25;
+                    if (inside(x, rowY - 2, 207, 23, session.mouseX, session.mouseY)) drawHover(g, x, rowY - 2, 207, 23);
+                    g.drawString(font, Component.literal(trimToWidth(draft.subject().isBlank() ? "Untitled draft" : draft.subject(), 200)), x + 2, rowY, GREEN, false);
+                    g.drawString(font, Component.literal(trimToWidth(draft.recipient() == null ? "No recipient" : draft.recipient().fullAddress(), 200)), x + 2, rowY + 11, PALE_GREEN, false);
+                    g.fill(x, rowY + 22, x + 205, rowY + 23, 0xFF315531);
                 }
                 if (drafts.isEmpty()) g.drawString(font, Component.literal("NO SAVED DRAFTS"), x, y + 80, PALE_GREEN, false);
             } else {
                 List<AntmailMessage> messages = mailboxMessages(result, session.antmailSent);
                 int total = antmailTotal(result, session.antmailSent);
-                g.drawString(font, Component.literal((session.antmailSent ? "SENT // " : "INBOX // ") + total), x, y + 62, GREEN, false);
-                int visible = Math.max(1, (h - 126) / 14);
+                g.drawString(font, Component.literal((session.antmailSent ? "SENT MAIL" : "INBOX") + " // " + total), x, y + 58, GREEN, false);
+                int visible = Math.max(1, (h - 122) / 25);
                 int maximum = Math.max(0, messages.size() - visible);
                 session.antmailListScroll = Math.max(0, Math.min(session.antmailListScroll, maximum));
                 session.antmailListMaximumScroll = maximum;
-                drawScrollbar(g, x + 210, y + 80, Math.max(1, h - 126), visible, messages.size(), session.antmailListScroll, maximum);
+                drawScrollbar(g, x + 210, y + 75, Math.max(1, h - 122), visible, messages.size(), session.antmailListScroll, maximum);
                 for (int row = 0; row < visible && session.antmailListScroll + row < messages.size(); row++) {
                     AntmailMessage message = messages.get(session.antmailListScroll + row);
-                    String status = session.antmailSent ? " // " + message.deliveryStatus() : "";
-                    g.drawString(font, Component.literal((message.read() ? "  " : "* ") + trimToWidth(message.subject() + status, 26)), x, y + 80 + row * 14, message.read() ? PALE_GREEN : GREEN, false);
+                    int rowY = y + 76 + row * 25;
+                    if (inside(x, rowY - 2, 207, 23, session.mouseX, session.mouseY)) drawHover(g, x, rowY - 2, 207, 23);
+                    g.drawString(font, Component.literal((message.read() ? "" : "● ") + trimToWidth(session.antmailSent ? message.recipient().fullAddress() : message.sender().fullAddress(), 180)), x + 2, rowY, message.read() ? PALE_GREEN : GREEN, false);
+                    String status = session.antmailSent ? "  // " + message.deliveryStatus() : "";
+                    g.drawString(font, Component.literal(trimToWidth(message.subject() + status, 200)), x + 2, rowY + 11, message.read() ? PALE_GREEN : GREEN, false);
+                    g.fill(x, rowY + 22, x + 205, rowY + 23, 0xFF315531);
                 }
                 g.drawString(font, Component.literal("[ < ] PAGE " + (session.antmailPage + 1) + " [ > ]"), x, y + h - 42, GREEN, false);
             }
         }
-        AntmailResultPayload operation = AntmailClientState.get(position);
+        AntmailAnternetResultPayload operation = AntmailClientState.get();
         if (session.antmailSendPending && operation != null && operation != session.antmailSendBaseline && !operation.messageId().isBlank()) {
             session.antmailSendPending = false;
             session.antmailSendBaseline = null;
             if (operation.status() == 0 || operation.status() == 1) {
-                if (session.antmailDraftId != null) AntmailNetworking.deleteDraft(position, session.antmailDraftId);
+                if (session.antmailDraftId != null) AntmailNetworking.deleteDraft(session.antmailDraftId);
                 session.antmailDraftId = null;
                 session.antmailDraftLoaded = false;
                 session.antmailStatus = antmailStatus(operation);
@@ -2233,7 +2565,6 @@ public final class ComputerScreen extends Screen {
         }
         String displayStatus = session.antmailStatus;
         if (!displayStatus.isEmpty()) {
-            // Keep long attachment status messages above the compose action row.
             int statusHeight = session.antmailMode.equals("compose") ? h - 24 : h;
             drawBottomWrapped(g, displayStatus, x, y, statusHeight, 208, PALE_GREEN);
         }
@@ -2248,13 +2579,17 @@ public final class ComputerScreen extends Screen {
         return value.substring(0, index) + "|" + value.substring(index);
     }
 
-    private String antmailStatus(AntmailResultPayload result) {
-        if (result.status() == 0) return "DELIVERED";
-        if (result.status() == 1) return "QUEUED";
-        return "DELIVERY FAILED // " + (result.detail().isBlank() ? "SERVER REJECTED" : result.detail().toUpperCase());
+    private String localizedMailText(String value) {
+        return value != null && value.startsWith("antazon.") ? Component.translatable(value).getString() : value;
     }
 
-    private AntmailMailbox mailbox(AntmailResultPayload result) {
+    private String antmailStatus(AntmailAnternetResultPayload result) {
+        if (result.status() == 0) return Component.translatable("computer.antos.status.delivered").getString();
+        if (result.status() == 1) return Component.translatable("computer.antos.status.queued").getString();
+        return Component.translatable("computer.antos.status.delivery_failed", result.detail().isBlank() ? Component.translatable("computer.antos.status.server_rejected") : result.detail().toUpperCase()).getString();
+    }
+
+    private AntmailMailbox mailbox(AntmailAnternetResultPayload result) {
         if (result == null || result.data().isBlank()) return null;
         try {
             return AntmailMailbox.fromTag(AntmailWire.decodeTag(result.data()));
@@ -2263,13 +2598,13 @@ public final class ComputerScreen extends Screen {
         }
     }
 
-    private List<AntmailMessage> mailboxMessages(AntmailResultPayload result, boolean sent) {
+    private List<AntmailMessage> mailboxMessages(AntmailAnternetResultPayload result, boolean sent) {
         AntmailMailbox mailbox = mailbox(result);
         if (mailbox == null) return List.of();
         return sent ? mailbox.sent() : mailbox.inbox();
     }
 
-    private int antmailTotal(AntmailResultPayload result, boolean sent) {
+    private int antmailTotal(AntmailAnternetResultPayload result, boolean sent) {
         if (result == null || result.data().isBlank()) return 0;
         try {
             var tag = AntmailWire.decodeTag(result.data());
@@ -2279,11 +2614,11 @@ public final class ComputerScreen extends Screen {
         }
     }
 
-    private AntmailMessage selectedAntmailMessage(AntmailResultPayload result) {
+    private AntmailMessage selectedAntmailMessage(AntmailAnternetResultPayload result) {
         List<AntmailMessage> messages = mailboxMessages(result, session.antmailSent);
         if (session.antmailMessageIndex < 0 || session.antmailMessageIndex >= messages.size()) return null;
         AntmailMessage summary = messages.get(session.antmailMessageIndex);
-        AntmailMessage detail = AntmailClientState.getMessage(position, summary.id());
+        AntmailMessage detail = AntmailClientState.getMessage(summary.id());
         return detail == null ? summary : detail;
     }
 
@@ -2298,7 +2633,10 @@ public final class ComputerScreen extends Screen {
     private List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> filterAntazonProducts(List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> products) {
         String query = session.antazonSearch.trim().toLowerCase(Locale.ROOT);
         return products.stream().filter(product -> session.antazonCategory.equals("ALL") || product.category().equalsIgnoreCase(session.antazonCategory))
-                .filter(product -> query.isBlank() || product.name().toLowerCase(Locale.ROOT).contains(query)).toList();
+                .filter(product -> query.isBlank()
+                        || Component.translatable(product.name()).getString().toLowerCase(Locale.ROOT).contains(query)
+                        || product.category().toLowerCase(Locale.ROOT).contains(query)
+                        || product.id().toLowerCase(Locale.ROOT).contains(query)).toList();
     }
 
     private List<String> antazonCategories(List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> products) {
@@ -2310,40 +2648,87 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderAntazon(GuiGraphics g, int x, int y, int w, int h) {
-        if (!com.craisinlord.antos.content.client.AntazonClientState.hasSnapshot(position)) {
-            g.drawString(font, Component.literal("LOADING CATALOG..."), x, y + 24, PALE_GREEN, false);
+        if (!com.craisinlord.antos.content.client.AntazonClientState.onboardingReceived()) {
+            g.drawString(font, Component.literal("CONNECTING TO ANTAZON..."), x, y + 38, PALE_GREEN, false);
             return;
         }
-        List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> products = com.craisinlord.antos.content.client.AntazonClientState.products(position);
+        if (!com.craisinlord.antos.content.client.AntazonClientState.onboardingComplete()) {
+            renderAntazonOnboarding(g, x, y, w, h);
+            return;
+        }
+        renderAntazonBalance(g, x, y, w);
         renderAntazonTaskbar(g, x, y, w);
+        if (session.antazonMode.equals("sell")) {
+            renderAntazonSell(g, x, y, w, h);
+            return;
+        }
+        if (session.antazonMode.equals("prices")) {
+            renderAntazonPrices(g, x, y, w, h);
+            return;
+        }
+        if (!com.craisinlord.antos.content.client.AntazonClientState.hasSnapshot()) {
+            g.drawString(font, Component.literal("LOADING BUY CATALOG..."), x, y + 36, PALE_GREEN, false);
+            return;
+        }
+        List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> products = com.craisinlord.antos.content.client.AntazonClientState.products();
         if (session.antazonMode.equals("wishlist")) {
-            g.drawString(font, Component.literal("[ MAIL LIST ]"), x, y + 26, PALE_GREEN, false);
+            g.drawString(font, Component.literal("WISHLIST"), x, y + 26, GREEN, false);
+            box(g, x + 72, y + 21, x + 158, y + 42, PALE_GREEN);
+            g.drawCenteredString(font, Component.literal("MAIL LIST"), x + 115, y + 27, GREEN);
             g.fill(x, y + 38, x + w, y + 39, GREEN);
+            List<String> wishlist = session.antazonWishlist.stream().toList();
+            int visible = Math.max(1, (h - 62) / 36);
+            int maximum = Math.max(0, wishlist.size() - visible);
+            session.antazonWishlistScroll = Math.max(0, Math.min(maximum, session.antazonWishlistScroll));
+            drawScrollbar(g, x + w - 2, y + 46, Math.max(1, h - 62), visible, wishlist.size(), session.antazonWishlistScroll, maximum);
             int rowTop = y + 46;
-            for (String wishlistId : session.antazonWishlist) {
-                if (rowTop + 25 > y + h - 16) break;
+            for (int index = session.antazonWishlistScroll; index < wishlist.size() && index < session.antazonWishlistScroll + visible; index++) {
+                String wishlistId = wishlist.get(index);
                 var product = products.stream().filter(value -> value.id().equals(wishlistId)).findFirst().orElse(null);
                 if (product == null) continue;
-                if (inside(x, rowTop - 3, w, 20, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 3, w, 20);
-                g.drawString(font, Component.literal(trimToWidth(product.name(), w - 8)), x + 4, rowTop, GREEN, false);
-                g.drawString(font, Component.literal(trimToWidth(product.category().toUpperCase(Locale.ROOT) + " // " + (product.dealActive() ? "DAILY DEAL" : "READY TO ORDER"), w - 8)), x + 4, rowTop + 11, PALE_GREEN, false);
-                rowTop += 25;
+                if (inside(x, rowTop - 3, w - 6, 34, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 3, w - 6, 34);
+                g.drawString(font, Component.literal(trimToWidth(Component.translatable(product.name()).getString(), w - 12)), x + 4, rowTop, GREEN, false);
+                String state = product.dealActive() ? "DEAL " + product.dealDiscount() + "% OFF" : antazonOnCooldown(product) ? "COOLDOWN " + antazonCooldown(product) : product.stock() > 0 ? "IN STOCK" : "UNLIMITED STOCK";
+                g.drawString(font, Component.literal(trimToWidth(product.category().toUpperCase(Locale.ROOT) + " // " + state, w - 12)), x + 4, rowTop + 11, PALE_GREEN, false);
+                String payment = product.payments().isEmpty() ? "PAYMENT UNKNOWN" : "PAY " + String.join(" OR ", product.payments().stream().map(this::prettyAntazonPayment).toList());
+                g.drawString(font, Component.literal(trimToWidth(payment, w - 12)), x + 4, rowTop + 22, PALE_GREEN, false);
+                rowTop += 36;
             }
             if (session.antazonWishlist.isEmpty()) g.drawString(font, Component.literal("WISHLIST EMPTY"), x, y + 46, PALE_GREEN, false);
             return;
         }
         if (session.antazonMode.equals("orders")) {
+            List<com.craisinlord.antos.content.client.AntazonClientState.OrderRow> orders = com.craisinlord.antos.content.client.AntazonClientState.orders();
+            if (session.antazonOrderSelection >= 0 && session.antazonOrderSelection < orders.size()) {
+                var order = orders.get(session.antazonOrderSelection);
+                var product = products.stream().filter(value -> value.id().equals(order.product())).findFirst().orElse(null);
+                g.drawString(font, Component.literal("< BACK TO ORDERS"), x, y + 27, GREEN, false);
+                g.fill(x, y + 42, x + w, y + 43, GREEN);
+                g.drawString(font, Component.literal("PRODUCT"), x, y + 52, PALE_GREEN, false);
+                g.drawString(font, Component.literal(trimToWidth(product == null ? order.product() : Component.translatable(product.name()).getString(), w - 8)), x, y + 65, GREEN, false);
+                g.drawString(font, Component.literal("QUANTITY  " + order.units()), x, y + 87, PALE_GREEN, false);
+                g.drawString(font, Component.literal("PAID WITH  " + trimToWidth(antazonOrderPayment(order.option()), w - 105)), x, y + 103, PALE_GREEN, false);
+                g.drawString(font, Component.literal("ORDER STATUS"), x, y + 128, PALE_GREEN, false);
+                g.drawString(font, Component.literal(trimToWidth(order.status(), w - 8)), x, y + 141, GREEN, false);
+                if (product != null) {
+                    wrapLimited(g, Component.translatable(product.description()).getString(), x, y + 160, w - 8, y + h - 10, PALE_GREEN);
+                }
+                return;
+            }
             g.fill(x, y + 26, x + w, y + 27, GREEN);
             int rowTop = y + 34;
-            List<com.craisinlord.antos.content.client.AntazonClientState.OrderRow> orders = com.craisinlord.antos.content.client.AntazonClientState.orders(position);
-            for (var order : orders) {
-                if (rowTop + 26 > y + h - 16) break;
+            int visible = Math.max(1, (h - 76) / 34);
+            int maximum = Math.max(0, orders.size() - visible);
+            session.antazonOrdersScroll = Math.max(0, Math.min(maximum, session.antazonOrdersScroll));
+            drawScrollbar(g, x + w - 2, rowTop, Math.max(1, h - 76), visible, orders.size(), session.antazonOrdersScroll, maximum);
+            for (int index = session.antazonOrdersScroll; index < orders.size() && index < session.antazonOrdersScroll + visible; index++) {
+                var order = orders.get(index);
                 var product = products.stream().filter(value -> value.id().equals(order.product())).findFirst().orElse(null);
-                String name = product == null ? order.product() : product.name();
-                if (inside(x, rowTop - 3, w, 23, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 3, w, 23);
-                g.drawString(font, Component.literal(trimToWidth(name + " // " + order.option() + " X" + order.units(), w - 8)), x + 4, rowTop, GREEN, false);
-                g.drawString(font, Component.literal(order.status()), x + 4, rowTop + 11, PALE_GREEN, false);
-                rowTop += 26;
+                String name = product == null ? order.product() : Component.translatable(product.name()).getString();
+                if (inside(x, rowTop - 3, w - 6, 31, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 3, w - 6, 31);
+                g.drawString(font, Component.literal(trimToWidth(name + " // X" + order.units(), w - 12)), x + 4, rowTop, GREEN, false);
+                g.drawString(font, Component.literal(trimToWidth("PAID " + antazonOrderPayment(order.option()) + " // " + order.status(), w - 12)), x + 4, rowTop + 12, PALE_GREEN, false);
+                rowTop += 34;
             }
             if (orders.isEmpty()) g.drawString(font, Component.literal("NO ORDERS YET"), x, y + 34, PALE_GREEN, false);
             return;
@@ -2352,20 +2737,23 @@ public final class ComputerScreen extends Screen {
             var product = products.stream().filter(value -> value.id().equals(session.antazonProductId)).findFirst().orElse(null);
             if (product == null) { session.antazonMode = "catalog"; return; }
             g.drawString(font, Component.literal("[ MAIL ]"), x + w - 145, y + 26, PALE_GREEN, false);
-            g.drawString(font, Component.literal(session.antazonWishlist.contains(product.id()) ? "[ WISHLISTED ]" : "[ WISHLIST ]"), x + w - 92, y + 26, PALE_GREEN, false);
+            g.drawString(font, Component.literal(session.antazonWishlist.contains(product.id()) ? "[ SAVED ]" : "[ + WISH ]"), x + w - 88, y + 26, PALE_GREEN, false);
             g.fill(x, y + 38, x + w, y + 39, GREEN);
-            String deal = product.dealActive() ? "  // " + product.dealLabel() + " -" + product.dealDiscount() + "%" : "";
+            String deal = product.dealActive() ? "  // " + Component.translatable(product.dealLabel()).getString() + " -" + product.dealDiscount() + "%" : "";
             renderAntazonAsset(g, product.thumbnail(), x + 27, y + 76, 52);
-            g.drawString(font, Component.literal(trimToWidth(product.name() + deal, w - 66)), x + 62, y + 52, GREEN, false);
-            wrapLimited(g, product.description(), x + 62, y + 66, w - 70, y + 83, PALE_GREEN);
+            String productName = Component.translatable(product.name()).getString();
+            g.drawString(font, Component.literal(trimToWidth(productName + deal, w - 66)), x + 62, y + 52, GREEN, false);
+            wrapLimited(g, Component.translatable(product.description()).getString(), x + 62, y + 66, w - 70, y + 83, PALE_GREEN);
             String reviews = product.reviews().isEmpty() ? "NO REVIEWS" : product.reviews().size() + " REVIEWS // " + "★".repeat(product.reviews().stream().mapToInt(com.craisinlord.antos.content.client.AntazonClientState.ReviewRow::rating).sum() / product.reviews().size());
             g.drawString(font, Component.literal(reviews), x + 62, y + 86, GREEN, false);
-            String availability = product.stock() > 0 ? "STOCK " + product.stock() : "UNLIMITED STOCK";
+            boolean cooldown = antazonOnCooldown(product);
+            String availability = cooldown ? "COOLDOWN " + antazonCooldown(product) : product.stock() > 0 ? "STOCK " + product.stock() : "UNLIMITED STOCK";
             g.drawString(font, Component.literal(availability), x + w - font.width(availability), y + 86, PALE_GREEN, false);
             int controlsY = y + h - 36;
             String payment = product.payments().isEmpty() ? "PAYMENT UNKNOWN" : String.join(" OR ", product.payments().stream().map(this::prettyAntazonPayment).toList());
-            g.drawString(font, Component.literal("PURCHASE  X" + product.quantity()), x + 4, y + 101, GREEN, false);
-            g.drawString(font, Component.literal(trimToWidth(payment, w - 8)), x + 4, y + 117, PALE_GREEN, false);
+            g.drawString(font, Component.literal(trimToWidth(cooldown ? "PURCHASE LOCKED // COOLDOWN" : "EACH PURCHASE DELIVERS " + product.quantity() + " REWARD SETS", w - 8)), x + 4, y + 101, cooldown ? PALE_GREEN : GREEN, false);
+            g.drawString(font, Component.literal(trimToWidth("PAY WITH: " + payment, w - 8)), x + 4, y + 117, PALE_GREEN, false);
+            g.drawString(font, Component.literal("SERVER USES FIRST AFFORDABLE OPTION"), x + 4, y + 133, PALE_GREEN, false);
             int galleryX = x + 190;
             for (var asset : product.gallery()) {
                 if (galleryX + 24 > x + w) break;
@@ -2373,30 +2761,47 @@ public final class ComputerScreen extends Screen {
                 galleryX += 26;
             }
             g.drawString(font, Component.literal("[-]"), x, controlsY, PALE_GREEN, false);
-            g.drawCenteredString(font, Component.literal("QTY " + session.antazonQuantity), x + 52, controlsY, PALE_GREEN);
+            g.drawCenteredString(font, Component.literal("QUANTITY " + session.antazonQuantity), x + 52, controlsY, PALE_GREEN);
             g.drawString(font, Component.literal("[+]"), x + 78, controlsY, PALE_GREEN, false);
-            g.drawString(font, Component.literal("[ ADD TO CART ]"), x, controlsY + 18, GREEN, false);
-            g.drawString(font, Component.literal("[ BUY NOW ]"), x + 118, controlsY + 18, GREEN, false);
+            if (hovered(x, controlsY + 14, 105, 22)) drawHover(g, x, controlsY + 14, 105, 22);
+            if (hovered(x + 112, controlsY + 14, Math.max(1, w - 116), 22)) drawHover(g, x + 112, controlsY + 14, w - 116, 22);
+            box(g, x, controlsY + 14, x + 105, controlsY + 36, PALE_GREEN);
+            box(g, x + 112, controlsY + 14, x + w - 4, controlsY + 36, GREEN);
+            g.drawString(font, Component.literal(cooldown ? "[ COOLDOWN ]" : "[ ADD TO CART ]"), x, controlsY + 18, cooldown ? PALE_GREEN : GREEN, false);
+            g.drawString(font, Component.literal(cooldown ? "[ AVAILABLE IN " + antazonCooldown(product) + " ]" : "[ BUY NOW ]"), x + 118, controlsY + 18, cooldown ? PALE_GREEN : GREEN, false);
             return;
         }
         if (session.antazonMode.equals("cart")) {
             g.fill(x, y + 26, x + w, y + 27, GREEN);
-            int rowTop = y + 34;
+            int rowTop = y + 46;
             for (Map.Entry<String, Integer> entry : session.antazonCart.entrySet()) {
-                if (rowTop + 22 > y + h - 20) break;
+                if (rowTop + 37 > y + h - 30) break;
                 String[] fields = entry.getKey().split("\\|", 2);
                 var product = products.stream().filter(value -> value.id().equals(fields[0])).findFirst().orElse(null);
-                String label = product == null ? fields[0] : product.name();
-                if (inside(x, rowTop - 3, w, 20, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 3, w, 20);
-                g.drawString(font, Component.literal(trimToWidth(label + " // " + fields[1] + "  X" + entry.getValue(), w - 8)), x + 4, rowTop, GREEN, false);
-                rowTop += 22;
+                String cooldown = product != null && antazonOnCooldown(product) ? " // COOLDOWN " + antazonCooldown(product) : "";
+                String label = product == null ? fields[0] : Component.translatable(product.name()).getString();
+                if (inside(x, rowTop - 3, w, 35, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 3, w, 35);
+                g.drawString(font, Component.literal(trimToWidth(label, w - 104)), x + 4, rowTop, cooldown.isBlank() ? GREEN : PALE_GREEN, false);
+                g.drawString(font, Component.literal(trimToWidth("QUANTITY " + entry.getValue() + cooldown, w - 104)), x + 4, rowTop + 12, PALE_GREEN, false);
+                String payment = product == null || product.payments().isEmpty() ? "PAYMENT UNAVAILABLE" : "PAY " + String.join(" OR ", product.payments().stream().map(this::prettyAntazonPayment).toList());
+                g.drawString(font, Component.literal(trimToWidth(payment, w - 104)), x + 4, rowTop + 24, PALE_GREEN, false);
+                int controlsX = x + w - 96;
+                g.drawString(font, Component.literal("[-]"), controlsX, rowTop + 4, PALE_GREEN, false);
+                g.drawCenteredString(font, Component.literal(String.valueOf(entry.getValue())), controlsX + 29, rowTop + 4, GREEN);
+                g.drawString(font, Component.literal("[+]"), controlsX + 43, rowTop + 4, PALE_GREEN, false);
+                g.drawString(font, Component.literal("[X]"), controlsX + 68, rowTop + 4, PALE_GREEN, false);
+                rowTop += 40;
             }
             if (session.antazonCart.isEmpty()) g.drawString(font, Component.literal("CART EMPTY"), x, rowTop, PALE_GREEN, false);
-            else g.drawString(font, Component.literal("[ BUY ALL ]"), x, y + h - 14, GREEN, false);
+            else {
+            g.drawString(font, Component.literal("FIRST AFFORDABLE PAYMENT OPTION PER PRODUCT"), x, y + 29, PALE_GREEN, false);
+                box(g, x + w - 112, y + h - 24, x + w - 4, y + h - 4, GREEN);
+                g.drawCenteredString(font, Component.literal("BUY AVAILABLE"), x + w - 58, y + h - 18, GREEN);
+            }
             return;
         }
         box(g, x, y + 22, x + w - 8, y + 42, session.antazonSearchFocused ? GREEN : PALE_GREEN);
-        String searchText = session.antazonSearch.isBlank() && !session.antazonSearchFocused ? "SEARCH PRODUCT NAME" : session.antazonSearch;
+        String searchText = session.antazonSearch.isBlank() && !session.antazonSearchFocused ? "SEARCH PRODUCTS OR CATEGORIES" : session.antazonSearch;
         g.drawString(font, Component.literal(trimToWidth(searchText + (session.antazonSearchFocused && caretVisible() ? "|" : ""), w - 20)), x + 6, y + 28,
                 session.antazonSearch.isBlank() ? PALE_GREEN : GREEN, false);
         List<String> categories = antazonCategories(products);
@@ -2419,29 +2824,165 @@ public final class ComputerScreen extends Screen {
             return;
         }
         int rowTop = y + 70;
-        int visibleProducts = Math.max(1, (h - 92) / 30);
+        int visibleProducts = Math.max(1, (h - 96) / 36);
         int maximumScroll = Math.max(0, filteredProducts.size() - visibleProducts);
         session.antazonScroll = Math.max(0, Math.min(session.antazonScroll, maximumScroll));
-        drawScrollbar(g, x + w - 1, rowTop, Math.max(1, h - 92), visibleProducts, filteredProducts.size(), session.antazonScroll, maximumScroll);
+        drawScrollbar(g, x + w - 1, rowTop, Math.max(1, h - 96), visibleProducts, filteredProducts.size(), session.antazonScroll, maximumScroll);
         for (int index = session.antazonScroll; index < filteredProducts.size() && index < session.antazonScroll + visibleProducts; index++) {
             var product = filteredProducts.get(index);
-            if (inside(x, rowTop - 2, w, 28, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 2, w, 28);
+            if (inside(x, rowTop - 2, w, 34, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 2, w, 34);
             renderAntazonAsset(g, product.thumbnail(), x + 12, rowTop + 12, 22);
             String deal = product.dealActive() ? "  [" + product.dealDiscount() + "% OFF]" : "";
-            g.drawString(font, Component.literal(trimToWidth(product.name() + deal, w - 46)), x + 30, rowTop + 1, GREEN, false);
-            String stock = product.stock() > 0 ? "STOCK " + product.stock() : "UNLIMITED";
+            g.drawString(font, Component.literal(trimToWidth(Component.translatable(product.name()).getString() + deal, w - 132)), x + 30, rowTop + 1, GREEN, false);
+            boolean cooldown = antazonOnCooldown(product);
+            String stock = cooldown ? "COOLDOWN " + antazonCooldown(product) : product.stock() > 0 ? "STOCK " + product.stock() : "UNLIMITED";
             g.drawString(font, Component.literal(stock), x + w - font.width(stock) - 4, rowTop + 2, PALE_GREEN, false);
-            g.drawString(font, Component.literal(trimToWidth(product.category().toUpperCase(Locale.ROOT) + " // X" + product.quantity(), w - 46)), x + 30, rowTop + 14, PALE_GREEN, false);
-            rowTop += 30;
+            g.drawString(font, Component.literal(trimToWidth(product.category().toUpperCase(Locale.ROOT) + " // " + product.quantity() + " REWARD SETS", w - 46)), x + 30, rowTop + 14, PALE_GREEN, false);
+            String payment = product.payments().isEmpty() ? "PAYMENT UNKNOWN" : "PAY " + String.join(" OR ", product.payments().stream().map(this::prettyAntazonPayment).toList());
+            g.drawString(font, Component.literal(trimToWidth(payment, w - 46)), x + 30, rowTop + 26, PALE_GREEN, false);
+            rowTop += 36;
         }
     }
 
+    private void renderAntazonBalance(GuiGraphics g, int x, int y, int w) {
+        String label = "ANTCOINS " + com.craisinlord.antos.content.client.AntazonClientState.wallet();
+        int labelWidth = font.width(label);
+        int labelX = x + w - labelWidth - 2;
+        g.fill(labelX - 5, y - 2, x + w, y + 10, 0xFF102010);
+        g.drawString(font, Component.literal(label), labelX, y, GREEN, false);
+    }
+
     private void renderAntazonTaskbar(GuiGraphics g, int x, int y, int w) {
-        g.drawString(font, Component.literal("[ SHOP ]"), x, y, session.antazonMode.equals("catalog") ? GREEN : PALE_GREEN, false);
-        g.drawString(font, Component.literal("[ WISH " + session.antazonWishlist.size() + " ]"), x + 58, y, session.antazonMode.equals("wishlist") ? GREEN : PALE_GREEN, false);
-        g.drawString(font, Component.literal("[ ORDERS ]"), x + 140, y, session.antazonMode.equals("orders") ? GREEN : PALE_GREEN, false);
-        g.drawString(font, Component.literal("[ CART " + session.antazonCart.values().stream().mapToInt(Integer::intValue).sum() + " ]"), x + 220, y, session.antazonMode.equals("cart") ? GREEN : PALE_GREEN, false);
+        String[] labels = {"SHOP", "SELL", "PRICES", "WISH " + session.antazonWishlist.size(), "ORDERS", "CART " + session.antazonCart.values().stream().mapToInt(Integer::intValue).sum()};
+        int[] widths = antazonTabWidths(w);
+        int cursor = x;
+        for (int index = 0; index < labels.length; index++) {
+            boolean selected = switch (index) {
+                case 0 -> session.antazonMode.equals("catalog") || session.antazonMode.equals("product");
+                case 1 -> session.antazonMode.equals("sell");
+                case 2 -> session.antazonMode.equals("prices");
+                case 3 -> session.antazonMode.equals("wishlist");
+                case 4 -> session.antazonMode.equals("orders");
+                default -> session.antazonMode.equals("cart");
+            };
+            renderAntazonTab(g, labels[index], cursor, y, widths[index], selected);
+            cursor += widths[index];
+        }
         g.fill(x, y + 16, x + w, y + 17, GREEN);
+    }
+
+    private int[] antazonTabWidths(int width) {
+        int[] base = {42, 40, 50, 68, 54, 58};
+        int total = java.util.Arrays.stream(base).sum();
+        int available = Math.max(0, Math.min(width, total));
+        int[] result = new int[base.length];
+        int used = 0;
+        for (int index = 0; index < base.length - 1; index++) {
+            result[index] = base[index] * available / total;
+            used += result[index];
+        }
+        result[result.length - 1] = available - used;
+        return result;
+    }
+
+    private int renderAntazonTab(GuiGraphics g, String label, int x, int y, int width, boolean selected) {
+        label = trimToWidth(label, Math.max(0, width - 4));
+        boolean hover = inside(x, y - 3, width, 18, session.mouseX, session.mouseY);
+        if (hover || selected) g.fill(x - 2, y - 3, x + width - 2, y + 12, hover ? HOVER_FILL : 0xFF102010);
+        g.drawString(font, Component.literal(label), x, y, selected || hover ? GREEN : PALE_GREEN, false);
+        return x + width;
+    }
+
+    private void renderAntazonPrices(GuiGraphics g, int x, int y, int w, int h) {
+        g.drawString(font, Component.literal("SELL PRICES // CLICK ITEM TO PREPARE CRATE"), x, y + 26, GREEN, false);
+        g.drawString(font, Component.literal("CRATE QTY " + session.antazonPriceQuantity + " // SCROLL TO CHANGE"), x, y + 39, PALE_GREEN, false);
+        int rowTop = y + 52;
+        int visible = Math.max(1, (h - 70) / 22);
+        List<com.craisinlord.antos.content.client.AntazonClientState.PriceRow> prices = com.craisinlord.antos.content.client.AntazonClientState.prices();
+        int maximum = Math.max(0, prices.size() - visible);
+        session.antazonPriceScroll = Math.max(0, Math.min(maximum, session.antazonPriceScroll));
+        drawScrollbar(g, x + w - 2, rowTop, Math.max(1, h - 70), visible, prices.size(), session.antazonPriceScroll, maximum);
+        for (int index = session.antazonPriceScroll; index < prices.size() && index < session.antazonPriceScroll + visible; index++) {
+            var price = prices.get(index);
+            if (inside(x, rowTop - 2, w, 20, session.mouseX, session.mouseY)) drawHover(g, x, rowTop - 2, w, 20);
+            renderAntazonAsset(g, new com.craisinlord.antos.content.client.AntazonClientState.PreviewAsset(price.item(), ""), x + 10, rowTop + 9, 16);
+            String label = prettyAntazonItem(price.item());
+            if (session.antazonPriceItem.equals(price.item())) label += "  X" + session.antazonPriceQuantity + " = " + ((long) price.value() * session.antazonPriceQuantity);
+            g.drawString(font, Component.literal(trimToWidth(label, w - 72)), x + 22, rowTop + 5, GREEN, false);
+            g.drawString(font, Component.literal(price.value() + " / EA"), x + w - 68, rowTop + 5, PALE_GREEN, false);
+            rowTop += 22;
+        }
+        if (prices.isEmpty()) g.drawString(font, Component.literal("NO SELL RULES LOADED"), x, y + 55, PALE_GREEN, false);
+    }
+
+    private void renderAntazonOnboarding(GuiGraphics g, int x, int y, int w, int h) {
+        g.fill(x - 4, y - 4, x + w + 4, y + h + 4, 0xE0000000);
+        box(g, x + 12, y + 28, x + w - 12, y + h - 16, GREEN);
+        g.drawString(font, Component.literal("ANTAZON // GET STARTED"), x + 24, y + 40, GREEN, false);
+        String[] lines = {"SHOP  Compare supplies, deals and payment options.", "CART  Review quantities before buying available items.", "SELL  Load a single chest, review the manifest, confirm shipment.", "PRICES  Click an item to prepare a sale crate.", "WISHLIST / ORDERS  Save products and track purchases."};
+        for (int index = 0; index < lines.length; index++) g.drawString(font, Component.literal(trimToWidth(lines[index], w - 52)), x + 24, y + 64 + index * 18, PALE_GREEN, false);
+        g.drawString(font, Component.literal("[ GOT IT ]"), x + w - 80, y + h - 31, GREEN, false);
+        g.drawString(font, Component.literal("[ SKIP ]"), x + 24, y + h - 31, PALE_GREEN, false);
+    }
+
+    private void renderAntazonSell(GuiGraphics g, int x, int y, int w, int h) {
+        List<com.craisinlord.antos.content.client.AntazonClientState.SellRow> rows = com.craisinlord.antos.content.client.AntazonClientState.sellRows();
+        String manifestStatus = com.craisinlord.antos.content.client.AntazonClientState.status();
+        String feedback = com.craisinlord.antos.content.client.AntazonClientState.sellFeedback();
+        String status = feedback.isBlank() ? manifestStatus : feedback;
+        g.drawString(font, Component.literal("SELL // CHEST SHIPMENT"), x, y + 26, GREEN, false);
+        boolean ready = manifestStatus.isBlank() && !rows.isEmpty() && rows.stream().allMatch(com.craisinlord.antos.content.client.AntazonClientState.SellRow::sellable);
+        if (status.equals("CHEST_REQUIRED")) {
+            g.drawString(font, Component.literal("PLACE A SINGLE CHEST NEXT TO THIS COMPUTER"), x, y + 39, PALE_GREEN, false);
+            g.drawString(font, Component.literal("PUT THE ITEMS YOU WANT TO SELL INSIDE IT"), x, y + 51, PALE_GREEN, false);
+        } else if (status.equals("CRATE_EMPTY")) {
+            g.drawString(font, Component.literal("THE CHEST IS EMPTY"), x, y + 39, PALE_GREEN, false);
+        } else if (status.equals("UNSUPPORTED_ITEMS")) {
+            g.drawString(font, Component.literal("UNSUPPORTED ITEMS // REMOVE THESE BEFORE SHIPPING"), x, y + 39, 0xFFFF7777, false);
+        } else if (status.equals("SHIPMENT_LAUNCHED")) {
+            g.drawString(font, Component.literal("FREIGHT LAUNCHED // PAYMENT PENDING"), x, y + 39, GREEN, false);
+            g.drawString(font, Component.literal("PAYOUT: " + com.craisinlord.antos.content.client.AntazonClientState.sellAmount() + " ANTCOINS"), x, y + 51, PALE_GREEN, false);
+            int receiptColor = (System.currentTimeMillis() / 250L) % 2L == 0L ? GREEN : PALE_GREEN;
+            g.drawString(font, Component.literal("[ RECEIPT PRINTED ]"), x + w - font.width("[ RECEIPT PRINTED ]") - 8, y + 39, receiptColor, false);
+        } else if (session.antazonSellConfirm) {
+            int itemCount = rows.stream().mapToInt(com.craisinlord.antos.content.client.AntazonClientState.SellRow::count).sum();
+            g.drawString(font, Component.literal(trimToWidth("CONFIRM " + itemCount + " ITEMS FOR " + com.craisinlord.antos.content.client.AntazonClientState.sellAmount() + " ANTCOINS", w - 8)), x, y + 39, PALE_GREEN, false);
+            g.drawString(font, Component.literal("THE CHEST AND CONTENTS WILL BE CONSUMED"), x, y + 51, PALE_GREEN, false);
+        } else {
+            g.drawString(font, Component.literal("CRATE READY FOR COLLECTION"), x, y + 39, PALE_GREEN, false);
+            g.drawString(font, Component.literal("THE CHEST AND CONTENTS WILL BE SHIPPED TO ANTAZON"), x, y + 51, PALE_GREEN, false);
+        }
+        if (!status.isBlank() && !status.equals("CHEST_REQUIRED") && !status.equals("CRATE_EMPTY") && !status.equals("UNSUPPORTED_ITEMS") && !status.equals("SHIPMENT_LAUNCHED"))
+            g.drawString(font, Component.literal(trimToWidth(antazonSellMessage(status), w - 8)), x, y + 51, status.contains("FAILED") ? 0xFFFF7777 : PALE_GREEN, false);
+
+        g.drawString(font, Component.literal("SHIPMENT MANIFEST"), x, y + 61, PALE_GREEN, false);
+        int rowY = y + 68;
+        int manifestBottom = y + h - 64;
+        int visibleRows = Math.max(1, (manifestBottom - rowY) / 22);
+        int maximumScroll = Math.max(0, rows.size() - visibleRows);
+        session.antazonSellScroll = Math.max(0, Math.min(maximumScroll, session.antazonSellScroll));
+        drawScrollbar(g, x + w - 2, rowY, Math.max(1, manifestBottom - rowY), visibleRows, rows.size(), session.antazonSellScroll, maximumScroll);
+        for (int index = session.antazonSellScroll; index < rows.size() && index < session.antazonSellScroll + visibleRows; index++) {
+            var row = rows.get(index);
+            int rowTop = rowY + (index - session.antazonSellScroll) * 22;
+            g.fill(x, rowTop, x + w - 8, rowTop + 20, row.sellable() ? 0xFF102010 : 0xFF203820);
+            renderAntazonAsset(g, new com.craisinlord.antos.content.client.AntazonClientState.PreviewAsset(row.item(), ""), x + 12, rowTop + 10, 16);
+            String label = prettyAntazonItem(row.item()) + " x" + row.count();
+            String value = row.sellable() ? "+" + row.value() + " ANTCOINS" : "NOT ACCEPTED";
+            int unsupportedColor = PALE_GREEN;
+            g.drawString(font, Component.literal(trimToWidth(label, w - 105)), x + 25, rowTop + 6, row.sellable() ? PALE_GREEN : unsupportedColor, false);
+            g.drawString(font, Component.literal(value), x + w - 98, rowTop + 6, row.sellable() ? GREEN : unsupportedColor, false);
+        }
+        long total = rows.stream().filter(com.craisinlord.antos.content.client.AntazonClientState.SellRow::sellable).mapToLong(com.craisinlord.antos.content.client.AntazonClientState.SellRow::value).sum();
+        String overflow = rows.size() > visibleRows ? " // +" + (rows.size() - visibleRows) + " MORE TYPES" : "";
+        String payoutLabel = status.equals("UNSUPPORTED_ITEMS") ? "SELLABLE ITEMS PAYOUT: " : "TOTAL PAYOUT: ";
+        g.drawString(font, Component.literal(payoutLabel + total + " ANTCOINS" + overflow), x, y + h - 58, GREEN, false);
+        int controlsY = y + h - 35;
+        box(g, x, controlsY, x + 78, controlsY + 18, PALE_GREEN);
+        g.drawCenteredString(font, Component.literal("REFRESH"), x + 39, controlsY + 5, GREEN);
+        String ship = status.equals("SHIPMENT_LAUNCHED") ? "SHIPMENT IN TRANSIT" : status.equals("SHIPMENT_ACCEPTED") ? "SHIPMENT COMPLETE" : session.antazonSellConfirm ? "CONFIRM SHIPMENT" : "SEND CRATE TO ANTAZON";
+        box(g, x + 84, controlsY, x + w - 8, controlsY + 18, ready ? GREEN : PALE_GREEN);
+        g.drawCenteredString(font, Component.literal(trimToWidth(ship, w - 98)), x + 84 + (w - 92) / 2, controlsY + 5, ready ? GREEN : PALE_GREEN);
     }
 
     private void renderGames(GuiGraphics g, Window window, int x, int y, int mouseX, int mouseY) {
@@ -2474,7 +3015,7 @@ public final class ComputerScreen extends Screen {
         ResourceLocation id = ResourceLocation.tryParse(window.gameId);
         ComputerGame game = id == null ? null : ComputerGameRegistry.get(id);
         if (game == null) return java.util.Optional.empty();
-        return java.util.Optional.of(gameSessions.computeIfAbsent(id, ignored -> game.create(position)));
+        return java.util.Optional.of(gameSessions.computeIfAbsent(id, ignored -> game.create()));
     }
 
     private void renderTrash(GuiGraphics g, int x, int y) {
@@ -2531,20 +3072,17 @@ public final class ComputerScreen extends Screen {
         int l = -WIDTH / 2;
         int t = -HEIGHT / 2;
         if (!loggedIn) {
-            ComputerBlockEntity computer = computer();
-            boolean setup = (accessResult != null && !accessResult.hasPassword()) || (computer != null && !computer.hasPassword());
-            int formX = setup ? l + 110 : l + 242;
-            if (setup && accessResult != null && accessResult.result() == ComputerAccessResultPayload.RECOVERY_AVAILABLE
-                    && inside(formX, t + 218, 106, 22, mouseX, mouseY)) {
-                restoreWorkspace = true;
-                return true;
-            }
-            if (setup && accessResult != null && accessResult.result() == ComputerAccessResultPayload.RECOVERY_AVAILABLE
-                    && inside(formX + 114, t + 218, 106, 22, mouseX, mouseY)) {
-                restoreWorkspace = false;
-                return true;
-            }
-            if (inside(formX, t + 181, setup ? 150 : 100, 24, mouseX, mouseY)) tryLogin();
+            if (button != 0) return true;
+            int buttonX = l + WIDTH / 2 - 70;
+            if (inside(buttonX, t + 70, 66, 20, mouseX, mouseY)) {
+                creatingAccount = false;
+                accountMessage = "SIGN IN TO YOUR ANTERNET ACCOUNT";
+            } else if (inside(buttonX + 74, t + 70, 66, 20, mouseX, mouseY)) {
+                creatingAccount = true;
+                accountMessage = "CHOOSE A USERNAME AND PASSWORD";
+            } else if (inside(l + 28, t + 109, WIDTH - 56, 23, mouseX, mouseY)) accountPasswordFocused = false;
+            else if (inside(l + 28, t + 150, WIDTH - 56, 23, mouseX, mouseY)) accountPasswordFocused = true;
+            else if (inside(buttonX, t + 184, 140, 22, mouseX, mouseY)) submitAccount();
             return true;
         }
         session.lastUse = System.currentTimeMillis();
@@ -2565,11 +3103,11 @@ public final class ComputerScreen extends Screen {
                 session.windows.remove(i);
                 session.windows.add(window);
                 boolean textTrack = window.type.equals("TEXT") && inside(contentX + contentW - 9,
-                        contentY + (session.textListing ? 62 : 42), 5,
-                        Math.max(1, contentH - (session.textListing ? 112 : 84)), mouseX, mouseY);
+                        contentY + (session.textListing ? 61 : 44), 5,
+                        Math.max(1, contentH - (session.textListing ? 111 : 88)), mouseX, mouseY);
                 if (textTrack) {
-                    int trackTop = contentY + (session.textListing ? 62 : 42);
-                    int trackHeight = Math.max(1, contentH - (session.textListing ? 112 : 84));
+                    int trackTop = contentY + (session.textListing ? 61 : 44);
+                    int trackHeight = Math.max(1, contentH - (session.textListing ? 111 : 88));
                     int maximum = session.textListing ? session.textPickerMaximumScroll : session.textMaximumScroll;
                     int value = (int) Math.round(Math.max(0.0, Math.min(1.0, (mouseY - trackTop) / trackHeight)) * maximum);
                     if (session.textListing) session.textPickerScroll = value;
@@ -2596,18 +3134,18 @@ public final class ComputerScreen extends Screen {
                     else session.antmailListScroll = value;
                     return true;
                 }
-                if (window.type.equals("SETTINGS") && inside(contentX, contentY + 105, Math.min(205, contentW), 51, mouseX, mouseY)) {
+                if (window.type.equals("SETTINGS") && inside(contentX, contentY + 157, Math.min(214, contentW), 31, mouseX, mouseY)) {
                     List<ResourceLocation> disks = physicalDisks();
-                    int index = ((int) mouseY - (contentY + 105)) / 17;
+                    int index = ((int) mouseY - (contentY + 157)) / 10;
                     if (index >= 0 && index < disks.size() && index < 3) selectedDisk = disks.get(index);
                     return true;
                 }
                 if (window.type.equals("TASKS")) {
-                    int sidebarWidth = 82;
+                    int sidebarWidth = 102;
                     int sidebarRight = contentX + sidebarWidth;
                     if (inside(contentX, contentY, sidebarWidth, contentH, mouseX, mouseY)) {
-                        int categoryOffset = (int) mouseY - (contentY + 16);
-                        int visibleCategories = Math.max(1, (contentH - 28) / 19);
+                        int categoryOffset = (int) mouseY - (contentY + 18);
+                        int visibleCategories = Math.max(1, (contentH - 32) / 19);
                         int visibleIndex = categoryOffset / 19;
                         int categoryIndex = taskCategoryScroll + visibleIndex;
                         List<String> categories = visibleTaskCategories();
@@ -2620,40 +3158,44 @@ public final class ComputerScreen extends Screen {
                         return true;
                     }
                     if (!selectedTaskId.isBlank()) {
-                        if (inside(sidebarRight + 8, contentY, contentW - sidebarWidth - 8, 19, mouseX, mouseY)) {
+                        if (inside(sidebarRight + 7, contentY, 105, 16, mouseX, mouseY)) {
                             selectedTaskId = ""; taskDetailScroll = 0; taskArchiveButtons.clear();
                             return true;
                         }
                         for (TaskArchiveButton archiveButton : taskArchiveButtons) {
                             if (!inside(archiveButton.left(), archiveButton.top(), archiveButton.right() - archiveButton.left(),
                                     archiveButton.bottom() - archiveButton.top(), mouseX, mouseY)) continue;
-                            boolean unlocked = ComputerGuideData.entriesFor(computer() == null ? List.of() : computer().diskIds(),
-                                    com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position)).stream()
+                            boolean unlocked = ComputerGuideData.entriesFor(workspaceDiskIds(),
+                                    com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get()).stream()
                                     .anyMatch(entry -> entry.id().equals(archiveButton.entryId()));
                             if (unlocked) {
                                 session.archiveEntryId = archiveButton.entryId(); session.archiveDetailScroll = 0;
-                                ComputerNetworking.recordArchiveViewed(position, archiveButton.entryId());
+                                ComputerNetworking.recordArchiveViewed(archiveButton.entryId());
                                 open("ARCHIVE");
                             }
                             return true;
                         }
                     } else {
-                        List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> categoryRows =
-                                com.craisinlord.antos.content.client.ComputerTasksClientState.get(position).stream()
-                                        .filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::visible)
-                                        .filter(task -> task.category().equals(selectedTaskCategory)).toList();
                         int mapX = sidebarRight + 9;
-                        int mapY = contentY + 20;
-                        List<TaskNode> nodes = taskNodes(categoryRows, mapX, mapY, taskMapScrollX, taskMapScrollY);
-                        for (TaskNode node : nodes) if (inside(node.left(), node.top(), node.right() - node.left(), node.bottom() - node.top(), mouseX, mouseY)) {
-                            selectedTaskId = node.task().id(); taskDetailScroll = 0; return true;
+                        int mapY = contentY + 30;
+                        int mapW = contentW - sidebarWidth - 9;
+                        int mapH = Math.max(1, contentH - 48);
+                        if (inside(mapX, mapY, mapW, mapH, mouseX, mouseY)) {
+                            List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> categoryRows =
+                                    com.craisinlord.antos.content.client.ComputerTasksClientState.get().stream()
+                                            .filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::visible)
+                                            .filter(task -> task.category().equals(selectedTaskCategory)).toList();
+                            List<TaskNode> nodes = taskNodes(categoryRows, mapX, mapY, taskMapScrollX, taskMapScrollY);
+                            for (TaskNode node : nodes) if (inside(node.left(), node.top(), node.right() - node.left(), node.bottom() - node.top(), mouseX, mouseY)) {
+                                selectedTaskId = node.task().id(); taskDetailScroll = 0; return true;
+                            }
                         }
                     }
                     return true;
                 }
                 if (window.type.equals("ARCHIVE")) {
-                    List<ComputerGuideData.Entry> entries = filterArchiveEntries(ComputerGuideData.entriesFor(computer() == null ? List.of() : computer().diskIds(),
-                            com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position)));
+                    List<ComputerGuideData.Entry> entries = filterArchiveEntries(ComputerGuideData.entriesFor(workspaceDiskIds(),
+                            com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get()));
                     int archiveX = x + 8;
                     int archiveY = y + 28;
                     if (session.archiveEntryId != null) {
@@ -2691,39 +3233,79 @@ public final class ComputerScreen extends Screen {
                             ComputerGuideData.Entry openedEntry = entries.get(index);
                             session.archiveEntryId = openedEntry.id();
                             session.archiveDetailScroll = 0;
-                            ComputerNetworking.recordArchiveViewed(position, openedEntry.id());
-                            if (!openedEntry.structureId().isBlank()) {
-                                com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.searching(position, openedEntry.dimensionId());
-                                ComputerNetworking.locateStructure(position, openedEntry.id());
+                            ComputerNetworking.recordArchiveViewed(openedEntry.id());
+                            if (!openedEntry.structureId().isBlank() || !openedEntry.locatorId().isBlank()) {
+                                com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.searching(openedEntry.dimensionId(),
+                                        openedEntry.structureId().isBlank());
+                                ComputerNetworking.locateStructure(openedEntry.id());
                             }
                         }
                     }
                     return true;
                 }
                 if (window.type.equals("FILES")) {
-                    var files = ComputerFileSystemClientState.get(position).files();
-                    if (!session.fileExplorerDirectory.equals("/") && mouseY >= contentY && mouseY < contentY + 12 && mouseX > x + w - 48) {
-                        session.fileExplorerDirectory = parentDirectory(session.fileExplorerDirectory);
-                        session.fileExplorerScroll = 0;
-                        return true;
-                    }
-                    int row = 0;
-                    for (String file : files) {
-                        String[] fields = file.split("\\t", 3);
-                        if (fields.length < 3 || !isDirectChild(fields[1], session.fileExplorerDirectory)) continue;
-                        int rowIndex = row++;
-                        if (rowIndex < session.fileExplorerScroll) continue;
-                        int rowTop = contentY + 34 + (rowIndex - session.fileExplorerScroll) * 14;
-                        if (rowTop > contentY + contentH - 32) break;
-                        if (!inside(contentX, rowTop - 2, contentW, 14, mouseX, mouseY)) continue;
-                        session.fileExplorerSelected = fields[1];
-                        if (fields[0].equals("DIRECTORY")) {
-                            session.fileExplorerDirectory = fields[1];
+                    if (session.fileExplorerDeleteConfirm || session.fileExplorerCreatingDirectory
+                            || session.fileExplorerMoving || session.fileExplorerRenaming) return true;
+                    if (mouseY >= contentY + 12 && mouseY < contentY + 24) {
+                        String breadcrumb = fileExplorerBreadcrumbAt(mouseX, mouseY, contentX, contentY + 12);
+                        if (breadcrumb != null) {
+                            session.fileExplorerDirectory = breadcrumb;
+                            session.fileExplorerSelected = "";
                             session.fileExplorerScroll = 0;
                         }
-                        else if (fields[0].equals("TEXT") || fields[0].equals("IMAGE")) {
-                            ComputerNetworking.openFile(position, fields[1]);
+                        return true;
+                    }
+                    if (mouseY >= contentY + 25 && mouseY < contentY + 39) {
+                        int buttonIndex = fileExplorerButtonAt((int) (mouseX - contentX));
+                        if (buttonIndex == 0) {
+                            beginCreateFileExplorerDirectory();
+                        } else if (buttonIndex == 1 && fileExplorerSelectionMutable()) {
+                            beginMoveFileExplorerSelection();
+                        } else if (buttonIndex == 2 && fileExplorerSelectionMutable()) {
+                            beginRenameSelectedFile();
+                        } else if (buttonIndex == 3 && fileExplorerSelectionMutable()) {
+                            session.fileExplorerCreatingDirectory = false;
+                            session.fileExplorerMoving = false;
+                            session.fileExplorerRenaming = false;
+                            session.fileExplorerDeleteConfirm = true;
+                        } else if (buttonIndex == 4) {
+                            session.fileExplorerScroll = 0;
+                            ComputerNetworking.listFiles();
+                        }
+                        return true;
+                    }
+                    List<String[]> rows = fileExplorerRows();
+                    int rowTop = contentY + 57;
+                    int rowBottom = contentY + contentH - 39;
+                    int visible = Math.max(1, (rowBottom - rowTop) / 14);
+                    if (mouseX >= contentX + contentW - 6 && mouseY >= rowTop && mouseY < rowBottom) {
+                        int maximum = Math.max(0, rows.size() - visible);
+                        int offset = Math.max(0, Math.min(rowBottom - rowTop, (int) mouseY - rowTop));
+                        session.fileExplorerScroll = maximum == 0 ? 0 : (int) Math.round((double) offset / Math.max(1, rowBottom - rowTop) * maximum);
+                        return true;
+                    }
+                    for (int rowIndex = session.fileExplorerScroll; rowIndex < rows.size() && rowIndex < session.fileExplorerScroll + visible; rowIndex++) {
+                        String[] fields = rows.get(rowIndex);
+                        int rowY = rowTop + (rowIndex - session.fileExplorerScroll) * 14;
+                        if (!inside(contentX, rowY - 2, contentW - 6, 14, mouseX, mouseY)) continue;
+                        long now = System.currentTimeMillis();
+                        boolean activate = fields[1].equals(session.fileExplorerLastClickedPath)
+                                && now - session.fileExplorerLastClickTime <= 350L;
+                        session.fileExplorerSelected = fields[1];
+                        session.fileExplorerLastClickedPath = fields[1];
+                        session.fileExplorerLastClickTime = now;
+                        if (fields[0].equals("DIRECTORY")) {
+                            if (activate) {
+                                session.fileExplorerDirectory = fields[1];
+                                session.fileExplorerSelected = "";
+                                session.fileExplorerScroll = 0;
+                                session.fileExplorerLastClickedPath = "";
+                            }
+                        }
+                        else if (activate && (fields[0].equals("TEXT") || fields[0].equals("IMAGE"))) {
+                            ComputerNetworking.openFile(fields[1]);
                             open(fields[1].endsWith(".antpaint") ? "PAINT" : "TEXT");
+                            session.fileExplorerLastClickedPath = "";
                         }
                         break;
                     }
@@ -2750,79 +3332,77 @@ public final class ComputerScreen extends Screen {
                     return true;
                 }
                 if (window.type.equals("TEXT")) {
-                    if (inside(contentX, contentY + 12, contentW, 26, mouseX, mouseY)) {
+                    if (inside(contentX, contentY + 14, contentW, 20, mouseX, mouseY)) {
                         int toolbarX = (int) mouseX - contentX;
-                        if (toolbarX < 30) newText();
-                        else if (toolbarX < 60) { session.textListing = true; session.textPickerScroll = 0; ComputerNetworking.listFiles(position); }
-                        else if (toolbarX < 102) writeText();
-                        else if (toolbarX < 138) saveText();
-                        else if (toolbarX < 210) beginSaveAs();
+                        if (toolbarX < 34) newText();
+                        else if (toolbarX >= 36 && toolbarX < 74) { session.textListing = true; session.textPickerScroll = 0; ComputerNetworking.listFiles(); }
+                        else if (toolbarX >= 76 && toolbarX < 114) writeText();
+                        else if (toolbarX >= 116 && toolbarX < 150) saveText();
+                        else if (toolbarX >= 152 && toolbarX < 214) beginSaveAs();
                     } else if (session.textListing) {
-                        var files = ComputerFileSystemClientState.get(position).files();
-                        int index = session.textPickerScroll + ((int) mouseY - (contentY + 62)) / 14;
-                        if (mouseY < contentY + 62 || mouseY >= contentY + contentH - 50) return true;
+                        var files = ComputerFileSystemClientState.get().files();
+                        int index = session.textPickerScroll + ((int) mouseY - (contentY + 61)) / 14;
+                        if (mouseY < contentY + 61 || mouseY >= contentY + contentH - 50) return true;
                         int textIndex = 0;
                         for (String file : files) {
                             String[] fields = file.split("\\t", 3);
                             if (fields.length < 3 || !fields[0].equals("TEXT")) continue;
                             if (textIndex++ == index) {
                                 session.textListing = false;
-                                ComputerNetworking.openFile(position, fields[1]);
+                                ComputerNetworking.openFile(fields[1]);
                                 break;
                             }
                         }
                     } else {
                         session.textFocused = true;
-                        setTextCursorFromMouse(mouseX - (contentX + 10), mouseY - (contentY + 46), contentW - 12);
+                        setTextCursorFromMouse(mouseX - (contentX + 10), mouseY - (contentY + 48), contentW - 32);
                     }
                     return true;
                 }
                 if (window.type.equals("ANTMAIL")) {
-                    var result = AntmailClientState.getMailbox(position);
-                    if (result == null && !antmailUnconfigured()) {
+                    var result = AntmailClientState.getMailbox();
+                    if (result == null) {
                         if (inside(contentX, contentY + 56, Math.min(150, contentW), 23, mouseX, mouseY)) {
                             session.antmailStateWaitTicks = 0;
                             requestAntmailState(true);
                         }
                         return true;
-                    } else if (result == null || result.address().isBlank()) {
-                        if (inside(contentX, contentY + 56, Math.min(206, contentW), 23, mouseX, mouseY)) {
-                            session.antmailFocused = true;
-                            session.antmailCursor = session.antmailUsername.length();
-                            return true;
-                        }
-                        if (inside(contentX, contentY + 84, contentW, 24, mouseX, mouseY)) {
-                            setupAntmail();
-                            return true;
-                        }
-                    } else if (inside(contentX, contentY + 30, 54, 24, mouseX, mouseY)) {
+                    } else if (inside(contentX, contentY + 26, 54, 22, mouseX, mouseY)) {
                         session.antmailPickingAttachment = false;
+                        session.antmailAttachmentMenu = false;
                         session.antmailMode = "inbox";
                         session.antmailSent = false;
                         session.antmailPage = 0;
                         session.antmailMessageIndex = -1;
                         requestAntmailState(true);
-                    } else if (inside(contentX + 54, contentY + 30, 46, 24, mouseX, mouseY)) {
+                    } else if (inside(contentX + 54, contentY + 26, 46, 22, mouseX, mouseY)) {
                         session.antmailPickingAttachment = false;
+                        session.antmailAttachmentMenu = false;
                         session.antmailMode = "sent";
                         session.antmailSent = true;
                         session.antmailPage = 0;
                         session.antmailMessageIndex = -1;
                         requestAntmailState(true);
-                    } else if (inside(contentX + 100, contentY + 30, 54, 24, mouseX, mouseY)) {
+                    } else if (inside(contentX + 100, contentY + 26, 54, 22, mouseX, mouseY)) {
                         session.antmailPickingAttachment = false;
+                        session.antmailAttachmentMenu = false;
                         session.antmailMode = "drafts";
                         session.antmailSent = false;
                         session.antmailPage = 0;
                         session.antmailMessageIndex = -1;
                         requestAntmailState(true);
-                    } else if (inside(contentX + 158, contentY + 30, Math.min(56, Math.max(0, contentW - 158)), 24, mouseX, mouseY)) {
-                        session.antmailPickingAttachment = false;
-                        session.antmailMode = "compose";
-                        session.antmailFocused = true;
-                        session.antmailField = 1;
-                        session.antmailCursor = session.antmailRecipient.length();
-                        restoreLatestDraft(result);
+                    } else if (inside(contentX + 154, contentY - 2, Math.min(60, Math.max(0, contentW - 154)), 20, mouseX, mouseY)) {
+                        if (session.antmailMode.equals("compose")) {
+                            saveAntmailDraft();
+                            session.antmailStatus = "DRAFT SAVED";
+                        } else {
+                            session.antmailPickingAttachment = false;
+                            session.antmailMode = "compose";
+                            session.antmailFocused = true;
+                            session.antmailField = 1;
+                            session.antmailCursor = session.antmailRecipient.length();
+                            restoreLatestDraft(result);
+                        }
                     } else if (session.antmailMode.equals("inbox") || session.antmailMode.equals("sent")) {
                         if (mouseY >= contentY + contentH - 48 && mouseY < contentY + contentH - 28) {
                             if (mouseX < contentX + 52 && session.antmailPage > 0) {
@@ -2836,22 +3416,22 @@ public final class ComputerScreen extends Screen {
                             }
                             return true;
                         }
-                        int index = ((int) mouseY - (contentY + 80)) / 14;
+                        int index = ((int) mouseY - (contentY + 76)) / 25;
                         List<AntmailMessage> messages = mailboxMessages(result, session.antmailSent);
                         index += session.antmailListScroll;
-                        if (mouseY >= contentY + 80 && index >= 0 && index < messages.size()) {
+                        if (mouseY >= contentY + 74 && mouseY < contentY + contentH - 48 && index >= 0 && index < messages.size()) {
                             session.antmailPickingAttachment = false;
                             session.antmailMessageIndex = index;
                             session.antmailMode = "message";
                             session.antmailDetailScroll = 0;
-                            AntmailNetworking.requestMessage(position, messages.get(index).id());
-                            if (!session.antmailSent) AntmailNetworking.markRead(position, messages.get(index).id());
+                            AntmailNetworking.requestMessage(messages.get(index).id());
+                            if (!session.antmailSent) AntmailNetworking.markRead(messages.get(index).id());
                         }
                     } else if (session.antmailMode.equals("drafts")) {
-                        int index = ((int) mouseY - (contentY + 80)) / 14;
+                        int index = ((int) mouseY - (contentY + 76)) / 25;
                         index += session.antmailListScroll;
                         AntmailMailbox mailbox = mailbox(result);
-                        if (mailbox != null && mouseY >= contentY + 80 && index >= 0 && index < mailbox.drafts().size()) {
+                        if (mailbox != null && mouseY >= contentY + 74 && mouseY < contentY + contentH - 48 && index >= 0 && index < mailbox.drafts().size()) {
                             restoreDraft(mailbox.drafts().get(index));
                             session.antmailMode = "compose";
                             session.antmailFocused = true;
@@ -2860,21 +3440,21 @@ public final class ComputerScreen extends Screen {
                         }
                     } else if (session.antmailMode.equals("message")) {
                         AntmailMessage message = selectedAntmailMessage(result);
-                        if (session.antmailSent && message != null && !message.deliveryStatus().equals("DELIVERED")
-                                && session.antmailRetryMessageId.isBlank()
-                                && mouseY >= contentY + contentH - 50 && mouseY < contentY + contentH - 32) {
-                            session.antmailRetryBaseline = AntmailClientState.get(position);
-                            session.antmailRetryMessageId = message.id().toString();
-                            session.antmailRetryTicks = 100;
-                            AntmailNetworking.retry(position, message.id());
-                            session.antmailStatus = "RETRYING DELIVERY";
-                            return true;
-                        }
-                        if (mouseY >= contentY + contentH - 32 && mouseY < contentY + contentH - 8) {
-                            if (message != null) AntmailNetworking.delete(position, message.id(), session.antmailSent);
+                        if (mouseY >= contentY + 38 && mouseY < contentY + 56 && mouseX >= contentX + 170) {
+                            if (message != null) AntmailNetworking.delete(message.id(), session.antmailSent);
                             session.antmailMode = session.antmailSent ? "sent" : "inbox";
                             session.antmailMessageIndex = -1;
                             session.antmailDetailScroll = 0;
+                            return true;
+                        }
+                        if (session.antmailSent && message != null && !message.deliveryStatus().equals("DELIVERED")
+                                && session.antmailRetryMessageId.isBlank()
+                                && mouseY >= contentY + contentH - 50 && mouseY < contentY + contentH - 32) {
+                            session.antmailRetryBaseline = AntmailClientState.get();
+                            session.antmailRetryMessageId = message.id().toString();
+                            session.antmailRetryTicks = 100;
+                            AntmailNetworking.retry(message.id());
+                            session.antmailStatus = Component.translatable("computer.antos.status.retrying_delivery").getString();
                             return true;
                         }
                         if (message != null && session.antmailAttachmentStartLine >= 0
@@ -2885,26 +3465,26 @@ public final class ComputerScreen extends Screen {
                             saveAntmailAttachment(message.attachments().get(attachmentIndex));
                             return true;
                         }
-                        if (message != null && !antazonProductLink(message.body()).isBlank()
-                                && mouseY >= contentY + 72 && mouseY < contentY + 94) {
-                            openAntazonProduct(antazonProductLink(message.body()));
+                        if (message != null && !antazonProductLink(localizedMailText(message.body())).isBlank()
+                                && mouseY >= contentY + 99 && mouseY < contentY + 120) {
+                            openAntazonProduct(antazonProductLink(localizedMailText(message.body())));
                             return true;
                         }
-                        if (mouseY < contentY + 72) {
+                        if (mouseY >= contentY + 38 && mouseY < contentY + 56) {
                             session.antmailMode = session.antmailSent ? "sent" : "inbox";
                             session.antmailMessageIndex = -1;
                         }
                     } else if (session.antmailMode.equals("compose")) {
-                        if (session.antmailPickingAttachment) {
-                            if (inside(contentX + 190, contentY + 43, 15, 15, mouseX, mouseY)) {
+                if (session.antmailPickingAttachment) {
+                            if (inside(contentX + 190, contentY + 95, 15, 15, mouseX, mouseY)) {
                                 session.antmailPickingAttachment = false;
                                 return true;
                             }
                             int row = 0;
-                            for (String file : ComputerFileSystemClientState.get(position).files()) {
+                            for (String file : ComputerFileSystemClientState.get().files()) {
                                 String[] fields = file.split("\\t", 3);
-                                if (fields.length < 2 || (!fields[0].equals("TEXT") && !fields[0].equals("IMAGE"))) continue;
-                                int rowTop = contentY + 64 + row++ * 14;
+                                if (fields.length < 2 || (session.antmailPickingPaint ? !fields[0].equals("IMAGE") : !fields[0].equals("TEXT"))) continue;
+                                int rowTop = contentY + 116 + row++ * 14;
                                 if (rowTop > contentY + contentH - 52) break;
                                 if (mouseY >= rowTop - 2 && mouseY < rowTop + 12) {
                                     session.fileExplorerSelected = fields[1];
@@ -2920,58 +3500,139 @@ public final class ComputerScreen extends Screen {
                                         session.antmailPaintAttachment = null;
                                         session.antmailPaintLoadPendingPath = fields[1];
                                     }
-                                    ComputerNetworking.openFile(position, fields[1]);
+                                    ComputerNetworking.openFile(fields[1]);
                                     return true;
                                 }
                             }
                             return true;
                         }
-                        if (mouseY >= contentY + 116 && mouseY < contentY + 141) {
-                            session.antmailPickingAttachment = true;
+                        if (inside(contentX, contentY + 138, 112, 20, mouseX, mouseY)) {
+                            session.antmailAttachmentMenu = !session.antmailAttachmentMenu;
                             return true;
                         }
-                        if (mouseY >= contentY + 42 && mouseY < contentY + 59) {
+                        if (session.antmailAttachmentMenu && inside(contentX, contentY + 160, 112, 52, mouseX, mouseY)) {
+                            int choice = ((int) mouseY - (contentY + 160)) / 15;
+                            session.antmailAttachmentMenu = false;
+                            if (choice == 0 || choice == 1) {
+                                session.antmailPickingAttachment = true;
+                                session.antmailPickingPaint = choice == 1;
+                            } else {
+                                session.antmailAttachCoins = !session.antmailAttachCoins;
+                                if (session.antmailAttachCoins) {
+                                    session.antmailFocused = true;
+                                    session.antmailField = 4;
+                                    session.antmailCursor = session.antmailCoinAmount.length();
+                                }
+                            }
+                            return true;
+                        }
+                        if (mouseY >= contentY + 57 && mouseY < contentY + 74) {
                             session.antmailField = 1;
                             session.antmailFocused = true;
                             session.antmailCursor = session.antmailRecipient.length();
-                        } else if (mouseY >= contentY + 59 && mouseY < contentY + 75) {
+                        } else if (mouseY >= contentY + 74 && mouseY < contentY + 93) {
                             session.antmailField = 2;
                             session.antmailFocused = true;
                             session.antmailCursor = session.antmailSubject.length();
-                        } else if (mouseY >= contentY + 75 && mouseY < contentY + 116) {
+                        } else if (mouseY >= contentY + 94 && mouseY < contentY + 138) {
                             session.antmailField = 3;
                             session.antmailFocused = true;
                             session.antmailCursor = session.antmailBody.length();
-                        } else if (mouseY >= contentY + contentH - 38 && mouseY < contentY + contentH - 8) {
+                        } else if (mouseY >= contentY + contentH - 26 && mouseY < contentY + contentH - 4 && mouseX >= contentX + 148) {
                             sendAntmail();
                         }
                     }
                     return true;
                 }
                 if (window.type.equals("ANTAZON")) {
+                    if (!com.craisinlord.antos.content.client.AntazonClientState.onboardingReceived()) return true;
+                    if (!com.craisinlord.antos.content.client.AntazonClientState.onboardingComplete()) {
+                        if (inside(contentX + contentW - 90, contentY + contentH - 38, 78, 20, mouseX, mouseY)
+                                || inside(contentX + 12, contentY + contentH - 38, 60, 20, mouseX, mouseY)) {
+                            ComputerNetworking.completeAntazonOnboarding();
+                        }
+                        return true;
+                    }
                     List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> products =
-                            com.craisinlord.antos.content.client.AntazonClientState.products(position);
-                    if (inside(contentX, contentY, 52, 18, mouseX, mouseY)) {
-                        session.antazonMode = "catalog";
+                            com.craisinlord.antos.content.client.AntazonClientState.products();
+                    int[] tabWidths = antazonTabWidths(contentW);
+                    int tabLeft = contentX;
+                    int selectedTab = -1;
+                    for (int tabIndex = 0; tabIndex < tabWidths.length; tabIndex++) {
+                        if (inside(tabLeft, contentY - 3, tabWidths[tabIndex], 18, mouseX, mouseY)) {
+                            selectedTab = tabIndex;
+                            break;
+                        }
+                        tabLeft += tabWidths[tabIndex];
+                    }
+                    if (selectedTab >= 0) {
                         session.antazonCategoryOpen = false;
+                        switch (selectedTab) {
+                            case 0 -> session.antazonMode = "catalog";
+                            case 1 -> {
+                                session.antazonMode = "sell";
+                                session.antazonSellScroll = 0;
+                                session.antazonSellConfirm = false;
+                                com.craisinlord.antos.content.client.AntazonClientState.clearSellFeedback();
+                                ComputerNetworking.requestAntazonSellState();
+                            }
+                            case 2 -> {
+                                session.antazonMode = "prices";
+                                ComputerNetworking.requestAntazonPrices();
+                            }
+                            case 3 -> session.antazonMode = "wishlist";
+                            case 4 -> {
+                                session.antazonMode = "orders";
+                                session.antazonOrderSelection = -1;
+                            }
+                            case 5 -> session.antazonMode = "cart";
+                            default -> { }
+                        }
                         return true;
                     }
-                    if (inside(contentX + 58, contentY, 76, 18, mouseX, mouseY)) {
-                        session.antazonMode = "wishlist";
-                        session.antazonCategoryOpen = false;
-                        return true;
-                    }
-                    if (inside(contentX + 140, contentY, 76, 18, mouseX, mouseY)) {
-                        session.antazonMode = "orders";
-                        session.antazonCategoryOpen = false;
-                        return true;
-                    }
-                    if (inside(contentX + 220, contentY, 100, 18, mouseX, mouseY)) {
-                        session.antazonMode = "cart";
-                        session.antazonCategoryOpen = false;
-                        return true;
-                    }
-                    if (session.antazonMode.equals("catalog")) {
+                    if (session.antazonMode.equals("prices")) {
+                        List<com.craisinlord.antos.content.client.AntazonClientState.PriceRow> prices = com.craisinlord.antos.content.client.AntazonClientState.prices();
+                        int visible = Math.max(1, (contentH - 70) / 22);
+                        int maximum = Math.max(0, prices.size() - visible);
+                        if (maximum > 0 && inside(contentX + contentW - 6, contentY + 52, 6, Math.max(1, contentH - 70), mouseX, mouseY)) {
+                            session.antazonPriceScroll = (int) Math.round(Math.max(0.0, Math.min(1.0,
+                                    (mouseY - (contentY + 52)) / Math.max(1, contentH - 70))) * maximum);
+                            return true;
+                        }
+                        int row = ((int) mouseY - (contentY + 52)) / 22 + session.antazonPriceScroll;
+                        if (row >= 0 && row < prices.size()) {
+                            var price = prices.get(row);
+                            session.antazonPriceItem = price.item();
+                            ComputerNetworking.prepareAntazonShipment(ResourceLocation.parse(price.item()), session.antazonPriceQuantity);
+                            ComputerNetworking.requestAntazonSellState();
+                        }
+                    } else if (session.antazonMode.equals("sell")) {
+                        List<com.craisinlord.antos.content.client.AntazonClientState.SellRow> rows = com.craisinlord.antos.content.client.AntazonClientState.sellRows();
+                        int manifestTop = contentY + 68;
+                        int manifestBottom = contentY + contentH - 64;
+                        int visibleRows = Math.max(1, (manifestBottom - manifestTop) / 22);
+                        int maximumScroll = Math.max(0, rows.size() - visibleRows);
+                        if (maximumScroll > 0 && inside(contentX + contentW - 6, manifestTop, 6, Math.max(1, manifestBottom - manifestTop), mouseX, mouseY)) {
+                            session.antazonSellScroll = (int) Math.round(Math.max(0.0, Math.min(1.0,
+                                    (mouseY - manifestTop) / Math.max(1, manifestBottom - manifestTop))) * maximumScroll);
+                            return true;
+                        }
+                        int controlsY = contentY + contentH - 35;
+                        if (inside(contentX, controlsY, 78, 18, mouseX, mouseY)) {
+                            session.antazonSellConfirm = false;
+                            com.craisinlord.antos.content.client.AntazonClientState.clearSellFeedback();
+                            ComputerNetworking.requestAntazonSellState();
+                        } else if (inside(contentX + 84, controlsY, contentW - 92, 18, mouseX, mouseY)) {
+                            String status = com.craisinlord.antos.content.client.AntazonClientState.status();
+                            boolean ready = status.isBlank() && !rows.isEmpty() && rows.stream().allMatch(com.craisinlord.antos.content.client.AntazonClientState.SellRow::sellable);
+                            if (ready && !session.antazonSellConfirm) session.antazonSellConfirm = true;
+                            else if (ready) {
+                                ComputerNetworking.sellAntazon();
+                                session.antazonSellConfirm = false;
+                                session.antazonWalletRefreshTicks = 100;
+                            }
+                        }
+                    } else if (session.antazonMode.equals("catalog")) {
                         if (inside(contentX, contentY + 22, contentW - 8, 20, mouseX, mouseY)) {
                             session.antazonSearchFocused = true;
                             return true;
@@ -2997,14 +3658,14 @@ public final class ComputerScreen extends Screen {
                             return true;
                         }
                         List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> filteredProducts = filterAntazonProducts(products);
-                        int visibleProducts = Math.max(1, (contentH - 92) / 30);
+                        int visibleProducts = Math.max(1, (contentH - 96) / 36);
                         int maximumScroll = Math.max(0, filteredProducts.size() - visibleProducts);
-                        if (maximumScroll > 0 && inside(contentX + contentW - 2, contentY + 70, 5, Math.max(1, contentH - 92), mouseX, mouseY)) {
-                            session.antazonScroll = (int) Math.round(Math.max(0.0, Math.min(1.0, (mouseY - (contentY + 70)) / Math.max(1, contentH - 92))) * maximumScroll);
+                        if (maximumScroll > 0 && inside(contentX + contentW - 2, contentY + 70, 5, Math.max(1, contentH - 96), mouseX, mouseY)) {
+                            session.antazonScroll = (int) Math.round(Math.max(0.0, Math.min(1.0, (mouseY - (contentY + 70)) / Math.max(1, contentH - 96))) * maximumScroll);
                             return true;
                         }
-                        int row = ((int) mouseY - (contentY + 70)) / 30 + session.antazonScroll;
-                        if (row >= 0 && row < filteredProducts.size()) {
+                        int row = ((int) mouseY - (contentY + 70)) / 36 + session.antazonScroll;
+                        if (mouseY >= contentY + 68 && mouseY < contentY + contentH - 32 && row >= 0 && row < filteredProducts.size()) {
                             session.antazonProductId = filteredProducts.get(row).id();
                             session.antazonQuantity = 1;
                             session.antazonMode = "product";
@@ -3015,15 +3676,20 @@ public final class ComputerScreen extends Screen {
                         if (inside(contentX + contentW - 145, contentY + 24, 52, 20, mouseX, mouseY)) {
                             composeAntazonMail("Antazon product link", "ANTAZON PRODUCT LINK\nantazon://product/" + product.id());
                         } else if (inside(contentX + contentW - 92, contentY + 24, 92, 20, mouseX, mouseY)) {
-                            try { ComputerNetworking.toggleAntazonWishlist(position, ResourceLocation.parse(product.id())); }
+                            try { ComputerNetworking.toggleAntazonWishlist(ResourceLocation.parse(product.id())); }
                             catch (RuntimeException ignored) { }
                         } else {
                             if (inside(contentX, contentY + contentH - 20, 105, 20, mouseX, mouseY)) {
+                                if (antazonOnCooldown(product)) return true;
                                 String key = product.id() + "|default";
                                 session.antazonCart.merge(key, session.antazonQuantity, Integer::sum);
-                                ComputerNetworking.requestAntazon(position);
+                                ComputerNetworking.requestAntazon();
                             } else if (inside(contentX + 112, contentY + contentH - 20, 105, 20, mouseX, mouseY)) {
-                                try { ComputerNetworking.purchaseAntazon(position, ResourceLocation.parse(product.id()), "default", session.antazonQuantity); }
+                                if (antazonOnCooldown(product)) return true;
+                                try {
+                                    ComputerNetworking.purchaseAntazon(ResourceLocation.parse(product.id()), "default", session.antazonQuantity);
+                                    ComputerNetworking.requestAntazon();
+                                }
                                 catch (RuntimeException ignored) { }
                             } else if (inside(contentX, contentY + contentH - 40, 34, 20, mouseX, mouseY)) {
                                 session.antazonQuantity = Math.max(1, session.antazonQuantity - 1);
@@ -3032,31 +3698,77 @@ public final class ComputerScreen extends Screen {
                             }
                         }
                     } else if (session.antazonMode.equals("cart")) {
-                        if (!session.antazonCart.isEmpty() && mouseY >= contentY + contentH - 28) {
+                        int rowTop = contentY + 46;
+                        for (Map.Entry<String, Integer> entry : session.antazonCart.entrySet()) {
+                            if (rowTop + 35 > contentY + contentH - 30) break;
+                            int controlsX = contentX + contentW - 96;
+                            if (inside(contentX, rowTop - 3, contentW, 35, mouseX, mouseY)) {
+                                if (inside(controlsX + 68, rowTop - 3, 24, 35, mouseX, mouseY)) {
+                                    session.antazonCart.remove(entry.getKey());
+                                    return true;
+                                }
+                                if (inside(controlsX + 42, rowTop - 3, 24, 35, mouseX, mouseY)) {
+                                    session.antazonCart.put(entry.getKey(), Math.min(64, entry.getValue() + 1));
+                                    return true;
+                                }
+                                if (inside(controlsX, rowTop - 3, 22, 35, mouseX, mouseY)) {
+                                    session.antazonCart.put(entry.getKey(), Math.max(1, entry.getValue() - 1));
+                                    return true;
+                                }
+                            }
+                            rowTop += 40;
+                        }
+                        if (!session.antazonCart.isEmpty() && inside(contentX + contentW - 112, contentY + contentH - 24, 108, 20, mouseX, mouseY)) {
                             for (Map.Entry<String, Integer> entry : session.antazonCart.entrySet()) {
                                 String[] fields = entry.getKey().split("\\|", 2);
+                                var product = products.stream().filter(value -> value.id().equals(fields[0])).findFirst().orElse(null);
+                                if (product != null && antazonOnCooldown(product)) continue;
                                 int remaining = entry.getValue();
                                 while (remaining > 0) {
                                     int batch = Math.min(64, remaining);
-                                    try { ComputerNetworking.purchaseAntazon(position, ResourceLocation.parse(fields[0]), "default", batch); }
+                                    try { ComputerNetworking.purchaseAntazon(ResourceLocation.parse(fields[0]), "default", batch); }
                                     catch (RuntimeException ignored) { break; }
                                     remaining -= batch;
                                 }
                             }
+                            ComputerNetworking.requestAntazon();
                         }
                     } else if (session.antazonMode.equals("wishlist")) {
                         if (inside(contentX + 72, contentY + 24, 86, 20, mouseX, mouseY)) {
                             composeAntazonMail("Antazon wishlist", antazonWishlistBody());
                         } else {
-                            int row = ((int) mouseY - (contentY + 46)) / 25;
                             List<String> wishlist = session.antazonWishlist.stream().toList();
-                            if (row >= 0 && row < wishlist.size()) {
+                            int visible = Math.max(1, (contentH - 62) / 36);
+                            int maximum = Math.max(0, wishlist.size() - visible);
+                            if (maximum > 0 && inside(contentX + contentW - 6, contentY + 46, 6, Math.max(1, contentH - 62), mouseX, mouseY)) {
+                                session.antazonWishlistScroll = (int) Math.round(Math.max(0.0, Math.min(1.0,
+                                        (mouseY - (contentY + 46)) / Math.max(1, contentH - 62))) * maximum);
+                                return true;
+                            }
+                            int row = ((int) mouseY - (contentY + 46)) / 36 + session.antazonWishlistScroll;
+                            if (mouseY >= contentY + 43 && mouseY < contentY + 46 + visible * 36 && row >= 0 && row < wishlist.size()) {
                                 session.antazonProductId = wishlist.get(row);
                                 session.antazonQuantity = 1;
                                 session.antazonMode = "product";
                             }
                         }
                     } else if (session.antazonMode.equals("orders")) {
+                        List<com.craisinlord.antos.content.client.AntazonClientState.OrderRow> orders = com.craisinlord.antos.content.client.AntazonClientState.orders();
+                        if (session.antazonOrderSelection >= 0) {
+                            if (inside(contentX, contentY + 22, 120, 20, mouseX, mouseY)) session.antazonOrderSelection = -1;
+                            return true;
+                        }
+                        int visible = Math.max(1, (contentH - 76) / 34);
+                        int maximum = Math.max(0, orders.size() - visible);
+                        if (maximum > 0 && inside(contentX + contentW - 6, contentY + 34, 6, Math.max(1, contentH - 76), mouseX, mouseY)) {
+                            session.antazonOrdersScroll = (int) Math.round(Math.max(0.0, Math.min(1.0,
+                                    (mouseY - (contentY + 34)) / Math.max(1, contentH - 76))) * maximum);
+                            return true;
+                        }
+                        int row = ((int) mouseY - (contentY + 34)) / 34 + session.antazonOrdersScroll;
+                        if (mouseY >= contentY + 31 && mouseY < contentY + 34 + visible * 34 && row >= 0 && row < orders.size()) {
+                            session.antazonOrderSelection = row;
+                        }
                     }
                     return true;
                 }
@@ -3067,7 +3779,7 @@ public final class ComputerScreen extends Screen {
                         ComputerGame game = games.get(index);
                         window.gameId = game.id().toString();
                         window.gameOpen = true;
-                        gameSessions.computeIfAbsent(game.id(), ignored -> game.create(position));
+                        gameSessions.computeIfAbsent(game.id(), ignored -> game.create());
                         activeWindow = window;
                         return true;
                     }
@@ -3079,34 +3791,63 @@ public final class ComputerScreen extends Screen {
                     int index = session.wallpaperScroll + row;
                     if (row >= 0 && row < visible && index < available.size()) {
                         ComputerGuideData.Wallpaper selected = available.get(index);
-                        ComputerNetworking.selectWallpaper(position, selected.id());
+                        ComputerNetworking.selectWallpaper(selected.id());
                     }
                     return true;
                 }
                 if (window.type.equals("TERMINAL")) { session.terminalFocused = true; return true; }
             }
-            if (window.type.equals("SETTINGS") && inside(contentX, contentY + 156, Math.min(205, contentW), 20, mouseX, mouseY)) {
-                ejectSelected();
+            if (window.type.equals("SETTINGS") && inside(contentX + 112, contentY + 189, Math.min(102, Math.max(0, contentW - 112)), 15, mouseX, mouseY)) {
+                if (selectedDisk != null) ejectSelected();
                 return true;
             }
-            if (window.type.equals("SETTINGS") && inside(contentX, contentY + 40, Math.min(214, contentW), 22, mouseX, mouseY)) {
+            if (window.type.equals("SETTINGS") && inside(contentX, contentY + 69, Math.min(214, contentW), 15, mouseX, mouseY)) {
                 open("WALLPAPERS");
                 return true;
             }
-            if (window.type.equals("SETTINGS") && inside(contentX, contentY + 70, 90, 18, mouseX, mouseY)) {
-                ComputerNetworking.logout(position);
+            if (window.type.equals("SETTINGS") && inside(contentX, contentY + 85, Math.min(214, contentW), 15, mouseX, mouseY)) {
+                if (faceIdWaiting) return true;
+                faceIdMessage = "";
+                if (AnternetAccountClientState.faceIdLinked()) {
+                    if (!faceIdLinkedToCurrentAccount()) {
+                        faceIdMessage = "FACE ID BELONGS TO ANOTHER ACCOUNT";
+                    } else {
+                        faceIdWaiting = true;
+                        faceIdExpectedLinked = false;
+                        faceIdRevisionAtRequest = AnternetAccountClientState.faceIdStatusRevision();
+                        faceIdMessage = "UNLINKING PLAYER...";
+                        AnternetAccountNetworking.unlinkFaceId();
+                    }
+                } else {
+                    submitFaceIdLink();
+                }
+                return true;
+            }
+            if (window.type.equals("SETTINGS") && inside(contentX, contentY + 120, 104, 15, mouseX, mouseY)) {
+                session.windows.clear();
+                activeWindow = null;
+                session.onboardingCompleted = false;
+                session.onboardingStep = 0;
+                return true;
+            }
+            if (window.type.equals("SETTINGS") && inside(contentX + 110, contentY + 120, Math.min(104, Math.max(0, contentW - 110)), 15, mouseX, mouseY)) {
+                session.windows.clear();
+                activeWindow = null;
+                ComputerNetworking.resetAntazonOnboarding();
+                com.craisinlord.antos.content.client.AntazonClientState.clear();
+                open("ANTAZON");
+                return true;
+            }
+            if (window.type.equals("SETTINGS") && inside(contentX, contentY + 189, Math.min(102, contentW), 15, mouseX, mouseY)) {
+                ComputerNetworking.logout();
+                com.craisinlord.antos.content.network.AnternetAccountNetworking.logout();
+                com.craisinlord.antos.content.client.AnternetAccountClientState.clear();
+                AnternetAccountNetworking.checkFaceId();
                 loggedIn = false;
                 session.authenticated = false;
                 session.windows.clear();
                 session.antmailPickingAttachment = false;
                 activeWindow = null;
-                return true;
-            }
-            if (window.type.equals("SETTINGS") && inside(contentX + 92, contentY + 70, Math.min(116, Math.max(0, contentW - 92)), 18, mouseX, mouseY)) {
-                session.windows.clear();
-                activeWindow = null;
-                session.onboardingCompleted = false;
-                session.onboardingStep = 0;
                 return true;
             }
             if (inside(x, y + TITLE_BAR_HEIGHT, w, h - TITLE_BAR_HEIGHT, mouseX, mouseY)) return true;
@@ -3145,10 +3886,9 @@ public final class ComputerScreen extends Screen {
         int panelY = -HEIGHT / 2 + 43;
         int appStep = session.onboardingStep - 1;
         boolean welcome = session.onboardingStep == 0;
-        boolean antmailPrompt = session.onboardingStep == apps.size() + 1;
         int contentX = panelX + 22;
         int actionY = panelY + 185;
-        if (!welcome && !antmailPrompt && appStep >= 0 && appStep < apps.size()) {
+        if (!welcome && appStep >= 0 && appStep < apps.size()) {
             int desktopIndex = desktopApps().indexOf(apps.get(appStep));
             panelX = onboardingAppPanelX(-WIDTH / 2, desktopIndex);
             panelY = onboardingAppPanelY(-HEIGHT / 2, desktopIndex);
@@ -3157,19 +3897,8 @@ public final class ComputerScreen extends Screen {
         }
         if (welcome) {
             if (inside(contentX, actionY, 126, 22, mouseX, mouseY)) {
-                if (apps.isEmpty()) {
-                    if (AntOSSettings.appEnabled("ANTMAIL")) session.onboardingStep = apps.size() + 1;
-                    else finishOnboarding();
-                } else session.onboardingStep = 1;
-            } else if (inside(panelX + 250, actionY, 88, 22, mouseX, mouseY)) {
-                finishOnboarding();
-            }
-            return true;
-        }
-        if (antmailPrompt) {
-            if (inside(contentX, actionY, 152, 22, mouseX, mouseY)) {
-                finishOnboarding();
-                open("ANTMAIL");
+                if (apps.isEmpty()) finishOnboarding();
+                else session.onboardingStep = 1;
             } else if (inside(panelX + 250, actionY, 88, 22, mouseX, mouseY)) {
                 finishOnboarding();
             }
@@ -3183,7 +3912,6 @@ public final class ComputerScreen extends Screen {
             session.onboardingStep--;
         } else if (inside(panelX + 112, actionY, 68, 22, mouseX, mouseY)) {
             if (appStep + 1 < apps.size()) session.onboardingStep++;
-            else if (AntOSSettings.appEnabled("ANTMAIL")) session.onboardingStep++;
             else finishOnboarding();
         }
         return true;
@@ -3192,6 +3920,10 @@ public final class ComputerScreen extends Screen {
     private void finishOnboarding() {
         session.onboardingCompleted = true;
         session.onboardingStep = -1;
+        var account = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
+        if (account != null && account.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS) {
+            AntOSSettings.setComputerTourCompleted(account.accountId(), true);
+        }
     }
 
     @Override
@@ -3238,26 +3970,34 @@ public final class ComputerScreen extends Screen {
         if (!loggedIn || hoveredWindow == null) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         activeWindow = hoveredWindow;
         if (activeWindow.type.equals("FILES")) {
-            session.fileExplorerScroll = Math.max(0, session.fileExplorerScroll - (int) Math.signum(scrollY));
+            session.fileExplorerScroll = Math.max(0, Math.min(session.fileExplorerMaximumScroll,
+                    session.fileExplorerScroll - (int) Math.signum(scrollY)));
             return true;
         }
         if (activeWindow.type.equals("TASKS")) {
-            if (!selectedTaskId.isBlank()) {
+            float scale = uiScale();
+            double localX = (mouseX - width / 2.0F) / scale, localY = (mouseY - height / 2.0F) / scale;
+            int windowX = -WIDTH / 2 + windowLocalX(activeWindow), windowY = -HEIGHT / 2 + windowLocalY(activeWindow);
+            int sidebarX = windowX + 8, sidebarY = windowY + 28, contentHeight = windowHeight(activeWindow) - 34;
+            int contentWidth = windowWidth(activeWindow) - 16;
+            if (inside(sidebarX, sidebarY + 18, 102, Math.max(1, contentHeight - 18), localX, localY)) {
+                int visible = Math.max(1, (contentHeight - 32) / 19);
+                taskCategoryScroll = Math.max(0, Math.min(Math.max(0, visibleTaskCategories().size() - visible),
+                        taskCategoryScroll - (int) Math.signum(scrollY)));
+            } else if (!selectedTaskId.isBlank()
+                    && inside(sidebarX + 111, sidebarY + 19, Math.max(1, contentWidth - 111), Math.max(1, contentHeight - 36), localX, localY)) {
                 taskDetailScroll = Math.max(0, taskDetailScroll - (int) Math.signum(scrollY) * 22);
-            } else {
-                float scale = uiScale();
-                double localX = (mouseX - width / 2.0F) / scale, localY = (mouseY - height / 2.0F) / scale;
-                int windowX = -WIDTH / 2 + windowLocalX(activeWindow), windowY = -HEIGHT / 2 + windowLocalY(activeWindow);
-                int sidebarX = windowX + 8, sidebarY = windowY + 28, contentHeight = windowHeight(activeWindow) - 34;
-                if (inside(sidebarX, sidebarY, 82, contentHeight, localX, localY)) {
-                    int visible = Math.max(1, (contentHeight - 28) / 19);
-                    taskCategoryScroll = Math.max(0, Math.min(Math.max(0, visibleTaskCategories().size() - visible),
-                            taskCategoryScroll - (int) Math.signum(scrollY)));
-                } else if (hasShiftDown()) {
-                    taskMapScrollX = Math.max(0, taskMapScrollX - (int) Math.signum(scrollY) * 36);
-                } else {
-                    taskMapScrollY = Math.max(0, taskMapScrollY - (int) Math.signum(scrollY) * 36);
-                }
+            } else if (selectedTaskId.isBlank()
+                    && inside(sidebarX + 111, sidebarY + 30, Math.max(1, contentWidth - 111), Math.max(1, contentHeight - 48), localX, localY)) {
+                int mapX = sidebarX + 111, mapY = sidebarY + 30;
+                int mapW = contentWidth - 111, mapH = Math.max(1, contentHeight - 48);
+                List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> categoryRows =
+                        com.craisinlord.antos.content.client.ComputerTasksClientState.get().stream()
+                                .filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::visible)
+                                .filter(task -> task.category().equals(selectedTaskCategory)).toList();
+                int[] limits = taskMapScrollLimits(categoryRows, mapX, mapY, mapW, mapH);
+                if (hasShiftDown()) taskMapScrollX = Math.max(0, Math.min(limits[0], taskMapScrollX - (int) Math.signum(scrollY) * 36));
+                else taskMapScrollY = Math.max(0, Math.min(limits[1], taskMapScrollY - (int) Math.signum(scrollY) * 36));
             }
             return true;
         }
@@ -3286,19 +4026,64 @@ public final class ComputerScreen extends Screen {
             }
             return true;
         }
+        if (activeWindow.type.equals("ANTAZON") && session.antazonMode.equals("prices")) {
+            float scale = uiScale();
+            double localX = (mouseX - width / 2.0F) / scale, localY = (mouseY - height / 2.0F) / scale;
+            int windowX = -WIDTH / 2 + windowLocalX(activeWindow), windowY = -HEIGHT / 2 + windowLocalY(activeWindow);
+            int contentX = windowX + 8, contentY = windowY + 28, contentW = windowWidth(activeWindow) - 16, contentH = windowHeight(activeWindow) - 34;
+            int row = ((int) localY - (contentY + 52)) / 22 + session.antazonPriceScroll;
+            List<com.craisinlord.antos.content.client.AntazonClientState.PriceRow> prices = com.craisinlord.antos.content.client.AntazonClientState.prices();
+            if (row >= 0 && row < prices.size() && localX >= contentX && localX < contentX + contentW - 8) {
+                session.antazonPriceItem = prices.get(row).item();
+                int[] quantities = {1, 16, 32, 64};
+                int current = 0;
+                for (int index = 0; index < quantities.length; index++) if (quantities[index] == session.antazonPriceQuantity) current = index;
+                session.antazonPriceQuantity = quantities[Math.max(0, Math.min(quantities.length - 1, current - (int) Math.signum(scrollY)))];
+                return true;
+            }
+            int visible = Math.max(1, (contentH - 70) / 22);
+            int maximum = Math.max(0, prices.size() - visible);
+            session.antazonPriceScroll = Math.max(0, Math.min(maximum, session.antazonPriceScroll - (int) Math.signum(scrollY)));
+            return true;
+        }
+        if (activeWindow.type.equals("ANTAZON") && (session.antazonMode.equals("wishlist") || session.antazonMode.equals("orders"))) {
+            int contentH = windowHeight(activeWindow) - 34;
+            if (session.antazonMode.equals("wishlist")) {
+                int visible = Math.max(1, (contentH - 62) / 36);
+                int maximum = Math.max(0, session.antazonWishlist.size() - visible);
+                session.antazonWishlistScroll = Math.max(0, Math.min(maximum, session.antazonWishlistScroll - (int) Math.signum(scrollY)));
+            } else {
+                int visible = Math.max(1, (contentH - 76) / 34);
+                int maximum = Math.max(0, com.craisinlord.antos.content.client.AntazonClientState.orders().size() - visible);
+                session.antazonOrdersScroll = Math.max(0, Math.min(maximum, session.antazonOrdersScroll - (int) Math.signum(scrollY)));
+            }
+            return true;
+        }
+        if (activeWindow.type.equals("ANTAZON") && session.antazonMode.equals("sell")) {
+            float scale = uiScale();
+            double localX = (mouseX - width / 2.0F) / scale, localY = (mouseY - height / 2.0F) / scale;
+            int windowX = -WIDTH / 2 + windowLocalX(activeWindow), windowY = -HEIGHT / 2 + windowLocalY(activeWindow);
+            int contentX = windowX + 8, contentY = windowY + 28, contentW = windowWidth(activeWindow) - 16, contentH = windowHeight(activeWindow) - 34;
+            int manifestTop = contentY + 68, manifestBottom = contentY + contentH - 64;
+            if (localX >= contentX && localX < contentX + contentW - 8 && localY >= manifestTop && localY < manifestBottom) {
+                List<com.craisinlord.antos.content.client.AntazonClientState.SellRow> rows = com.craisinlord.antos.content.client.AntazonClientState.sellRows();
+                int visibleRows = Math.max(1, (manifestBottom - manifestTop) / 22);
+                int maximum = Math.max(0, rows.size() - visibleRows);
+                session.antazonSellScroll = Math.max(0, Math.min(maximum, session.antazonSellScroll - (int) Math.signum(scrollY)));
+            }
+            return true;
+        }
         if (activeWindow.type.equals("ANTAZON") && session.antazonMode.equals("catalog")) {
-            List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> products = filterAntazonProducts(com.craisinlord.antos.content.client.AntazonClientState.products(position));
-            int visible = Math.max(1, (windowHeight(activeWindow) - 34 - 92) / 30);
+            List<com.craisinlord.antos.content.client.AntazonClientState.ProductRow> products = filterAntazonProducts(com.craisinlord.antos.content.client.AntazonClientState.products());
+            int visible = Math.max(1, (windowHeight(activeWindow) - 34 - 96) / 36);
             int maximum = Math.max(0, products.size() - visible);
             session.antazonScroll = Math.max(0, Math.min(maximum, session.antazonScroll - (int) Math.signum(scrollY)));
             return true;
         }
         if (activeWindow.type.equals("ARCHIVE")) {
             if (session.archiveEntryId == null) {
-                List<ComputerGuideData.Entry> entries = List.of();
-                if (Minecraft.getInstance().level != null && Minecraft.getInstance().level.getBlockEntity(position) instanceof ComputerBlockEntity computer) {
-                    entries = ComputerGuideData.entriesFor(computer.diskIds(), com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position));
-                }
+                List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(workspaceDiskIds(),
+                        com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get());
                 int columns = activeWindow.maximized ? 3 : 1;
                 int cellHeight = activeWindow.maximized ? 72 : 38;
                 int visibleRows = Math.max(1, (windowHeight(activeWindow) - 34 - 58) / cellHeight);
@@ -3322,12 +4107,11 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
-        if (!loggedIn && codePoint >= 32) {
-            if (confirmingPassword) {
-                if (confirmation.length() < 32) confirmation += Character.toUpperCase(codePoint);
-            } else if (password.length() < 32) {
-                password += Character.toUpperCase(codePoint);
-            }
+        if (!loggedIn) {
+            if (accountPasswordFocused) {
+                if (codePoint >= 32 && accountPassword.length() < 128) accountPassword += codePoint;
+            } else if ((Character.isLetterOrDigit(codePoint) || codePoint == '_') && accountUsername.length() < 16) accountUsername += codePoint;
+            return true;
         }
         if (loggedIn && activeWindow != null && activeWindow.type.equals("FILES") && session.fileExplorerRenaming && codePoint >= 32 && codePoint != '/' && codePoint != '\\') {
             if (session.fileExplorerRename.length() < 48) session.fileExplorerRename += codePoint;
@@ -3364,9 +4148,8 @@ public final class ComputerScreen extends Screen {
             }
             if (activeWindow.type.equals("TERMINAL") && session.terminalFocused && codePoint >= 32) { session.terminalInput += codePoint; return true; }
             if (activeWindow.type.equals("ANTMAIL") && session.antmailFocused && codePoint >= 32) {
-                if (session.antmailMode.equals("compose")) {
-                    if (session.antmailField >= 1 && session.antmailField <= 3) replaceAntmailSelection(String.valueOf(codePoint));
-                } else if (Character.isLetterOrDigit(codePoint) || codePoint == '_') replaceAntmailSelection(String.valueOf(Character.toLowerCase(codePoint)));
+                if (session.antmailField >= 1 && session.antmailField <= 3) replaceAntmailSelection(String.valueOf(codePoint));
+                else if (session.antmailField == 4 && Character.isDigit(codePoint)) replaceAntmailSelection(String.valueOf(codePoint));
                 return true;
             }
         }
@@ -3377,11 +4160,11 @@ public final class ComputerScreen extends Screen {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!loggedIn) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) { onClose(); return true; }
-            if (keyCode == 259) {
-                if (confirmingPassword && !confirmation.isEmpty()) confirmation = confirmation.substring(0, confirmation.length() - 1);
-                else if (!password.isEmpty()) password = password.substring(0, password.length() - 1);
-            }
-            else if (keyCode == 257 || keyCode == 335) tryLogin();
+            if (keyCode == GLFW.GLFW_KEY_TAB) accountPasswordFocused = !accountPasswordFocused;
+            else if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                if (accountPasswordFocused && !accountPassword.isEmpty()) accountPassword = accountPassword.substring(0, accountPassword.length() - 1);
+                else if (!accountPasswordFocused && !accountUsername.isEmpty()) accountUsername = accountUsername.substring(0, accountUsername.length() - 1);
+            } else if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) submitAccount();
             return true;
         }
         if (!session.onboardingCompleted) {
@@ -3392,12 +4175,10 @@ public final class ComputerScreen extends Screen {
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER || keyCode == GLFW.GLFW_KEY_SPACE) {
                 List<String> apps = onboardingApps();
                 if (session.onboardingStep == 0) {
-                    if (apps.isEmpty()) {
-                        if (AntOSSettings.appEnabled("ANTMAIL")) session.onboardingStep = apps.size() + 1;
-                        else finishOnboarding();
-                    } else session.onboardingStep = 1;
+                    if (apps.isEmpty()) finishOnboarding();
+                    else session.onboardingStep = 1;
                 } else if (session.onboardingStep <= apps.size()) {
-                    if (session.onboardingStep < apps.size() || AntOSSettings.appEnabled("ANTMAIL")) session.onboardingStep++;
+                    if (session.onboardingStep < apps.size()) session.onboardingStep++;
                     else finishOnboarding();
                 }
                 else finishOnboarding();
@@ -3418,6 +4199,7 @@ public final class ComputerScreen extends Screen {
             if (session.fileExplorerDeleteConfirm) {
                 if (keyCode == GLFW.GLFW_KEY_ESCAPE) { session.fileExplorerDeleteConfirm = false; return true; }
                 if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) { session.fileExplorerDeleteConfirm = false; deleteSelectedFile(); return true; }
+                return true;
             }
             if (session.fileExplorerCreatingDirectory) {
                 if (keyCode == GLFW.GLFW_KEY_BACKSPACE) { if (!session.fileExplorerRename.isEmpty()) session.fileExplorerRename = session.fileExplorerRename.substring(0, session.fileExplorerRename.length() - 1); return true; }
@@ -3425,11 +4207,11 @@ public final class ComputerScreen extends Screen {
                 if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
                     if (!session.fileExplorerRename.isBlank()) {
                         String folder = session.fileExplorerRename.replace("\\", "\\\\").replace("\"", "\\\"");
-                        ComputerNetworking.terminalCommand(position, session.fileExplorerDirectory, "mkdir \"" + folder + "\"");
+                        ComputerNetworking.terminalCommand(session.fileExplorerDirectory, "mkdir \"" + folder + "\"");
                     }
                     session.fileExplorerCreatingDirectory = false;
                     session.fileExplorerRename = "";
-                    ComputerNetworking.listFiles(position);
+                    ComputerNetworking.listFiles();
                     return true;
                 }
             }
@@ -3441,11 +4223,11 @@ public final class ComputerScreen extends Screen {
                         String destination = session.fileExplorerRename.startsWith("/")
                                 ? ComputerFileSystem.normalize(session.fileExplorerRename)
                                 : ComputerFileSystem.normalize(session.fileExplorerDirectory + "/" + session.fileExplorerRename);
-                        ComputerNetworking.moveFile(position, session.fileExplorerSelected, destination);
+                        ComputerNetworking.moveFile(session.fileExplorerSelected, destination);
                     }
                     session.fileExplorerMoving = false;
                     session.fileExplorerRename = "";
-                    ComputerNetworking.listFiles(position);
+                    ComputerNetworking.listFiles();
                     return true;
                 }
             }
@@ -3463,19 +4245,26 @@ public final class ComputerScreen extends Screen {
                     renameSelectedFile();
                     return true;
                 }
-            } else if (keyCode == GLFW.GLFW_KEY_R && hasControl(modifiers)) {
+            }
+            if (session.fileExplorerCreatingDirectory || session.fileExplorerMoving || session.fileExplorerRenaming) return true;
+            if (keyCode == GLFW.GLFW_KEY_R && hasControl(modifiers)) {
                 beginRenameSelectedFile();
                 return true;
-            } else if (keyCode == GLFW.GLFW_KEY_DELETE) {
+            } else if (keyCode == GLFW.GLFW_KEY_DELETE && fileExplorerSelectionMutable()) {
+                session.fileExplorerCreatingDirectory = false;
+                session.fileExplorerMoving = false;
+                session.fileExplorerRenaming = false;
                 session.fileExplorerDeleteConfirm = true;
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_N && hasControl(modifiers)) {
-                session.fileExplorerCreatingDirectory = true;
-                session.fileExplorerRename = "";
+                beginCreateFileExplorerDirectory();
                 return true;
-            } else if (keyCode == GLFW.GLFW_KEY_M && hasControl(modifiers) && !session.fileExplorerSelected.isBlank()) {
-                session.fileExplorerMoving = true;
-                session.fileExplorerRename = "";
+            } else if (keyCode == GLFW.GLFW_KEY_M && hasControl(modifiers) && fileExplorerSelectionMutable()) {
+                beginMoveFileExplorerSelection();
+                return true;
+            } else if (keyCode == GLFW.GLFW_KEY_F5) {
+                session.fileExplorerScroll = 0;
+                ComputerNetworking.listFiles();
                 return true;
             }
         }
@@ -3490,6 +4279,11 @@ public final class ComputerScreen extends Screen {
             session.antmailPickingAttachment = false;
             return true;
         }
+        if (activeWindow != null && activeWindow.type.equals("ANTMAIL")
+                && session.antmailAttachmentMenu && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            session.antmailAttachmentMenu = false;
+            return true;
+        }
         if (activeWindow != null && activeWindow.type.equals("ANTMAIL") && session.antmailFocused) {
             if (hasControl(modifiers) && keyCode == GLFW.GLFW_KEY_A) { session.antmailSelectionStart = 0; session.antmailCursor = antmailText().length(); return true; }
             if (hasControl(modifiers) && keyCode == GLFW.GLFW_KEY_C) { if (hasAntmailSelection()) minecraft.keyboardHandler.setClipboard(selectedAntmailText()); return true; }
@@ -3498,8 +4292,7 @@ public final class ComputerScreen extends Screen {
                 String clip = minecraft.keyboardHandler.getClipboard();
                 if (clip != null && !clip.isEmpty()) {
                     clip = clip.replace("\r", "");
-                    if (session.antmailMode.equals("compose")) replaceAntmailSelection(clip);
-                    else replaceAntmailSelection(clip.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", ""));
+                    replaceAntmailSelection(clip);
                 }
                 return true;
             }
@@ -3523,10 +4316,12 @@ public final class ComputerScreen extends Screen {
                     } else if (session.antmailField == 2) {
                         session.antmailField = 3;
                         session.antmailCursor = session.antmailBody.length();
+                    } else if (session.antmailField == 4) {
+                        session.antmailFocused = false;
                     } else if (session.antmailField == 3) {
                         replaceAntmailSelection("\n");
                     }
-                } else setupAntmail();
+                }
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) { session.antmailFocused = false; return true; }
@@ -3620,11 +4415,11 @@ public final class ComputerScreen extends Screen {
     }
 
     private String antmailText() {
-        if (!session.antmailMode.equals("compose")) return session.antmailUsername;
         return switch (session.antmailField) {
             case 1 -> session.antmailRecipient;
             case 2 -> session.antmailSubject;
             case 3 -> session.antmailBody;
+            case 4 -> session.antmailCoinAmount;
             default -> "";
         };
     }
@@ -3640,52 +4435,22 @@ public final class ComputerScreen extends Screen {
         int cursor = Math.min(session.antmailCursor, current.length());
         int start = hasAntmailSelection() ? Math.min(session.antmailSelectionStart, cursor) : cursor;
         int end = hasAntmailSelection() ? Math.max(session.antmailSelectionStart, cursor) : cursor;
-        int maximum = session.antmailMode.equals("compose") ? (session.antmailField == 3 ? 16384 : 64) : 16;
+        int maximum = session.antmailField == 3 ? 16384 : session.antmailField == 4 ? 12 : 64;
         String replacement = text.substring(0, Math.min(text.length(), Math.max(0, maximum - (current.length() - (end - start)))));
         String updated = current.substring(0, start) + replacement + current.substring(end);
-        if (!session.antmailMode.equals("compose")) session.antmailUsername = updated;
-        else if (session.antmailField == 1) session.antmailRecipient = updated;
+        if (session.antmailField == 1) session.antmailRecipient = updated;
         else if (session.antmailField == 2) session.antmailSubject = updated;
         else if (session.antmailField == 3) session.antmailBody = updated;
+        else if (session.antmailField == 4) session.antmailCoinAmount = updated.replaceAll("[^0-9]", "");
         session.antmailCursor = start + replacement.length();
         session.antmailSelectionStart = -1;
-    }
-
-    private void tryLogin() {
-        if (password.isBlank()) return;
-        if (accessResult != null && !accessResult.hasPassword()) {
-            if (!confirmingPassword) {
-                confirmingPassword = true;
-                confirmation = "";
-                loginMessage = "RETYPE PASSWORD // CONFIRMATION REQUIRED";
-                loginMessageTicks = 100;
-                return;
-            }
-            if (!password.equals(confirmation)) {
-                password = "";
-                confirmation = "";
-                confirmingPassword = false;
-                loginMessage = "SETUP ERROR // PASSWORDS DO NOT MATCH";
-                loginMessageTicks = 100;
-                return;
-            }
-            ComputerNetworking.setup(position, password, restoreWorkspace);
-            loginMessage = "INITIALIZING ACCESS // WAITING";
-        } else {
-            ComputerNetworking.login(position, password);
-            loginMessage = "AUTHENTICATING // WAITING";
-        }
-        loginMessageTicks = 40;
-        password = "";
-        confirmation = "";
-        confirmingPassword = false;
     }
 
     private void executeTerminal() {
         String input = session.terminalInput.trim();
         if (input.isEmpty()) return;
         session.terminalOutput.add(session.terminalDirectory + "> " + input);
-        ComputerNetworking.terminalCommand(position, session.terminalDirectory, input);
+        ComputerNetworking.terminalCommand(session.terminalDirectory, input);
         session.terminalInput = "";
     }
 
@@ -3693,38 +4458,12 @@ public final class ComputerScreen extends Screen {
         requestAntmailState(false);
     }
 
-    private boolean antmailUnconfigured() {
-        AntmailResultPayload mailbox = AntmailClientState.getMailbox(position);
-        if (mailbox != null) return mailbox.address().isBlank();
-        AntmailResultPayload response = AntmailClientState.get(position);
-        return response != null && ("unconfigured".equals(response.detail())
-                || "address_not_found".equals(response.detail())
-                || response.detail().startsWith("registration_failed:"));
-    }
-
     private void requestAntmailState(boolean force) {
         int folder = session.antmailMode.equals("sent") ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
                 : session.antmailMode.equals("drafts") ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.DRAFTS
                 : com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX;
-        AntmailNetworking.requestState(position, folder, session.antmailPage, force ? 0L : AntmailClientState.getVersion(position));
+        AntmailNetworking.requestState(folder, session.antmailPage, force ? 0L : AntmailClientState.getVersion());
         if (force) session.antmailStateWaitTicks = 0;
-    }
-
-    private void setupAntmail() {
-        if (!loggedIn) {
-            session.antmailStatus = "SETUP ERROR // SIGN IN TO THE COMPUTER FIRST";
-            return;
-        }
-        if (!AntmailAddress.isValidUsername(session.antmailUsername)) {
-            session.antmailStatus = "SETUP ERROR // USE 3-16 LOWERCASE LETTERS, NUMBERS, OR _";
-            session.antmailFocused = true;
-            return;
-        }
-        AntmailClientState.clear(position);
-        AntmailNetworking.setup(position, session.antmailUsername);
-        session.antmailStatus = "REGISTERING ADDRESS";
-        session.antmailRegistrationPending = true;
-        session.antmailFocused = false;
     }
 
     private String antazonWishlistBody() {
@@ -3747,6 +4486,51 @@ public final class ComputerScreen extends Screen {
             result.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
         }
         return amount + " " + result;
+    }
+
+    private String prettyAntazonItem(String item) {
+        int separator = item.indexOf(':');
+        String resource = separator >= 0 ? item.substring(separator + 1) : item;
+        StringBuilder result = new StringBuilder();
+        for (String part : resource.split("_")) {
+            if (part.isBlank()) continue;
+            if (result.length() > 0) result.append(' ');
+            result.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
+        }
+        return result.toString();
+    }
+
+    private String antazonOrderPayment(String payment) {
+        if (payment == null || payment.isBlank() || payment.equals("standard")) return "METHOD NOT RECORDED";
+        return prettyAntazonPayment(payment);
+    }
+
+    private boolean antazonOnCooldown(com.craisinlord.antos.content.client.AntazonClientState.ProductRow product) {
+        return product.cooldownEnds() > antazonGameTime();
+    }
+
+    private long antazonGameTime() {
+        return Minecraft.getInstance().level == null ? 0L : Minecraft.getInstance().level.getGameTime();
+    }
+
+    private String antazonCooldown(com.craisinlord.antos.content.client.AntazonClientState.ProductRow product) {
+        long remaining = Math.max(0L, product.cooldownEnds() - antazonGameTime());
+        long days = remaining / 24000L;
+        long hours = remaining % 24000L / 1000L;
+        long minutes = remaining % 1000L * 60L / 1000L;
+        if (days > 0L) return days + "D " + hours + "H";
+        if (hours > 0L) return hours + "H " + minutes + "M";
+        return Math.max(1L, minutes) + "M";
+    }
+
+    private String antazonSellMessage(String status) {
+        return switch (status) {
+            case "SHIPMENT_ACCEPTED" -> Component.translatable("computer.antos.status.shipment_accepted").getString();
+            case "CRATE_CHANGED" -> Component.translatable("computer.antos.status.crate_changed").getString();
+            case "UNAUTHORIZED" -> Component.translatable("computer.antos.status.shipping_unavailable").getString();
+            case "INVALID_REQUEST", "SHIPMENT_FAILED" -> Component.translatable("computer.antos.status.shipment_failed").getString();
+            default -> status.replace('_', ' ');
+        };
     }
 
     private String antazonProductLink(String body) {
@@ -3777,36 +4561,45 @@ public final class ComputerScreen extends Screen {
         session.antmailFocused = true;
         session.antmailField = 1;
         session.antmailCursor = 0;
-        session.antmailStatus = "ANTAZON LINK READY // ENTER RECIPIENT";
+        session.antmailStatus = Component.translatable("computer.antos.status.antazon_link_ready").getString();
     }
 
     private void sendAntmail() {
         if (!AntmailAddress.isValidAddress(session.antmailRecipient)) {
-            session.antmailStatus = "SEND ERROR // INVALID RECIPIENT";
+            session.antmailStatus = Component.translatable("computer.antos.status.invalid_recipient").getString();
             return;
         }
         if (session.antmailSubject.isBlank() || session.antmailBody.isBlank()) {
-            session.antmailStatus = "SEND ERROR // SUBJECT AND BODY REQUIRED";
+            session.antmailStatus = Component.translatable("computer.antos.status.subject_body_required").getString();
             return;
         }
+        if (session.antmailAttachCoins) {
+            try {
+                if (Long.parseLong(session.antmailCoinAmount) < 1) throw new NumberFormatException();
+            } catch (NumberFormatException exception) {
+                session.antmailStatus = Component.translatable("computer.antos.status.positive_antcoins_required").getString();
+                return;
+            }
+        }
         if (session.antmailAttachText && (session.textDirty || session.textPath.isBlank() || session.textPath.contains("untitled") || !session.textPath.equals(session.antmailTextPath))) {
-            session.antmailStatus = "SEND ERROR // SAVE TEXT FILE FIRST";
+                session.antmailStatus = Component.translatable("computer.antos.status.save_text_file_first").getString();
             return;
         }
         if (session.antmailAttachPaint && !session.antmailPaintLoadPendingPath.isBlank()) {
-            session.antmailStatus = "ATTACHMENT STILL LOADING // TRY AGAIN";
+                session.antmailStatus = Component.translatable("computer.antos.status.attachment_loading").getString();
             return;
         }
         if (session.antmailAttachPaint && session.antmailPaintAttachment == null
                 && (session.paintDirty || session.paintName.isBlank() || session.paintName.startsWith("UNTITLED")
                 || !session.antmailPaintPath.endsWith(session.paintName))) {
-            session.antmailStatus = "SEND ERROR // SAVE PAINTING FIRST";
+                session.antmailStatus = Component.translatable("computer.antos.status.save_painting_first").getString();
             return;
         }
         List<AntmailAttachment> attachments = composeAttachments();
-        session.antmailSendBaseline = AntmailClientState.get(position);
-        AntmailNetworking.send(position, session.antmailRecipient, session.antmailSubject, session.antmailBody, attachments);
-        session.antmailStatus = "SENDING MESSAGE";
+        session.antmailSendBaseline = AntmailClientState.get();
+        AntmailNetworking.send(session.antmailRecipient, session.antmailSubject, session.antmailBody, attachments);
+        if (session.antmailAttachCoins) com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonWallet();
+        session.antmailStatus = Component.translatable("computer.antos.status.sending_message").getString();
         session.antmailSendPending = true;
         session.antmailFocused = false;
         session.antmailDraftId = null;
@@ -3814,7 +4607,7 @@ public final class ComputerScreen extends Screen {
         session.antmailPickingAttachment = false;
     }
 
-    private void restoreLatestDraft(AntmailResultPayload result) {
+    private void restoreLatestDraft(AntmailAnternetResultPayload result) {
         if (session.antmailDraftLoaded) return;
         AntmailMailbox mailbox = mailbox(result);
         if (mailbox == null || mailbox.drafts().isEmpty()) {
@@ -3822,7 +4615,7 @@ public final class ComputerScreen extends Screen {
             return;
         }
         restoreDraft(mailbox.drafts().getLast());
-        session.antmailStatus = "DRAFT RECOVERED";
+            session.antmailStatus = Component.translatable("computer.antos.status.draft_recovered").getString();
         session.antmailDraftLoaded = true;
     }
 
@@ -3833,6 +4626,8 @@ public final class ComputerScreen extends Screen {
         session.antmailBody = draft.body();
         session.antmailAttachText = false;
         session.antmailAttachPaint = false;
+        session.antmailAttachCoins = false;
+        session.antmailCoinAmount = "";
         session.antmailPickingAttachment = false;
         for (AntmailAttachment attachment : draft.attachments()) {
             if (attachment instanceof AntmailAttachment.TextFile text) {
@@ -3850,6 +4645,9 @@ public final class ComputerScreen extends Screen {
                 byte[] pixels = paint.pixels();
                 for (int index = 0; index < pixels.length; index++) if (pixels[index] == 1) canvas.set(index % AntPaintCanvas.WIDTH, index / AntPaintCanvas.WIDTH, true);
                 session.paintCanvas = canvas;
+            } else if (attachment instanceof AntmailAttachment.Antcoins coins) {
+                session.antmailAttachCoins = true;
+                session.antmailCoinAmount = Long.toString(coins.amount());
             }
         }
     }
@@ -3857,14 +4655,14 @@ public final class ComputerScreen extends Screen {
     private void saveAntmailDraft() {
         try {
             if (session.antmailRecipient.isBlank() && session.antmailSubject.isBlank() && session.antmailBody.isBlank()) return;
-            AntmailResultPayload result = AntmailClientState.getMailbox(position);
+            AntmailAnternetResultPayload result = AntmailClientState.getMailbox();
             AntmailMailbox mailbox = mailbox(result);
             if (mailbox == null) return;
             AntmailDraft draft = new AntmailDraft(session.antmailDraftId, AntmailAddress.parse(mailbox.address().fullAddress()),
                     session.antmailRecipient.isBlank() ? null : AntmailAddress.parse(session.antmailRecipient), session.antmailSubject, session.antmailBody, composeAttachments());
-            AntmailNetworking.saveDraft(position, draft);
+            AntmailNetworking.saveDraft(draft);
         } catch (RuntimeException ignored) {
-            session.antmailStatus = "DRAFT SAVE ERROR // CHECK RECIPIENT";
+            session.antmailStatus = Component.translatable("computer.antos.status.draft_save_error").getString();
         }
     }
 
@@ -3878,13 +4676,14 @@ public final class ComputerScreen extends Screen {
             for (int py = 0; py < AntPaintCanvas.HEIGHT; py++) for (int px = 0; px < AntPaintCanvas.WIDTH; px++) pixels[py * AntPaintCanvas.WIDTH + px] = (byte) (session.paintCanvas.get(px, py) ? 1 : 0);
             attachments.add(new AntmailAttachment.PaintImage(session.paintName, AntPaintCanvas.WIDTH, AntPaintCanvas.HEIGHT, pixels));
         }
+        if (session.antmailAttachCoins) attachments.add(new AntmailAttachment.Antcoins(Long.parseLong(session.antmailCoinAmount)));
         return attachments;
     }
 
     private void syncAntmailPaintAttachment() {
         String requestedPath = session.antmailPaintLoadPendingPath;
         if (requestedPath.isBlank()) return;
-        ComputerFileSystemClientState.State fileState = ComputerFileSystemClientState.get(position);
+        ComputerFileSystemClientState.State fileState = ComputerFileSystemClientState.get();
         if (!requestedPath.equals(fileState.openedPath()) || fileState.openedContents().isBlank()) return;
         try {
             AntPaintFile file = AntPaintFileCodec.decode(Base64.getDecoder().decode(fileState.openedContents()));
@@ -3892,10 +4691,10 @@ public final class ComputerScreen extends Screen {
             session.antmailPaintPath = requestedPath;
             session.antmailPaintAttachment = AntmailAttachmentFiles.fromPaintFile(file);
             session.antmailPaintLoadPendingPath = "";
-            session.antmailStatus = "PAINTING ATTACHED // " + file.filename();
+            session.antmailStatus = Component.translatable("computer.antos.status.painting_attached", file.filename()).getString();
         } catch (RuntimeException exception) {
             session.antmailPaintLoadPendingPath = "";
-            session.antmailStatus = "ATTACHMENT ERROR // INVALID PAINT FILE";
+            session.antmailStatus = Component.translatable("computer.antos.status.invalid_paint_file").getString();
         }
     }
 
@@ -3903,26 +4702,28 @@ public final class ComputerScreen extends Screen {
         try {
             if (attachment instanceof AntmailAttachment.TextFile text) {
                 String path = "/documents/" + text.fileName();
-                if (computerFileExists(path)) ComputerNetworking.saveFile(position, path, text.contents());
-                else ComputerNetworking.createFile(position, path, text.contents());
-                session.antmailStatus = "ATTACHMENT SAVED // " + text.fileName();
+                if (computerFileExists(path)) ComputerNetworking.saveFile(path, text.contents());
+                else ComputerNetworking.createFile(path, text.contents());
+                session.antmailStatus = Component.translatable("computer.antos.status.attachment_saved", text.fileName()).getString();
             } else if (attachment instanceof AntmailAttachment.PaintImage paint) {
                 String name = paint.fileName().endsWith(".antpaint") ? paint.fileName() : paint.fileName() + ".antpaint";
                 AntPaintFile file = AntmailAttachmentFiles.toPaintFile(paint, UUID.randomUUID().toString(), 0L, 0L);
                 String encoded = Base64.getEncoder().encodeToString(AntPaintFileCodec.encode(file));
                 String path = "/pictures/" + name;
-                if (computerFileExists(path)) ComputerNetworking.saveFile(position, path, encoded);
-                else ComputerNetworking.createFile(position, path, encoded);
-                session.antmailStatus = "ATTACHMENT SAVED // " + name;
+                if (computerFileExists(path)) ComputerNetworking.saveFile(path, encoded);
+                else ComputerNetworking.createFile(path, encoded);
+                session.antmailStatus = Component.translatable("computer.antos.status.attachment_saved", name).getString();
+            } else if (attachment instanceof AntmailAttachment.Antcoins coins) {
+                session.antmailStatus = Component.translatable("computer.antos.status.coins_already_credited", coins.amount()).getString();
             }
-            ComputerNetworking.listFiles(position);
+            ComputerNetworking.listFiles();
         } catch (RuntimeException exception) {
-            session.antmailStatus = "ATTACHMENT ERROR // INVALID FILE";
+            session.antmailStatus = Component.translatable("computer.antos.status.invalid_file").getString();
         }
     }
 
     private boolean computerFileExists(String path) {
-        return ComputerFileSystemClientState.get(position).files().stream().anyMatch(entry -> entry.contains("\t" + path + "\t"));
+        return ComputerFileSystemClientState.get().files().stream().anyMatch(entry -> entry.contains("\t" + path + "\t"));
     }
 
     private void newText() {
@@ -3947,7 +4748,7 @@ public final class ComputerScreen extends Screen {
         if (session.textContent.isEmpty()) { session.textCursor = 0; return; }
         StringBuilder line = new StringBuilder();
         int cursor = 0;
-        int targetLine = Math.max(0, (int) (mouseY / 11));
+        int targetLine = session.textScroll + Math.max(0, (int) (mouseY / 11));
         int currentLine = 0;
         for (int index = 0; index < session.textContent.length(); index++) {
             char character = session.textContent.charAt(index);
@@ -3978,17 +4779,17 @@ public final class ComputerScreen extends Screen {
     }
 
     private void writeText() {
-        boolean exists = ComputerFileSystemClientState.get(position).files().stream().anyMatch(entry -> entry.contains("\t" + session.textPath + "\t"));
-        if (exists) ComputerNetworking.saveFile(position, session.textPath, session.textContent);
-        else ComputerNetworking.createFile(position, session.textPath, session.textContent);
-        ComputerNetworking.listFiles(position);
+        boolean exists = ComputerFileSystemClientState.get().files().stream().anyMatch(entry -> entry.contains("\t" + session.textPath + "\t"));
+        if (exists) ComputerNetworking.saveFile(session.textPath, session.textContent);
+        else ComputerNetworking.createFile(session.textPath, session.textContent);
+        ComputerNetworking.listFiles();
     }
 
     private void saveText() {
-        boolean exists = ComputerFileSystemClientState.get(position).files().stream().anyMatch(entry -> entry.contains("\t" + session.textPath + "\t"));
-        if (exists) ComputerNetworking.saveFile(position, session.textPath, session.textContent);
-        else ComputerNetworking.createFile(position, session.textPath, session.textContent);
-        ComputerNetworking.listFiles(position);
+        boolean exists = ComputerFileSystemClientState.get().files().stream().anyMatch(entry -> entry.contains("\t" + session.textPath + "\t"));
+        if (exists) ComputerNetworking.saveFile(session.textPath, session.textContent);
+        else ComputerNetworking.createFile(session.textPath, session.textContent);
+        ComputerNetworking.listFiles();
     }
 
     private void renameTextFile() {
@@ -3997,12 +4798,12 @@ public final class ComputerScreen extends Screen {
             String destination = parent.equals("/") ? "/" + session.textRename : parent + "/" + session.textRename;
             if (session.textSaveAs) {
                 session.textSaveAsPendingPath = destination;
-                ComputerNetworking.createFile(position, destination, session.textContent);
+                ComputerNetworking.createFile(destination, session.textContent);
             } else {
-                ComputerNetworking.moveFile(position, session.textPath, destination);
+                ComputerNetworking.moveFile(session.textPath, destination);
                 session.textMovePendingPath = destination;
             }
-            ComputerNetworking.listFiles(position);
+            ComputerNetworking.listFiles();
         }
         session.textSaveAs = false;
         session.textRenaming = false;
@@ -4017,14 +4818,14 @@ public final class ComputerScreen extends Screen {
         String encoded = Base64.getEncoder().encodeToString(AntPaintFileCodec.encode(file));
         session.paintLoadedContents = encoded;
         String savedPath = path;
-        boolean exists = ComputerFileSystemClientState.get(position).files().stream().anyMatch(entry -> entry.contains("\t" + savedPath + "\t"));
-        if (exists) ComputerNetworking.saveFile(position, savedPath, encoded); else ComputerNetworking.createFile(position, savedPath, encoded);
+        boolean exists = ComputerFileSystemClientState.get().files().stream().anyMatch(entry -> entry.contains("\t" + savedPath + "\t"));
+        if (exists) ComputerNetworking.saveFile(savedPath, encoded); else ComputerNetworking.createFile(savedPath, encoded);
         session.antmailPaintPath = savedPath;
         session.paintLoadedPath = savedPath;
         session.antmailPaintAttachment = null;
         session.antmailPaintLoadPendingPath = "";
         session.paintDirty = false;
-        ComputerNetworking.listFiles(position);
+        ComputerNetworking.listFiles();
     }
 
     private void paintTool(int offset) {
@@ -4098,41 +4899,59 @@ public final class ComputerScreen extends Screen {
         return (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
     }
 
-    private ComputerBlockEntity computer() {
-        if (Minecraft.getInstance().level == null) return null;
-        return Minecraft.getInstance().level.getBlockEntity(position) instanceof ComputerBlockEntity computer ? computer : null;
+    private List<ResourceLocation> workspaceDiskIds() {
+        List<ResourceLocation> disks = new ArrayList<>();
+        disks.add(ResourceLocation.fromNamespaceAndPath("antos", "introduction"));
+        disks.addAll(com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.installedDisks());
+        return List.copyOf(disks);
     }
 
     private List<ResourceLocation> physicalDisks() {
-        ComputerBlockEntity computer = computer();
-        if (computer == null) return List.of();
-        return computer.diskIds().stream()
-                .filter(id -> !id.equals(ResourceLocation.fromNamespaceAndPath("antos", "introduction")))
-                .toList();
+        return com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.installedDisks();
     }
 
     private void ejectSelected() {
         if (selectedDisk == null) return;
-        ComputerNetworking.eject(position, selectedDisk);
-        loginMessage = "EJECTING DISK // WAITING";
+        ComputerNetworking.eject(selectedDisk);
+        loginMessage = Component.translatable("computer.antos.status.ejecting_disk").getString();
         loginMessageTicks = 100;
         selectedDisk = null;
     }
 
     private void beginRenameSelectedFile() {
         if (session.fileExplorerSelected.isEmpty() || session.fileExplorerSelected.equals("/") || ComputerFileSystem.isProtected(session.fileExplorerSelected)) return;
+        session.fileExplorerDeleteConfirm = false;
+        session.fileExplorerCreatingDirectory = false;
+        session.fileExplorerMoving = false;
         int slash = session.fileExplorerSelected.lastIndexOf('/');
         session.fileExplorerRename = session.fileExplorerSelected.substring(slash + 1);
         session.fileExplorerRenaming = true;
+    }
+
+    private void beginCreateFileExplorerDirectory() {
+        session.fileExplorerDeleteConfirm = false;
+        session.fileExplorerCreatingDirectory = true;
+        session.fileExplorerMoving = false;
+        session.fileExplorerRenaming = false;
+        session.fileExplorerRename = "";
+    }
+
+    private void beginMoveFileExplorerSelection() {
+        if (!fileExplorerSelectionMutable()) return;
+        session.fileExplorerDeleteConfirm = false;
+        session.fileExplorerMoving = true;
+        session.fileExplorerCreatingDirectory = false;
+        session.fileExplorerRenaming = false;
+        session.fileExplorerRename = "";
     }
 
     private void renameSelectedFile() {
         if (!session.fileExplorerRename.isBlank() && !session.fileExplorerRename.contains("/")) {
             String parent = parentDirectory(session.fileExplorerSelected);
             String destination = parent.equals("/") ? "/" + session.fileExplorerRename : parent + "/" + session.fileExplorerRename;
-            ComputerNetworking.moveFile(position, session.fileExplorerSelected, destination);
+            ComputerNetworking.moveFile(session.fileExplorerSelected, destination);
             session.fileExplorerSelected = destination;
-            ComputerNetworking.listFiles(position);
+            ComputerNetworking.listFiles();
         }
         session.fileExplorerRenaming = false;
         session.fileExplorerRename = "";
@@ -4140,19 +4959,19 @@ public final class ComputerScreen extends Screen {
 
     private void deleteSelectedFile() {
         if (session.fileExplorerSelected.isEmpty() || session.fileExplorerSelected.equals("/") || ComputerFileSystem.isProtected(session.fileExplorerSelected)) return;
-        ComputerNetworking.deleteFile(position, session.fileExplorerSelected);
+        ComputerNetworking.deleteFile(session.fileExplorerSelected);
         session.fileExplorerSelected = "";
-        ComputerNetworking.listFiles(position);
+        ComputerNetworking.listFiles();
     }
 
     private void deleteTextFile() {
         if (session.textPath.isBlank() || ComputerFileSystem.isProtected(session.textPath)) return;
-        ComputerNetworking.deleteFile(position, session.textPath);
+        ComputerNetworking.deleteFile(session.textPath);
         session.textPath = "/documents/untitled.txt";
         session.textContent = "";
         session.textCursor = 0;
         session.textDirty = false;
-        ComputerNetworking.listFiles(position);
+        ComputerNetworking.listFiles();
     }
 
     private void open(String type) {
@@ -4164,17 +4983,28 @@ public final class ComputerScreen extends Screen {
             session.windows.remove(index);
             session.windows.add(window);
             activeWindow = window;
-            if (type.equals("FILES")) ComputerNetworking.listFiles(position);
-              else if (type.equals("ANTAZON")) { ComputerNetworking.requestAntazon(position); ComputerNetworking.requestAntazonWishlist(position); ComputerNetworking.requestAntazonOrders(position); }
+            if (type.equals("FILES")) ComputerNetworking.listFiles();
+              else if (type.equals("ANTAZON")) refreshAntazon();
             return;
         }
         Window window = new Window(type, TITLES.get(type), 112 + session.windows.size() * 12, 52 + session.windows.size() * 10);
         session.windows.add(window);
         activeWindow = window;
         if (type.equals("ANTMAIL")) requestAntmailState();
-        else if (type.equals("ANTAZON")) { com.craisinlord.antos.content.network.ComputerNetworking.requestAntazon(position); com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonWishlist(position); com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonOrders(position); }
-        else if (type.equals("TASKS")) { taskRefreshTicks = 0; selectedTaskId = ""; selectedTaskCategory = ""; taskMapScrollX = 0; taskMapScrollY = 0; taskCategoryScroll = 0; ComputerNetworking.requestTasks(position); }
-        else if (type.equals("FILES")) ComputerNetworking.listFiles(position);
+        else if (type.equals("ANTAZON")) refreshAntazon();
+        else if (type.equals("TASKS")) { taskRefreshTicks = 0; selectedTaskId = ""; selectedTaskCategory = ""; taskMapScrollX = 0; taskMapScrollY = 0; taskCategoryScroll = 0; ComputerNetworking.requestTasks(); }
+        else if (type.equals("FILES")) ComputerNetworking.listFiles();
+    }
+
+    private void refreshAntazon() {
+        ComputerNetworking.linkAntazonCrate();
+        ComputerNetworking.requestAntazon();
+        ComputerNetworking.requestAntazonWallet();
+        ComputerNetworking.requestAntazonSellState();
+        ComputerNetworking.requestAntazonWishlist();
+        ComputerNetworking.requestAntazonOrders();
+        ComputerNetworking.requestAntazonPrices();
+        ComputerNetworking.requestAntazonOnboarding();
     }
 
     private Window windowAt(double mouseX, double mouseY) {
@@ -4196,10 +5026,8 @@ public final class ComputerScreen extends Screen {
     }
 
     private void updateArchiveScrollbar(Window window, double mouseY) {
-        List<ComputerGuideData.Entry> entries = List.of();
-        if (Minecraft.getInstance().level != null && Minecraft.getInstance().level.getBlockEntity(position) instanceof ComputerBlockEntity computer) {
-            entries = ComputerGuideData.entriesFor(computer.diskIds(), com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(position));
-        }
+        List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(workspaceDiskIds(),
+                com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get());
         int columns = window.maximized ? 3 : 1;
         int cellHeight = window.maximized ? 72 : 38;
         int visibleRows = Math.max(1, (windowHeight(window) - 34 - 58) / cellHeight);
@@ -4224,7 +5052,10 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public void onClose() {
-        ComputerNetworking.close(position);
+        ComputerNetworking.close();
+        com.craisinlord.antos.content.network.AnternetAccountNetworking.logout();
+        com.craisinlord.antos.content.client.AnternetAccountClientState.clear();
+        AntmailClientState.clear();
         super.onClose();
     }
 
@@ -4261,6 +5092,9 @@ public final class ComputerScreen extends Screen {
         private String archiveSearch = "";
         private boolean archiveSearchFocused;
         private int fileExplorerScroll;
+        private int fileExplorerMaximumScroll;
+        private String fileExplorerLastClickedPath = "";
+        private long fileExplorerLastClickTime;
         private boolean fileExplorerDeleteConfirm;
         private boolean fileExplorerCreatingDirectory;
         private boolean fileExplorerMoving;
@@ -4277,14 +5111,12 @@ public final class ComputerScreen extends Screen {
         private String paintLoadedPath = "";
         private String paintLoadedContents = "";
         private boolean paintDirty;
-        private String antmailUsername = "";
         private String antmailStatus = "";
         private boolean antmailSendPending;
-        private AntmailResultPayload antmailSendBaseline;
+        private AntmailAnternetResultPayload antmailSendBaseline;
         private String antmailRetryMessageId = "";
-        private AntmailResultPayload antmailRetryBaseline;
+        private AntmailAnternetResultPayload antmailRetryBaseline;
         private int antmailRetryTicks;
-        private boolean antmailRegistrationPending;
         private int antmailRefreshTicks;
         private int antmailStateWaitTicks;
         private boolean antmailFocused;
@@ -4306,6 +5138,9 @@ public final class ComputerScreen extends Screen {
         private int antmailVisibleAttachmentCount;
         private boolean antmailAttachText;
         private boolean antmailAttachPaint;
+        private boolean antmailAttachCoins;
+        private boolean antmailAttachmentMenu;
+        private String antmailCoinAmount = "";
         private String antmailTextPath = "";
         private String antmailPaintPath = "";
         private AntmailAttachment.PaintImage antmailPaintAttachment;
@@ -4313,6 +5148,7 @@ public final class ComputerScreen extends Screen {
         private UUID antmailDraftId;
         private boolean antmailDraftLoaded;
         private boolean antmailPickingAttachment;
+        private boolean antmailPickingPaint;
         private String fileExplorerDirectory = "/";
         private String fileExplorerSelected = "";
         private String fileExplorerRename = "";
@@ -4321,6 +5157,13 @@ public final class ComputerScreen extends Screen {
         private List<String> wallpapers = List.of(ComputerDesktopState.DEFAULT_WALLPAPER.toString());
         private int wallpaperScroll;
         private String antazonMode = "catalog";
+        private int antazonPriceScroll;
+        private int antazonSellScroll;
+        private int antazonWishlistScroll;
+        private int antazonOrdersScroll;
+        private int antazonOrderSelection = -1;
+        private int antazonPriceQuantity = 1;
+        private String antazonPriceItem = "";
         private String antazonProductId = "";
         private int antazonQuantity = 1;
         private String antazonSearch = "";
@@ -4330,6 +5173,8 @@ public final class ComputerScreen extends Screen {
         private int antazonScroll;
         private final Map<String, Integer> antazonCart = new LinkedHashMap<>();
         private final Set<String> antazonWishlist = new HashSet<>();
+        private boolean antazonSellConfirm;
+        private int antazonWalletRefreshTicks;
         private boolean desktopRequested;
         private int bootTicks = -1;
         private boolean onboardingCompleted;
@@ -4355,7 +5200,7 @@ public final class ComputerScreen extends Screen {
         private Window(String type, String title, int x, int y) {
             this.type = type;
             this.title = title;
-            this.height = type.equals("ANTAZON") ? 250 : 210;
+            this.height = type.equals("ANTAZON") || type.equals("SETTINGS") ? 250 : 210;
             this.renderHeight = this.height;
             this.width = type.equals("TASKS") || type.equals("ANTAZON") ? 390 : 230;
             this.renderWidth = this.width;
@@ -4366,5 +5211,3 @@ public final class ComputerScreen extends Screen {
         }
     }
 }
-
-

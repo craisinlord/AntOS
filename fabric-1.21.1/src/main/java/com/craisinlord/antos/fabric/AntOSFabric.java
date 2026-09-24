@@ -4,6 +4,7 @@ import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.antmail.AntmailEventData;
 import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.antazon.AntazonData;
+import com.craisinlord.antos.content.antazon.AntazonSellData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.computer.blockle.BlockleAnswers;
 import com.craisinlord.antos.content.computer.TaskDebugCommands;
@@ -13,6 +14,7 @@ import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.fabric.network.AntOSFabricNetworking;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.minecraft.resources.ResourceLocation;
@@ -28,11 +30,14 @@ public final class AntOSFabric implements ModInitializer {
         AntOSSettings.load(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
         AntOSFabricContent.register();
         AntOSFabricNetworking.register();
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
+                com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TaskDebugCommands.register(dispatcher));
         registerReloadListener("computer_data", ComputerGuideData.instance());
         registerReloadListener("blockle_answers", BlockleAnswers.instance());
         registerReloadListener("antmail_data", AntmailEventData.instance());
         registerReloadListener("antazon_data", AntazonData.instance());
+        registerReloadListener("antazon_sell_data", AntazonSellData.instance());
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             FloppyTextureSync.tick(server);
             AntmailServerData.access(server).drainAvailable(server);

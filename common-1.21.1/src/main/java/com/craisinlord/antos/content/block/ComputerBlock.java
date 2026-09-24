@@ -2,7 +2,6 @@ package com.craisinlord.antos.content.block;
 
 import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
-import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.client.AntOSClientHooks;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
@@ -100,11 +99,6 @@ public final class ComputerBlock extends BaseEntityBlock {
 
     @Override
     protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
-        if (!state.is(newState.getBlock()) && level.getBlockEntity(pos) instanceof ComputerBlockEntity computer) {
-            if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
-                AntmailServerData.access(serverLevel.getServer()).unregister(serverLevel.dimension().location(), pos);
-            }
-        }
         super.onRemove(state, level, pos, newState, movedByPiston);
     }
 
@@ -154,6 +148,13 @@ public final class ComputerBlock extends BaseEntityBlock {
                 }
             } else if (computer.insert(stack, player)) {
                 return ItemInteractionResult.CONSUME;
+            } else if (stack.is(AntOSObjects.FLOPPY_DISK.get()) && computer.requiresAccountSession()
+                    && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                    && com.craisinlord.antos.content.network.AnternetAccountHandler.session(serverPlayer) == null) {
+                com.craisinlord.antos.content.network.AnternetAccountHandler.requestDiskInsertion(serverPlayer, computer, hand, stack);
+                return ItemInteractionResult.SUCCESS;
+            } else if (stack.is(AntOSObjects.FLOPPY_DISK.get()) && computer.requiresAccountSession()) {
+                return ItemInteractionResult.SUCCESS;
             }
         }
         return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
@@ -165,7 +166,9 @@ public final class ComputerBlock extends BaseEntityBlock {
         if (level.getBlockEntity(pos) instanceof ComputerBlockEntity computer) {
             computer.activate();
             if (level.isClientSide) {
-                AntOSClientHooks.openComputer(pos);
+                AntOSClientHooks.openComputer();
+            } else if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                com.craisinlord.antos.content.network.AnternetAccountHandler.requestDeviceBinding(serverPlayer, computer);
             }
             return net.minecraft.world.InteractionResult.SUCCESS;
         }

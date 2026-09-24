@@ -49,6 +49,10 @@ public final class AntmailValidation {
                 textCharacters += textFile.contents().length();
             } else if (attachment instanceof AntmailAttachment.PaintImage paintImage) {
                 if (paintImage.width() != MAX_PAINT_WIDTH || paintImage.height() != MAX_PAINT_HEIGHT) return Result.invalid("unsupported paint size");
+            } else if (attachment instanceof AntmailAttachment.Antcoins antcoins && antcoins.amount() < 1) {
+                return Result.invalid("invalid antcoin amount");
+            } else if (attachment instanceof AntmailAttachment.Render render && (!AntmailRenderMarkers.isSupportedKind(render.kind()) || render.resourceId().isBlank())) {
+                return Result.invalid("invalid render attachment");
             }
         }
         if (textCharacters > MAX_TEXT_ATTACHMENT_CHARACTERS) return Result.invalid("text attachments too large");

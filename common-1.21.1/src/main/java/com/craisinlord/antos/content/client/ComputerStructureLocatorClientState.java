@@ -2,20 +2,28 @@ package com.craisinlord.antos.content.client;
 
 import com.craisinlord.antos.content.network.ComputerAccessPayload;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
-import net.minecraft.core.BlockPos;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ComputerStructureLocatorClientState {
-    private static final Map<BlockPos, String> RESULTS = new ConcurrentHashMap<>();
+    private static final Map<String, String> RESULTS = new ConcurrentHashMap<>();
+    private static final Map<String, Boolean> CUSTOM_LOCATOR = new ConcurrentHashMap<>();
 
     private ComputerStructureLocatorClientState() {
     }
 
-    public static void searching(BlockPos pos, String dimensionId) {
+    public static void clearAll() { RESULTS.clear(); CUSTOM_LOCATOR.clear(); }
+
+    public static void searching(String dimensionId) {
+        searching(dimensionId, false);
+    }
+
+    /** {@code customLocator} entries report a location rather than a structure start. */
+    public static void searching(String dimensionId, boolean customLocator) {
+        CUSTOM_LOCATOR.put(ComputerWorkspaceClientKey.of(), customLocator);
         String dimension = dimensionId == null || dimensionId.isBlank() ? "TARGET DIMENSION" : dimensionId.toUpperCase(java.util.Locale.ROOT);
-        RESULTS.put(pos, "SEARCHING IN " + dimension + "...");
+        RESULTS.put(ComputerWorkspaceClientKey.of(), "SEARCHING IN " + dimension + "...");
     }
 
     public static void update(ComputerAccessResultPayload payload) {
@@ -27,18 +35,19 @@ public final class ComputerStructureLocatorClientState {
             return;
         }
 
+        boolean customLocator = CUSTOM_LOCATOR.getOrDefault(ComputerWorkspaceClientKey.of(), false);
         String message = switch (envelope[1]) {
-            case "not_found" -> "NO STRUCTURE FOUND WITHIN RANGE";
+            case "not_found" -> customLocator ? "NOTHING FOUND WITHIN RANGE" : "NO STRUCTURE FOUND WITHIN RANGE";
             case "dimension_unavailable" -> "TARGET DIMENSION UNAVAILABLE";
             default -> "LOCATOR UNAVAILABLE";
         };
-        RESULTS.put(payload.pos(), payload.result() == ComputerAccessResultPayload.SUCCESS
-                ? "STRUCTURE START // " + envelope[2]
+        RESULTS.put(ComputerWorkspaceClientKey.of(), payload.result() == ComputerAccessResultPayload.SUCCESS
+                ? (customLocator ? "LOCATION // " : "STRUCTURE START // ") + envelope[2]
                 : message);
     }
 
-    public static String get(BlockPos pos) {
-        return RESULTS.getOrDefault(pos, "COORDINATES // SEARCH WHEN SELECTED");
+    public static String get() {
+        return RESULTS.getOrDefault(ComputerWorkspaceClientKey.of(), "COORDINATES // SEARCH WHEN SELECTED");
     }
 }
 

@@ -46,7 +46,8 @@ public final class AntmailMessage {
     }
 
     public static AntmailMessage create(AntmailAddress sender, AntmailAddress recipient, String subject, String body, long createdAt, List<AntmailAttachment> attachments) {
-        return new AntmailMessage(UUID.randomUUID(), sender, recipient, subject, body, createdAt, attachments, false);
+        AntmailRenderMarkers.Extracted extracted = AntmailRenderMarkers.extract(body, attachments);
+        return new AntmailMessage(UUID.randomUUID(), sender, recipient, subject, extracted.body(), createdAt, extracted.attachments(), false);
     }
 
     public static AntmailMessage create(AntmailAddress sender, AntmailAddress recipient, String subject, String body, long createdAt, List<AntmailAttachment> attachments, String definitionId) {

@@ -17,6 +17,25 @@ dependencies {
     modImplementation "software.bernie.geckolib:geckolib-fabric-1.21.1:${geckolib_version}"
 }
 
+def accountTestClasses = layout.buildDirectory.dir('classes/java/accountTest')
+
+tasks.register('compileAccountTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source fileTree('../common-1.21.1/src/test/java') { include '**/*.java' }
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = accountTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.register('accountTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs automated Anternet account credential tests.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.computer.ComputerWorkspaceDataAccountTest'
+}
+
 processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') { expand 'version': project.version }

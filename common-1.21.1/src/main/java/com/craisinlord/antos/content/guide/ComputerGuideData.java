@@ -138,7 +138,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     private static Entry introduction() {
         return new Entry(INTRODUCTION, "article", "general", "guide.antos.entry.introduction.title",
                 "guide.antos.entry.introduction.subtitle", List.of("guide.antos.entry.introduction.description"),
-                "antos:floppy_disk", "", "", "", "", "", "", 0, "", "", "", 0.0F, 1.0F, true);
+                "antos:floppy_disk", "", "", "", "", "", "", 0, "", "", "", "", 0.0F, 1.0F, true);
     }
 
     /** Encodes loaded definitions for connected clients. */
@@ -170,6 +170,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             object.addProperty("structure_tag", entry.structureTagId());
             object.addProperty("dimension", entry.dimensionId());
             object.addProperty("search_radius", entry.searchRadius());
+            object.addProperty("locator", entry.locatorId());
             object.addProperty("cover_item", entry.coverItemId());
             object.addProperty("cover_entity", entry.coverEntityId());
             object.addProperty("cover_potion", entry.coverPotionId());
@@ -458,6 +459,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         String dimension = string(object, "dimension", "");
         int searchRadius = object.has("search_radius") && object.get("search_radius").isJsonPrimitive()
                 ? Math.max(0, Math.min(1000, object.get("search_radius").getAsInt())) : 0;
+        String locator = string(object, "locator", "");
         String coverItem = string(object, "cover_item", "");
         String coverEntity = string(object, "cover_entity", "");
         String coverPotion = string(object, "cover_potion", "");
@@ -468,7 +470,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         renderScale = Math.max(0.1F, Math.min(3.0F, renderScale));
         boolean greenTint = !object.has("green_tint") || !object.get("green_tint").isJsonPrimitive()
                 || object.get("green_tint").getAsBoolean();
-        target.put(id, new Entry(id, type, category, title, subtitle, description, item, entity, enchantment, recipe, structure, structureTag, dimension, searchRadius,
+        target.put(id, new Entry(id, type, category, title, subtitle, description, item, entity, enchantment, recipe, structure, structureTag, dimension, searchRadius, locator,
                 coverItem, coverEntity, coverPotion, rotation, renderScale, greenTint));
     }
 
@@ -706,7 +708,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
 
     public record Entry(ResourceLocation id, String type, String category, String titleKey, String subtitleKey,
                          List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
-                         String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String coverItemId,
+                         String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
                          String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint) {
     }
 

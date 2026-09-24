@@ -1,15 +1,25 @@
 package com.craisinlord.antos.content.client;
 
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
-import net.minecraft.core.BlockPos;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ComputerAccessClientState {
-    private static final Map<BlockPos, ComputerAccessResultPayload> RESULTS = new ConcurrentHashMap<>();
+    private static final Map<String, ComputerAccessResultPayload> RESULTS = new ConcurrentHashMap<>();
 
     private ComputerAccessClientState() {
+    }
+
+    public static void clearAll() {
+        RESULTS.clear();
+        ComputerTasksClientState.clearAll();
+        ComputerStructureLocatorClientState.clearAll();
+        ComputerTerminalClientState.clearAll();
+        AntazonClientState.clearAll();
+        ComputerArchiveUnlockClientState.clearAll();
+        ComputerFileSystemClientState.clearAll();
+        com.craisinlord.antos.content.client.game.BlockleClientState.clearAll();
     }
 
     public static void update(ComputerAccessResultPayload result) {
@@ -22,24 +32,28 @@ public final class ComputerAccessClientState {
             String[] envelope = result.data().split("\u0000", 3);
             if (envelope.length == 3) {
                 com.craisinlord.antos.content.guide.ComputerGuideData.applyNetworkSnapshot(envelope[2]);
-                ComputerArchiveUnlockClientState.update(result.pos(), envelope[2]);
+                ComputerArchiveUnlockClientState.update(envelope[2]);
             }
         }
         // Ignore operation responses; they do not update login state.
-        if (result.data().isBlank()) RESULTS.put(result.pos(), result);
+        if (result.data().isBlank()) RESULTS.put(ComputerWorkspaceClientKey.of(), result);
         ComputerFileSystemClientState.update(result);
     }
 
-    public static void clear(BlockPos pos) {
-        RESULTS.remove(pos);
-        ComputerTasksClientState.clear(pos);
-        ComputerArchiveUnlockClientState.clear(pos);
-        ComputerTerminalClientState.clear(pos);
-        AntazonClientState.clear(pos);
+    public static void updateAnternet(com.craisinlord.antos.content.network.AnternetComputerResultPayload result) {
+        update(new ComputerAccessResultPayload(result.result(), result.hasPassword(), result.authenticated(), result.data()));
     }
 
-    public static ComputerAccessResultPayload get(BlockPos pos) {
-        return RESULTS.get(pos);
+    public static void clear() {
+        RESULTS.remove(ComputerWorkspaceClientKey.of());
+        ComputerTasksClientState.clear();
+        ComputerArchiveUnlockClientState.clear();
+        ComputerTerminalClientState.clear();
+        AntazonClientState.clear();
+    }
+
+    public static ComputerAccessResultPayload get() {
+        return RESULTS.get(ComputerWorkspaceClientKey.of());
     }
 }
 

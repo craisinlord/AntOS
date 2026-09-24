@@ -5,6 +5,7 @@ import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.block.ComputerBlock;
 import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
 import com.craisinlord.antos.content.item.ComputerItem;
+import com.craisinlord.antos.content.item.AntroidPhoneItem;
 import com.craisinlord.antos.content.item.FloppyDiskItem;
 import com.craisinlord.antos.content.entity.RewardDropEntity;
 import net.minecraft.core.Registry;
@@ -39,6 +40,7 @@ public final class AntOSNeoForgeContent {
             () -> BlockEntityType.Builder.of((pos, state) -> new ComputerBlockEntity(pos, state, AntOSNeoForgeContent::computerBlockEntityType), COMPUTER.get()).build(null));
     public static final DeferredHolder<Item, Item> FLOPPY_DISK = ITEMS.register("floppy_disk", () -> new FloppyDiskItem(new Item.Properties()));
     public static final DeferredHolder<Item, ComputerItem> COMPUTER_ITEM = ITEMS.register("computer", () -> new ComputerItem(COMPUTER.get(), new Item.Properties()));
+    public static final DeferredHolder<Item, AntroidPhoneItem> ANTROID_PHONE = ITEMS.register("antroid_phone", () -> new AntroidPhoneItem(new Item.Properties().stacksTo(1)));
     public static final DeferredHolder<EntityType<?>, EntityType<RewardDropEntity>> REWARD_DROP_ENTITY = ENTITY_TYPES.register("reward_drop",
             () -> EntityType.Builder.of(RewardDropEntity::new, MobCategory.MISC).sized(0.8F, 0.8F).clientTrackingRange(8).updateInterval(2).build("antos:reward_drop"));
 
@@ -56,11 +58,12 @@ public final class AntOSNeoForgeContent {
         ENTITY_TYPES.register(modBus);
         modBus.addListener(AntOSNeoForgeContent::addCreativeItems);
         AntOSObjects.bind(FLOPPY_DISK::get, FLOPPY_DISK_COMPONENT::get, COMPUTER_BLOCK_ENTITY::get, COMPUTER_ITEM::get,
-                REWARD_DROP_ENTITY::get);
+                REWARD_DROP_ENTITY::get, ANTROID_PHONE::get);
     }
 
     private static void addCreativeItems(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) event.accept(COMPUTER_ITEM.get());
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) event.accept(FLOPPY_DISK.get());
+        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) event.accept(ANTROID_PHONE.get());
     }
 }

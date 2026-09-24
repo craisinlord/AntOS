@@ -30,7 +30,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Map<R
         if (dayTime % 24000L >= 20L) return;
         AntmailServerData data = AntmailServerData.access(server);
         if (!data.beginRandomMailDay(day)) return;
-        for (AntmailAddress address : data.registeredAddresses()) {
+        for (AntmailAddress address : data.profileAddresses(server)) {
             for (Map.Entry<ResourceLocation, Definition> entry : definitions.entrySet()) {
                 Definition definition = entry.getValue();
                 if (definition.trigger().type().equals("random") && server.overworld().random.nextDouble() < definition.trigger().chance()) deliver(server, address, entry.getKey(), definition, false);
@@ -40,7 +40,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Map<R
 
     public static void onAdvancement(ServerPlayer player, AdvancementHolder advancement) {
         AntmailServerData data = AntmailServerData.access(player.server);
-        AntmailAddress address = data.lastUsedAddress(player);
+        AntmailAddress address = data.addressFor(player);
         if (address == null) return;
         for (Map.Entry<ResourceLocation, Definition> entry : definitions.entrySet()) {
             Trigger trigger = entry.getValue().trigger();

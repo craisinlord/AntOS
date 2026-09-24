@@ -13,5 +13,16 @@
   "task.examplemod.stronghold_scout.title": "Survey the Stronghold",
   "task.examplemod.stronghold_scout.description": "The archive points to an old stone complex. Confirm the site in person.",
   "task.examplemod.stronghold_scout.enter_stronghold": "Enter a stronghold",
-  "task.category.examplemod.meadow_research": "Meadow Research"
+  "task.category.examplemod.meadow_research": "Meadow Research",
+  "antazon.examplemod.reinforced_nest_bundle.name": "Reinforced Nest Bundle",
+  "antazon.examplemod.reinforced_nest_bundle.description": "A supply bundle for expanding a busy nest.",
+  "antazon.examplemod.reinforced_nest_bundle.review.title": "Reliable starter supplies",
+  "antazon.examplemod.reinforced_nest_bundle.review.body": "Arrived quickly and held up through the first expansion.",
+  "antazon.examplemod.reinforced_nest_bundle.deal": "NEST DEAL",
+  "antazon.examplemod.task_reward_crate.name": "Field Research Reward Crate",
+  "antazon.examplemod.task_reward_crate.description": "A research supply crate unlocked by completing the field basics assignment.",
+  "antazon.examplemod.task_reward_crate.review.title": "Worth finishing the assignment",
+  "antazon.examplemod.task_reward_crate.review.body": "The crate makes the first research milestone feel rewarding.",
+  "antazon.examplemod.welcome.subject": "A note from the field",
+  "antazon.examplemod.welcome.body": "Welcome to the colony network. Here is your first clue: @item:minecraft:diamond"
 }

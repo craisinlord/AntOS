@@ -3,26 +3,26 @@ package com.craisinlord.antos.content.client;
 import com.craisinlord.antos.content.network.ComputerAccessPayload;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
 import com.google.gson.JsonParser;
-import net.minecraft.core.BlockPos;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ComputerTasksClientState {
-    private static final Map<BlockPos, List<TaskRow>> TASKS = new ConcurrentHashMap<>();
-    private static final Set<BlockPos> RECEIVED = ConcurrentHashMap.newKeySet();
-    private static final Set<BlockPos> ERRORS = ConcurrentHashMap.newKeySet();
+    private static final Map<String, List<TaskRow>> TASKS = new ConcurrentHashMap<>();
+    private static final Set<String> RECEIVED = ConcurrentHashMap.newKeySet();
+    private static final Set<String> ERRORS = ConcurrentHashMap.newKeySet();
     private ComputerTasksClientState() { }
+    public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); }
     public static void update(ComputerAccessResultPayload result) {
         String prefix = ComputerAccessPayload.TASK_STATE + "\0\0";
         if (!result.data().startsWith(prefix)) return;
         try {
             var root = JsonParser.parseString(result.data().substring(prefix.length())).getAsJsonObject();
             if (root.has("error")) {
-                TASKS.put(result.pos(), List.of());
-                ERRORS.add(result.pos());
-                RECEIVED.add(result.pos());
+                TASKS.put(ComputerWorkspaceClientKey.of(), List.of());
+                ERRORS.add(ComputerWorkspaceClientKey.of());
+                RECEIVED.add(ComputerWorkspaceClientKey.of());
                 return;
             }
             var array = root.getAsJsonArray("tasks"); java.util.ArrayList<TaskRow> rows = new java.util.ArrayList<>();
@@ -46,15 +46,15 @@ public final class ComputerTasksClientState {
                         row.has("icon_entity") ? row.get("icon_entity").getAsString() : "",
                         List.copyOf(objectives)));
             }
-            TASKS.put(result.pos(), List.copyOf(rows));
-            ERRORS.remove(result.pos());
-            RECEIVED.add(result.pos());
+            TASKS.put(ComputerWorkspaceClientKey.of(), List.copyOf(rows));
+            ERRORS.remove(ComputerWorkspaceClientKey.of());
+            RECEIVED.add(ComputerWorkspaceClientKey.of());
         } catch (RuntimeException ignored) { }
     }
-    public static List<TaskRow> get(BlockPos pos) { return TASKS.getOrDefault(pos, List.of()); }
-    public static boolean hasSnapshot(BlockPos pos) { return RECEIVED.contains(pos); }
-    public static boolean hasError(BlockPos pos) { return ERRORS.contains(pos); }
-    public static void clear(BlockPos pos) { TASKS.remove(pos); RECEIVED.remove(pos); ERRORS.remove(pos); }
+    public static List<TaskRow> get() { return TASKS.getOrDefault(ComputerWorkspaceClientKey.of(), List.of()); }
+    public static boolean hasSnapshot() { return RECEIVED.contains(ComputerWorkspaceClientKey.of()); }
+    public static boolean hasError() { return ERRORS.contains(ComputerWorkspaceClientKey.of()); }
+    public static void clear() { TASKS.remove(ComputerWorkspaceClientKey.of()); RECEIVED.remove(ComputerWorkspaceClientKey.of()); ERRORS.remove(ComputerWorkspaceClientKey.of()); }
     public record TaskRow(String id, String title, String description, boolean available, boolean complete, boolean visible,
                           String category, int x, int y, List<String> requires, List<String> archiveEntries,
                           int done, int total, boolean hasRewards, String iconItem, String iconEntity,

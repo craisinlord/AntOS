@@ -4,14 +4,12 @@ import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public final class BlockleProgram {
-    private final BlockPos position;
     private final List<String> guesses = new ArrayList<>();
     private final List<String> colors = new ArrayList<>();
     private String input = "";
@@ -23,11 +21,7 @@ public final class BlockleProgram {
     private boolean installed;
     private boolean pending;
     private boolean received;
-    private String lastResponse = "";
-
-    public BlockleProgram(BlockPos position) {
-        this.position = position;
-    }
+    private long lastResponseRevision = -1L;
 
     public void setInstalled(boolean installed) {
         this.installed = installed;
@@ -39,14 +33,14 @@ public final class BlockleProgram {
     }
 
     public void requestState() {
-        if (installed) ComputerNetworking.requestBlockleState(position);
+        if (installed) ComputerNetworking.requestBlockleState();
     }
 
     public void tick() {
-        ComputerAccessResultPayload result = BlockleClientState.get(position);
-        if (result == null) return;
-        if (result.data().equals(lastResponse)) return;
-        lastResponse = result.data();
+        BlockleClientState.Update update = BlockleClientState.get();
+        if (update == null || update.revision() == lastResponseRevision) return;
+        lastResponseRevision = update.revision();
+        ComputerAccessResultPayload result = update.result();
         String[] fields = result.data().split("\u0000", 3);
         if (fields.length < 3 || (!fields[0].equals("24") && !fields[0].equals("25"))) return;
         if (!fields[1].isBlank()) {
@@ -71,7 +65,7 @@ public final class BlockleProgram {
         if (keyCode == 257 || keyCode == 335) {
             if (!received) return true;
             if (input.length() == 5 && phase.equals("PLAYING") && !pending) {
-                ComputerNetworking.submitBlockleGuess(position, input);
+                ComputerNetworking.submitBlockleGuess(input);
                 pending = true;
                 status = "SUBMITTING";
             }
@@ -135,6 +129,6 @@ public final class BlockleProgram {
         day = -1L;
         pending = false;
         received = false;
-        lastResponse = "";
+        lastResponseRevision = -1L;
     }
 }

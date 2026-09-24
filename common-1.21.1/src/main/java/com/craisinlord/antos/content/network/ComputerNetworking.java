@@ -1,130 +1,176 @@
 package com.craisinlord.antos.content.network;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.function.Consumer;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 public final class ComputerNetworking {
-    private static Consumer<ComputerAccessPayload> sender = payload -> {
+    private static Consumer<CustomPacketPayload> sender = payload -> {
     };
 
     private ComputerNetworking() {
     }
 
-    public static void setSender(Consumer<ComputerAccessPayload> sender) {
+    public static void setSender(Consumer<CustomPacketPayload> sender) {
         ComputerNetworking.sender = sender;
     }
 
-    public static void open(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.OPEN));
+    private static void send(int action, String value) {
+        if (profileActionAllowed(action)) sender.accept(new AnternetComputerPayload(action, value));
     }
 
-    public static void setup(BlockPos pos, String password, boolean restoreWorkspace) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.SETUP,
-                (restoreWorkspace ? "restore" : "fresh") + "\0" + password));
+    private static boolean profileActionAllowed(int action) {
+        return switch (action) {
+            case ComputerAccessPayload.OPEN, ComputerAccessPayload.CLOSE, ComputerAccessPayload.LOGOUT, ComputerAccessPayload.EJECT,
+                    ComputerAccessPayload.FILE_LIST, ComputerAccessPayload.FILE_OPEN, ComputerAccessPayload.FILE_CREATE,
+                    ComputerAccessPayload.FILE_SAVE, ComputerAccessPayload.FILE_DELETE, ComputerAccessPayload.FILE_MOVE,
+                    ComputerAccessPayload.TERMINAL_COMMAND, ComputerAccessPayload.DESKTOP_STATE,
+                    ComputerAccessPayload.DESKTOP_WALLPAPER, ComputerAccessPayload.TASK_STATE,
+                    ComputerAccessPayload.ARCHIVE_VIEWED, ComputerAccessPayload.LOCATE_STRUCTURE,
+                    ComputerAccessPayload.BLOCKLE_STATE,
+                    ComputerAccessPayload.BLOCKLE_GUESS, ComputerAccessPayload.ANTAZON_STATE,
+                    ComputerAccessPayload.ANTAZON_PURCHASE, ComputerAccessPayload.ANTAZON_WISHLIST,
+                    ComputerAccessPayload.ANTAZON_ORDERS, ComputerAccessPayload.ANTAZON_REVIEW,
+                    ComputerAccessPayload.ANTAZON_WALLET, ComputerAccessPayload.ANTAZON_SELL,
+                    ComputerAccessPayload.ANTAZON_SELL_STATE, ComputerAccessPayload.ANTAZON_PREPARE,
+                    ComputerAccessPayload.ANTAZON_PRICES, ComputerAccessPayload.ANTAZON_CRATE_LINK,
+                    ComputerAccessPayload.ANTAZON_ONBOARDING, ComputerAccessPayload.ANTAZON_ONBOARDING_COMPLETE,
+                    ComputerAccessPayload.ANTAZON_ONBOARDING_RESET -> true;
+            default -> false;
+        };
     }
 
-    public static void login(BlockPos pos, String password) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.LOGIN, password));
+    public static void open() {
+        send(ComputerAccessPayload.OPEN, "");
     }
 
-    public static void logout(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.LOGOUT));
+    public static void logout() {
+        send(ComputerAccessPayload.LOGOUT, "");
     }
 
-    public static void close(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.CLOSE));
+    public static void close() {
+        send(ComputerAccessPayload.CLOSE, "");
     }
 
-    public static void changePassword(BlockPos pos, String password) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.CHANGE_PASSWORD, password));
+    public static void eject(ResourceLocation diskId) {
+        send(ComputerAccessPayload.EJECT, diskId.toString());
     }
 
-    public static void eject(BlockPos pos, ResourceLocation diskId) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.EJECT, diskId.toString()));
+    public static void listFiles() {
+        send(ComputerAccessPayload.FILE_LIST, "");
     }
 
-    public static void listFiles(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.FILE_LIST));
+    public static void openFile(String path) {
+        send(ComputerAccessPayload.FILE_OPEN, path);
     }
 
-    public static void openFile(BlockPos pos, String path) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.FILE_OPEN, path));
+    public static void createFile(String path, String contents) {
+        send(ComputerAccessPayload.FILE_CREATE, path + "\0" + contents);
     }
 
-    public static void createFile(BlockPos pos, String path, String contents) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.FILE_CREATE, path + "\0" + contents));
+    public static void saveFile(String path, String contents) {
+        send(ComputerAccessPayload.FILE_SAVE, path + "\0" + contents);
     }
 
-    public static void saveFile(BlockPos pos, String path, String contents) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.FILE_SAVE, path + "\0" + contents));
+    public static void deleteFile(String path) {
+        send(ComputerAccessPayload.FILE_DELETE, path);
     }
 
-    public static void deleteFile(BlockPos pos, String path) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.FILE_DELETE, path));
+    public static void moveFile(String source, String destination) {
+        send(ComputerAccessPayload.FILE_MOVE, source + "\0" + destination);
     }
 
-    public static void moveFile(BlockPos pos, String source, String destination) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.FILE_MOVE, source + "\0" + destination));
+    public static void terminalCommand(String directory, String command) {
+        send(ComputerAccessPayload.TERMINAL_COMMAND, directory + "\0" + command);
     }
 
-    public static void terminalCommand(BlockPos pos, String directory, String command) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.TERMINAL_COMMAND, directory + "\0" + command));
+    public static void requestDesktopState() {
+        send(ComputerAccessPayload.DESKTOP_STATE, "");
     }
 
-    public static void requestDesktopState(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.DESKTOP_STATE));
+    public static void selectWallpaper(ResourceLocation id) {
+        send(ComputerAccessPayload.DESKTOP_WALLPAPER, id.toString());
     }
 
-    public static void selectWallpaper(BlockPos pos, ResourceLocation id) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.DESKTOP_WALLPAPER, id.toString()));
+    public static void locateStructure(ResourceLocation entryId) {
+        send(ComputerAccessPayload.LOCATE_STRUCTURE, entryId.toString());
     }
 
-    public static void locateStructure(BlockPos pos, ResourceLocation entryId) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.LOCATE_STRUCTURE, entryId.toString()));
+    public static void requestTasks() {
+        send(ComputerAccessPayload.TASK_STATE, "");
     }
 
-    public static void requestTasks(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.TASK_STATE));
+    public static void recordArchiveViewed(ResourceLocation entryId) {
+        send(ComputerAccessPayload.ARCHIVE_VIEWED, entryId.toString());
     }
 
-    public static void recordArchiveViewed(BlockPos pos, ResourceLocation entryId) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ARCHIVE_VIEWED, entryId.toString()));
+    public static void requestBlockleState() {
+        send(ComputerAccessPayload.BLOCKLE_STATE, "");
     }
 
-    public static void requestBlockleState(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.BLOCKLE_STATE));
+    public static void submitBlockleGuess(String guess) {
+        send(ComputerAccessPayload.BLOCKLE_GUESS, guess);
     }
 
-    public static void submitBlockleGuess(BlockPos pos, String guess) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.BLOCKLE_GUESS, guess));
+    public static void requestAntazon() {
+        send(ComputerAccessPayload.ANTAZON_STATE, "");
     }
 
-    public static void requestAntazon(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_STATE));
+    public static void requestAntazonWallet() {
+        send(ComputerAccessPayload.ANTAZON_WALLET, "");
     }
 
-    public static void purchaseAntazon(BlockPos pos, ResourceLocation productId, String optionId, int units) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_PURCHASE,
-                productId + "\0" + optionId + "\0" + units));
+    public static void sellAntazon() {
+        send(ComputerAccessPayload.ANTAZON_SELL, "");
     }
 
-    public static void toggleAntazonWishlist(BlockPos pos, ResourceLocation productId) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_WISHLIST, productId.toString()));
+    public static void requestAntazonSellState() {
+        send(ComputerAccessPayload.ANTAZON_SELL_STATE, "");
     }
 
-    public static void requestAntazonWishlist(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_WISHLIST, ""));
+    public static void linkAntazonCrate() {
+        send(ComputerAccessPayload.ANTAZON_CRATE_LINK, "");
     }
 
-    public static void requestAntazonOrders(BlockPos pos) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_ORDERS));
+    public static void requestAntazonPrices() {
+        send(ComputerAccessPayload.ANTAZON_PRICES, "");
     }
 
-    public static void reviewAntazonProduct(BlockPos pos, ResourceLocation productId, int rating, String title, String body) {
-        sender.accept(new ComputerAccessPayload(pos, ComputerAccessPayload.ANTAZON_REVIEW,
-                productId + "\0" + rating + "\0" + title + "\0" + body));
+    public static void prepareAntazonShipment(ResourceLocation itemId, int amount) {
+        send(ComputerAccessPayload.ANTAZON_PREPARE, itemId + "\0" + amount);
+    }
+
+    public static void requestAntazonOnboarding() {
+        send(ComputerAccessPayload.ANTAZON_ONBOARDING, "");
+    }
+
+    public static void completeAntazonOnboarding() {
+        send(ComputerAccessPayload.ANTAZON_ONBOARDING_COMPLETE, "");
+    }
+
+    public static void resetAntazonOnboarding() {
+        send(ComputerAccessPayload.ANTAZON_ONBOARDING_RESET, "");
+    }
+
+    public static void purchaseAntazon(ResourceLocation productId, String optionId, int units) {
+        send(ComputerAccessPayload.ANTAZON_PURCHASE, productId + "\0" + optionId + "\0" + units);
+    }
+
+    public static void toggleAntazonWishlist(ResourceLocation productId) {
+        send(ComputerAccessPayload.ANTAZON_WISHLIST, productId.toString());
+    }
+
+    public static void requestAntazonWishlist() {
+        send(ComputerAccessPayload.ANTAZON_WISHLIST, "");
+    }
+
+    public static void requestAntazonOrders() {
+        send(ComputerAccessPayload.ANTAZON_ORDERS, "");
+    }
+
+    public static void reviewAntazonProduct(ResourceLocation productId, int rating, String title, String body) {
+        send(ComputerAccessPayload.ANTAZON_REVIEW, productId + "\0" + rating + "\0" + title + "\0" + body);
     }
 }
 

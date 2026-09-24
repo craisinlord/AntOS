@@ -1,0 +1,47 @@
+{
+  "name": "computer.antos.product.cavern_lighting_kit.name",
+  "description": "computer.antos.product.cavern_lighting_kit.description",
+  "category": "exploration",
+  "tags": ["lighting", "caves", "safety"],
+  "thumbnail": { "item": "minecraft:lantern" },
+  "gallery": [
+    { "item": "minecraft:glowstone" },
+    { "item": "minecraft:torch" }
+  ],
+  "quantity": 1,
+  "payments": [
+    { "type": "antcoins", "resource": "antcoins", "amount": 24 }
+  ],
+  "unlock_tasks": [],
+  "unlock_mode": "all",
+  "availability": {
+    "server_stock": 6,
+    "restock_after_minecraft_days": 2,
+    "cooldown_minecraft_days": 0,
+    "player_limit": 0,
+    "player_limit_reset": "none"
+  },
+  "delivery": "falling_chest",
+  "rewards": [
+    { "item": "minecraft:lantern", "count": 16 },
+    { "item": "minecraft:torch", "count": 32 }
+  ],
+  "reviews": [
+    {
+      "id": "scout_022",
+      "author": "Scout 22",
+      "title": "computer.antos.product.cavern_lighting_kit.review.bright.title",
+      "body": "computer.antos.product.cavern_lighting_kit.review.bright.body",
+      "rating": 4,
+      "badge": "FIELD TESTED"
+    },
+    {
+      "id": "miner_008",
+      "author": "Miner 8",
+      "title": "computer.antos.product.cavern_lighting_kit.review.stock.title",
+      "body": "computer.antos.product.cavern_lighting_kit.review.stock.body",
+      "rating": 4,
+      "badge": "EARLY FORAGER"
+    }
+  ]
+}

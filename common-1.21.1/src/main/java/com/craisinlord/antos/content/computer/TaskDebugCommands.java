@@ -1,6 +1,5 @@
 package com.craisinlord.antos.content.computer;
 
-import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -13,16 +12,13 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
-import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
-import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.block.entity.BlockEntity;
 
 public final class TaskDebugCommands {
     private static final SimpleCommandExceptionType NOT_COMPUTER = new SimpleCommandExceptionType(
-            Component.literal("There is no AntOS computer at that position."));
+            Component.literal("Sign in to an Anternet account first."));
     private static final SimpleCommandExceptionType UNKNOWN_TASK = new SimpleCommandExceptionType(
             Component.literal("That task ID is not loaded."));
 
@@ -33,30 +29,24 @@ public final class TaskDebugCommands {
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("tasks")
                         .then(Commands.literal("complete")
-                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                        .then(taskArgument("task").executes(context -> complete(context)))))
+                                .then(taskArgument("task").executes(TaskDebugCommands::complete)))
                         .then(Commands.literal("grant")
-                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                        .then(taskArgument("task").executes(context -> grant(context)))))
+                                .then(taskArgument("task").executes(TaskDebugCommands::grant)))
                         .then(Commands.literal("setprogress")
-                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                        .then(taskArgument("task")
-                                                .then(Commands.argument("objective", StringArgumentType.word())
-                                                        .suggests((context, builder) -> {
-                                                            ResourceLocation taskId = ResourceLocationArgument.getId(context, "task");
-                                                            return SharedSuggestionProvider.suggest(ComputerGuideData.tasks().stream()
-                                                                    .filter(task -> task.id().equals(taskId))
-                                                                    .flatMap(task -> task.objectives().stream())
-                                                                    .map(ComputerGuideData.Objective::id), builder);
-                                                        })
-                                                        .then(Commands.argument("count", IntegerArgumentType.integer(0, 1_000_000))
-                                                                .executes(context -> setProgress(context)))))))
-                        .then(Commands.literal("reset")
-                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                        .executes(context -> reset(context))))
+                                .then(taskArgument("task")
+                                        .then(Commands.argument("objective", StringArgumentType.word())
+                                                .suggests((context, builder) -> {
+                                                    ResourceLocation taskId = ResourceLocationArgument.getId(context, "task");
+                                                    return SharedSuggestionProvider.suggest(ComputerGuideData.tasks().stream()
+                                                            .filter(task -> task.id().equals(taskId))
+                                                            .flatMap(task -> task.objectives().stream())
+                                                            .map(ComputerGuideData.Objective::id), builder);
+                                                })
+                                                .then(Commands.argument("count", IntegerArgumentType.integer(0, 1_000_000))
+                                                        .executes(TaskDebugCommands::setProgress)))))
+                        .then(Commands.literal("reset").executes(TaskDebugCommands::reset))
                         .then(Commands.literal("inspect")
-                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                        .then(taskArgument("task").executes(context -> inspect(context)))))));
+                                .then(taskArgument("task").executes(TaskDebugCommands::inspect)))));
     }
 
     private static RequiredArgumentBuilder<CommandSourceStack, ResourceLocation> taskArgument(String name) {
@@ -67,7 +57,7 @@ public final class TaskDebugCommands {
 
     private static int complete(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
-        ComputerBlockEntity computer = computer(context);
+        ComputerWorkspace computer = computer(context);
         ResourceLocation taskId = ResourceLocationArgument.getId(context, "task");
         requireTask(taskId);
         ComputerTasks.updateAndEncode(player, computer);
@@ -82,7 +72,7 @@ public final class TaskDebugCommands {
 
     private static int grant(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
-        ComputerBlockEntity computer = computer(context);
+        ComputerWorkspace computer = computer(context);
         ResourceLocation taskId = ResourceLocationArgument.getId(context, "task");
         requireTask(taskId);
         boolean changed = ComputerTasks.grantTask(player, computer, taskId);
@@ -92,7 +82,7 @@ public final class TaskDebugCommands {
 
     private static int setProgress(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
-        ComputerBlockEntity computer = computer(context);
+        ComputerWorkspace computer = computer(context);
         ResourceLocation taskId = ResourceLocationArgument.getId(context, "task");
         requireTask(taskId);
         String objectiveId = StringArgumentType.getString(context, "objective");
@@ -107,7 +97,7 @@ public final class TaskDebugCommands {
 
     private static int reset(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         context.getSource().getPlayerOrException();
-        ComputerBlockEntity computer = computer(context);
+        ComputerWorkspace computer = computer(context);
         boolean changed = ComputerTasks.resetTaskProgress(computer);
         context.getSource().sendSuccess(() -> Component.literal(changed
                 ? "Cleared task grants, completions, and objective progress. Archive unlocks were preserved."
@@ -117,7 +107,7 @@ public final class TaskDebugCommands {
 
     private static int inspect(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
-        ComputerBlockEntity computer = computer(context);
+        ComputerWorkspace computer = computer(context);
         ResourceLocation taskId = ResourceLocationArgument.getId(context, "task");
         ComputerGuideData.Task task = requireTask(taskId);
         ComputerTasks.updateAndEncode(player, computer);
@@ -132,10 +122,10 @@ public final class TaskDebugCommands {
         return 1;
     }
 
-    private static ComputerBlockEntity computer(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-        BlockPos pos = BlockPosArgument.getLoadedBlockPos(context, "pos");
-        BlockEntity entity = context.getSource().getLevel().getBlockEntity(pos);
-        if (entity instanceof ComputerBlockEntity computer) return computer;
+    private static ComputerWorkspace computer(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+        if (account != null) return new AccountWorkspace(player, account);
         throw NOT_COMPUTER.create();
     }
 

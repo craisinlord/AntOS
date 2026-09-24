@@ -10,15 +10,8 @@ public final class AntmailPayloadTypes {
 
     public static List<CustomPacketPayload.Type<?>> all() {
         return List.of(
-                AntmailSetupPayload.TYPE,
-                AntmailStateRequestPayload.TYPE,
-                AntmailMessageRequestPayload.TYPE,
-                AntmailSendPayload.TYPE,
-                AntmailReadPayload.TYPE,
-                AntmailDeletePayload.TYPE,
-                AntmailDraftPayload.TYPE,
-                AntmailRetryPayload.TYPE,
-                AntmailResultPayload.TYPE
+                AntmailAnternetPayload.TYPE,
+                AntmailAnternetResultPayload.TYPE
         );
     }
 }

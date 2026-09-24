@@ -1,6 +1,6 @@
 package com.craisinlord.antos.content.network;
 
-import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
+import com.craisinlord.antos.content.computer.ComputerWorkspace;
 import com.craisinlord.antos.content.computer.ComputerFileSystem;
 import com.craisinlord.antos.content.computer.terminal.TerminalCommandService;
 import com.craisinlord.antos.content.computer.terminal.TerminalFileSystem;
@@ -20,35 +20,46 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.levelgen.structure.Structure;
-import net.minecraft.world.level.block.entity.BlockEntity;
 
 import java.util.function.BiConsumer;
 
 public final class ComputerAccessHandler {
-    private static BiConsumer<ServerPlayer, ComputerAccessResultPayload> resultSender = (player, result) -> {
+    private static BiConsumer<ServerPlayer, AnternetComputerResultPayload> anternetResultSender = (player, result) -> {
     };
-
     private ComputerAccessHandler() {
     }
 
-    public static void setResultSender(BiConsumer<ServerPlayer, ComputerAccessResultPayload> sender) {
-        resultSender = sender;
+    public static void setAnternetResultSender(BiConsumer<ServerPlayer, AnternetComputerResultPayload> sender) {
+        anternetResultSender = sender;
     }
 
-    public static void handle(ServerPlayer player, ComputerAccessPayload payload) {
-        if (payload.value().length() > 65536 || player.level().isClientSide || !player.serverLevel().hasChunkAt(payload.pos()) ||
-                player.distanceToSqr(payload.pos().getX() + 0.5D, payload.pos().getY() + 0.5D, payload.pos().getZ() + 0.5D) > 64.0D) {
+    public static void sendAntazonShipmentStatus(ServerPlayer player, java.util.UUID accountId, String status, long amount) {
+        ComputerWorkspaceData.AccountInfo account = AnternetAccountHandler.session(player);
+        if (account == null || !account.accountId().equals(accountId)) return;
+        anternetResultSender.accept(player, new AnternetComputerResultPayload(ComputerAccessResultPayload.SUCCESS,
+                true, true, ComputerAccessPayload.ANTAZON_SELL + "\0" + status + "\0" + amount));
+    }
+
+    public static void handleAnternet(ServerPlayer player, AnternetComputerPayload payload) {
+        handle(player, new ComputerAccessPayload(payload.action(), payload.value()));
+    }
+
+    private static void sendResult(ServerPlayer player, ComputerAccessResultPayload result) {
+        anternetResultSender.accept(player, new AnternetComputerResultPayload(result.result(), result.hasPassword(), result.authenticated(), result.data()));
+    }
+
+    private static void handle(ServerPlayer player, ComputerAccessPayload payload) {
+        if (payload.value().length() > 65536 || player.level().isClientSide) {
             return;
         }
-        BlockEntity blockEntity = player.serverLevel().getBlockEntity(payload.pos());
-        if (!(blockEntity instanceof ComputerBlockEntity computer)) {
+        ComputerWorkspaceData.AccountInfo account = AnternetAccountHandler.session(player);
+        if (account == null || !remoteActionAllowed(payload.action())) {
             send(player, payload, ComputerAccessResultPayload.INVALID);
             return;
         }
+        ComputerWorkspace computer = new com.craisinlord.antos.content.computer.AccountWorkspace(player, account);
         switch (payload.action()) {
             case ComputerAccessPayload.OPEN -> open(player, computer, payload);
-            case ComputerAccessPayload.SETUP -> setup(player, computer, payload);
-            case ComputerAccessPayload.LOGIN -> login(player, computer, payload);
             case ComputerAccessPayload.LOGOUT -> {
                 computer.logout();
                 send(player, payload, ComputerAccessResultPayload.READY);
@@ -56,10 +67,6 @@ public final class ComputerAccessHandler {
             case ComputerAccessPayload.CLOSE -> {
                 computer.releaseUser(player);
                 send(player, payload, computer.isAuthenticated() ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.READY);
-            }
-            case ComputerAccessPayload.CHANGE_PASSWORD -> {
-                boolean changed = computer.setPassword(player, payload.value());
-                send(player, payload, changed ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID_PASSWORD);
             }
             case ComputerAccessPayload.EJECT -> eject(player, computer, payload);
             case ComputerAccessPayload.FILE_LIST -> fileList(player, computer, payload);
@@ -81,11 +88,42 @@ public final class ComputerAccessHandler {
             case ComputerAccessPayload.ANTAZON_WISHLIST -> antazonWishlist(player, computer, payload);
             case ComputerAccessPayload.ANTAZON_ORDERS -> antazonOrders(player, computer, payload);
             case ComputerAccessPayload.ANTAZON_REVIEW -> antazonReview(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_WALLET -> antazonWallet(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_SELL -> antazonSell(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_SELL_STATE -> antazonSellState(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_PRICES -> antazonPrices(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_PREPARE -> antazonPrepare(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_CRATE_LINK -> antazonCrateLink(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_ONBOARDING -> antazonOnboarding(player, computer, payload);
+            case ComputerAccessPayload.ANTAZON_ONBOARDING_COMPLETE -> antazonOnboardingComplete(player, computer, payload, true);
+            case ComputerAccessPayload.ANTAZON_ONBOARDING_RESET -> antazonOnboardingComplete(player, computer, payload, false);
             default -> send(player, payload, ComputerAccessResultPayload.INVALID);
         }
+        if (computer.isAuthenticatedBy(player)) computer.saveAccountWorkspace();
     }
 
-    private static void blockle(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload, boolean submit) {
+    private static boolean remoteActionAllowed(int action) {
+        return switch (action) {
+            case ComputerAccessPayload.OPEN, ComputerAccessPayload.CLOSE, ComputerAccessPayload.LOGOUT, ComputerAccessPayload.EJECT,
+                    ComputerAccessPayload.FILE_LIST, ComputerAccessPayload.FILE_OPEN, ComputerAccessPayload.FILE_CREATE,
+                    ComputerAccessPayload.FILE_SAVE, ComputerAccessPayload.FILE_DELETE, ComputerAccessPayload.FILE_MOVE,
+                    ComputerAccessPayload.TERMINAL_COMMAND, ComputerAccessPayload.DESKTOP_STATE,
+                    ComputerAccessPayload.DESKTOP_WALLPAPER, ComputerAccessPayload.TASK_STATE,
+                    ComputerAccessPayload.ARCHIVE_VIEWED, ComputerAccessPayload.LOCATE_STRUCTURE,
+                    ComputerAccessPayload.ANTAZON_STATE,
+                    ComputerAccessPayload.BLOCKLE_STATE, ComputerAccessPayload.BLOCKLE_GUESS,
+                    ComputerAccessPayload.ANTAZON_PURCHASE, ComputerAccessPayload.ANTAZON_WISHLIST,
+                    ComputerAccessPayload.ANTAZON_ORDERS, ComputerAccessPayload.ANTAZON_REVIEW,
+                    ComputerAccessPayload.ANTAZON_WALLET,
+                    ComputerAccessPayload.ANTAZON_SELL, ComputerAccessPayload.ANTAZON_SELL_STATE,
+                    ComputerAccessPayload.ANTAZON_PREPARE, ComputerAccessPayload.ANTAZON_CRATE_LINK,
+                    ComputerAccessPayload.ANTAZON_PRICES, ComputerAccessPayload.ANTAZON_ONBOARDING,
+                    ComputerAccessPayload.ANTAZON_ONBOARDING_COMPLETE, ComputerAccessPayload.ANTAZON_ONBOARDING_RESET -> true;
+            default -> false;
+        };
+    }
+
+    private static void blockle(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload, boolean submit) {
         if (!computer.canUseFileSystem(player)) {
             sendBlockle(player, payload, false, "unauthorized", "");
             return;
@@ -96,7 +134,7 @@ public final class ComputerAccessHandler {
             return;
         }
         long day = overworld.getDayTime() / 24000L;
-        String key = player.serverLevel().dimension().location() + "|" + payload.pos().asLong();
+        String key = "workspace:" + computer.workspaceId();
         BlockleSavedData.State state = BlockleSavedData.get(player.server, key);
         if (state.day != day) {
             state.day = day;
@@ -132,12 +170,15 @@ public final class ComputerAccessHandler {
         sendBlockle(player, payload, true, "", encoded.toString());
     }
 
-    private static void antazonState(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void antazonState(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendAntazon(player, payload, false, "unauthorized", "");
             return;
         }
         com.google.gson.JsonArray products = new com.google.gson.JsonArray();
+        var antazonData = com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server);
+        java.util.UUID profile = computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
+        long gameTime = player.server.overworld().getGameTime();
         for (AntazonData.Product product : AntazonData.products()) {
             com.google.gson.JsonObject row = new com.google.gson.JsonObject();
             row.addProperty("id", product.id().toString());
@@ -147,7 +188,7 @@ public final class ComputerAccessHandler {
             row.addProperty("enabled", product.enabled());
             row.addProperty("stock", product.availability().serverStock());
             row.addProperty("restock_days", product.availability().restockMinecraftDays());
-            long day = player.server.overworld().getDayTime() / 24000L;
+            long day = gameTime / 24000L;
             row.addProperty("deal_active", product.deal().active(day));
             row.addProperty("deal_label", product.deal().label());
             row.addProperty("deal_discount", product.deal().discountPercent());
@@ -164,6 +205,10 @@ public final class ComputerAccessHandler {
             }
             row.add("gallery", gallery);
             row.addProperty("quantity", product.quantity());
+            var playerState = antazonData.playerState(profile, product.id());
+            long cooldownEnds = playerState.lastPurchase() == Long.MIN_VALUE || product.availability().cooldownMinecraftDays() < 1L
+                    ? 0L : playerState.lastPurchase() + product.availability().cooldownMinecraftDays() * 24000L;
+            row.addProperty("cooldown_ends", cooldownEnds);
             com.google.gson.JsonArray payments = new com.google.gson.JsonArray();
             for (AntazonData.Payment payment : product.payments()) {
                 com.google.gson.JsonObject paymentRow = new com.google.gson.JsonObject();
@@ -198,7 +243,7 @@ public final class ComputerAccessHandler {
         sendAntazon(player, payload, true, "", products.toString());
     }
 
-    private static void antazonPurchase(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void antazonPurchase(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendAntazon(player, payload, false, "unauthorized", "");
             return;
@@ -218,12 +263,102 @@ public final class ComputerAccessHandler {
         }
     }
 
+    private static void antazonWallet(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        java.util.UUID owner = computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
+        sendAntazon(player, payload, true, "", Long.toString(com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).wallet(owner)));
+    }
+
+    private static void antazonSell(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        try {
+            AntazonService.SellResult result = AntazonService.sell(player, computer);
+            sendAntazon(player, payload, result.success(), result.status(), Long.toString(result.amount()));
+        } catch (RuntimeException exception) {
+            sendAntazon(player, payload, false, "invalid_request", "");
+        }
+    }
+
+    private static void antazonSellState(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) {
+            sendAntazon(player, payload, false, "unauthorized", "");
+            return;
+        }
+        var crate = AntazonService.resolveCrate(player, computer);
+        com.google.gson.JsonArray rows = new com.google.gson.JsonArray();
+        String status = crate == null ? (computer.isRemoteWorkspace() ? "crate_unavailable" : "chest_required") : "";
+        if (crate != null) {
+            var manifest = AntazonService.manifest(player, computer);
+            status = manifest.status();
+            for (var entry : manifest.entries()) {
+                com.google.gson.JsonObject row = new com.google.gson.JsonObject();
+                row.addProperty("item", entry.item().toString());
+                row.addProperty("count", entry.count());
+                row.addProperty("value", entry.value());
+                row.addProperty("sellable", entry.sellable());
+                rows.add(row);
+            }
+        }
+        sendAntazon(player, payload, true, status, rows.toString());
+    }
+
+    private static void antazonPrices(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) { sendAntazon(player, payload, false, "unauthorized", ""); return; }
+        com.google.gson.JsonArray rows = new com.google.gson.JsonArray();
+        for (var rule : com.craisinlord.antos.content.antazon.AntazonService.priceList()) {
+            com.google.gson.JsonObject row = new com.google.gson.JsonObject();
+            row.addProperty("item", rule.item().toString());
+            row.addProperty("value", rule.value());
+            rows.add(row);
+        }
+        sendAntazon(player, payload, true, "", rows.toString());
+    }
+
+    private static void antazonPrepare(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) { sendAntazon(player, payload, false, "unauthorized", ""); return; }
+        try {
+            int separator = payload.value().indexOf('\0');
+            if (separator < 1) throw new IllegalArgumentException("invalid_request");
+            var result = com.craisinlord.antos.content.antazon.AntazonService.prepareShipment(player, computer,
+                    net.minecraft.resources.ResourceLocation.parse(payload.value().substring(0, separator)),
+                    Integer.parseInt(payload.value().substring(separator + 1)));
+            sendAntazon(player, payload, result.success(), result.status(), result.amount() + "\\0" + result.value());
+        } catch (RuntimeException exception) { sendAntazon(player, payload, false, "invalid_request", ""); }
+    }
+
+    private static void antazonCrateLink(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        var account = AnternetAccountHandler.session(player);
+        boolean linked = account != null && AntazonService.linkNearbyCrate(player, account.accountId());
+        send(player, payload, linked ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID);
+    }
+
+    private static void antazonOnboarding(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        if (!computer.canUseFileSystem(player)) { sendAntazon(player, payload, false, "unauthorized", ""); return; }
+        sendAntazon(player, payload, true, "", Boolean.toString(com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).onboardingComplete(antazonComputerKey(player, computer))));
+    }
+
+    private static void antazonOnboardingComplete(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload, boolean complete) {
+        if (!computer.canUseFileSystem(player)) { sendAntazon(player, payload, false, "unauthorized", ""); return; }
+        com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).setOnboardingComplete(antazonComputerKey(player, computer), complete);
+        sendAntazon(player, payload, true, "", Boolean.toString(complete));
+    }
+
+    private static String antazonComputerKey(ServerPlayer player, ComputerWorkspace computer) {
+        return computer.workspaceId().toString();
+    }
+
     private static void sendAntazon(ServerPlayer player, ComputerAccessPayload payload, boolean success, String error, String data) {
-        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
+        sendResult(player, new ComputerAccessResultPayload(success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
                 true, true, payload.action() + "\0" + error + "\0" + data));
     }
 
-    private static void antazonWishlist(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void antazonWishlist(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendAntazon(player, payload, false, "unauthorized", "");
             return;
@@ -231,20 +366,22 @@ public final class ComputerAccessHandler {
         try {
             if (!payload.value().isBlank()) AntazonService.toggleWishlist(player, ResourceLocation.parse(payload.value()));
             com.google.gson.JsonArray ids = new com.google.gson.JsonArray();
-            for (ResourceLocation id : com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).wishlist(player.getUUID())) ids.add(id.toString());
+            java.util.UUID profile = computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
+            for (ResourceLocation id : com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).wishlist(profile)) ids.add(id.toString());
             sendAntazon(player, payload, true, "", ids.toString());
         } catch (RuntimeException exception) {
             sendAntazon(player, payload, false, "invalid_request", "");
         }
     }
 
-    private static void antazonOrders(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void antazonOrders(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendAntazon(player, payload, false, "unauthorized", "");
             return;
         }
         com.google.gson.JsonArray orders = new com.google.gson.JsonArray();
-        for (var order : com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).orders(player.getUUID())) {
+        java.util.UUID profile = computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
+        for (var order : com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).orders(profile)) {
             com.google.gson.JsonObject row = new com.google.gson.JsonObject();
             row.addProperty("product", order.product().toString());
             row.addProperty("option", order.option());
@@ -256,7 +393,7 @@ public final class ComputerAccessHandler {
         sendAntazon(player, payload, true, "", orders.toString());
     }
 
-    private static void antazonReview(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void antazonReview(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendAntazon(player, payload, false, "unauthorized", "");
             return;
@@ -275,139 +412,71 @@ public final class ComputerAccessHandler {
     }
 
     private static void sendBlockle(ServerPlayer player, ComputerAccessPayload payload, boolean success, String error, String data) {
-        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
+        sendResult(player, new ComputerAccessResultPayload(success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
                 true, true, payload.action() + "\0" + error + "\0" + data));
     }
 
-    private static void taskState(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void taskState(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             send(player, payload, ComputerAccessResultPayload.INVALID_PASSWORD);
             return;
         }
         java.util.Set<ResourceLocation> archivesBefore = computer.taskProgress().unlockedArchiveEntries();
         String state = com.craisinlord.antos.content.computer.ComputerTasks.updateAndEncode(player, computer);
-        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), ComputerAccessResultPayload.SUCCESS,
+        sendResult(player, new ComputerAccessResultPayload(ComputerAccessResultPayload.SUCCESS,
                 computer.hasPassword(), computer.isAuthenticated(), ComputerAccessPayload.TASK_STATE + "\0\0" + state));
-        if (!archivesBefore.equals(computer.taskProgress().unlockedArchiveEntries())) sendArchive(player, computer, payload);
+        if (!archivesBefore.equals(computer.taskProgress().unlockedArchiveEntries())) sendArchive(player, computer);
     }
 
-    private static void archiveViewed(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void archiveViewed(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) return;
         try {
             ResourceLocation entryId = ResourceLocation.parse(payload.value());
             boolean unlocked = com.craisinlord.antos.content.guide.ComputerGuideData.entriesFor(computer.diskIds(), computer.taskProgress().unlockedArchiveEntries()).stream()
                     .anyMatch(entry -> entry.id().equals(entryId));
             if (unlocked) com.craisinlord.antos.content.computer.ComputerTasks.recordEvent(player, computer, "archive_viewed", entryId);
-            if (unlocked) sendArchive(player, computer, payload);
+            if (unlocked) sendArchive(player, computer);
         } catch (RuntimeException ignored) { }
     }
 
-    private static void open(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
-        if (computer.hasActiveUser() && !computer.isAuthenticatedBy(player)) {
-            send(player, payload, ComputerAccessResultPayload.BUSY);
-            sendArchive(player, computer, payload);
-            return;
-        }
-        if (!computer.hasPassword()) {
-            if (computer.workspaceOwner() != null && !computer.workspaceOwner().equals(player.getUUID())) {
-                send(player, payload, ComputerAccessResultPayload.INVALID);
-                return;
-            }
-            computer.claimUser(player);
-            java.util.UUID profile = computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
-            int setupResult = ComputerWorkspaceData.access(player.server).hasWorkspace(profile)
-                    ? ComputerAccessResultPayload.RECOVERY_AVAILABLE : ComputerAccessResultPayload.SETUP_REQUIRED;
-            send(player, payload, setupResult);
-        } else if (computer.isAuthenticated()) {
-            computer.claimUser(player);
+    private static void open(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        ComputerWorkspaceData.AccountInfo account = AnternetAccountHandler.session(player);
+        if (account != null && computer.authenticateAccount(player, account)) {
             send(player, payload, ComputerAccessResultPayload.SUCCESS);
         } else {
-            send(player, payload, ComputerAccessResultPayload.READY);
+            send(player, payload, ComputerAccessResultPayload.INVALID);
         }
-        sendArchive(player, computer, payload);
+        sendArchive(player, computer);
     }
 
-    private static void sendArchive(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
-        sendArchive(player, computer, payload.pos());
+    public static void sendArchive(ServerPlayer player, ComputerWorkspace computer) {
+        com.google.gson.JsonObject snapshot = com.google.gson.JsonParser.parseString(
+                com.craisinlord.antos.content.guide.ComputerGuideData.encodeNetworkSnapshot(computer.taskProgress().unlockedArchiveEntries())).getAsJsonObject();
+        com.google.gson.JsonArray disks = new com.google.gson.JsonArray();
+        for (ResourceLocation diskId : computer.diskIds()) {
+            if (!diskId.equals(ResourceLocation.fromNamespaceAndPath("antos", "introduction"))) disks.add(diskId.toString());
+        }
+        snapshot.add("installed_disks", disks);
+        anternetResultSender.accept(player, new AnternetComputerResultPayload(ComputerAccessResultPayload.SUCCESS,
+                true, true, ComputerAccessPayload.ARCHIVE_STATE + "\0\0" + snapshot));
     }
 
-    public static void sendArchive(ServerPlayer player, ComputerBlockEntity computer, net.minecraft.core.BlockPos pos) {
-        resultSender.accept(player, new ComputerAccessResultPayload(pos, ComputerAccessResultPayload.SUCCESS,
-                computer.hasPassword(), computer.isAuthenticated(), ComputerAccessPayload.ARCHIVE_STATE + "\0\0"
-                + com.craisinlord.antos.content.guide.ComputerGuideData.encodeNetworkSnapshot(computer.taskProgress().unlockedArchiveEntries())));
-    }
-
-    private static void setup(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
-        String[] values = payload.value().split("\u0000", 2);
-        boolean restore = values.length == 2 && values[0].equals("restore");
-        boolean fresh = values.length == 2 && values[0].equals("fresh");
-        String password = values.length == 2 ? values[1] : "";
-        if (!restore && !fresh) {
+    private static void eject(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
+        if (AnternetAccountHandler.session(player) == null || !computer.isAuthenticatedBy(player)) {
             send(player, payload, ComputerAccessResultPayload.INVALID);
             return;
         }
-        if (!computer.hasPassword() && computer.initializePassword(player, password)) {
-            computer.captureDiskArchiveEntries();
-            ComputerWorkspaceData workspaces = ComputerWorkspaceData.access(player.server);
-            java.util.UUID owner = computer.workspaceOwner();
-            java.util.UUID workspaceId = restore ? workspaces.activeWorkspace(owner) : null;
-            if (workspaceId != null) {
-                computer.taskProgress().mergeFrom(workspaces.progress(workspaceId));
-                computer.bindWorkspaceId(workspaceId);
-                workspaces.save(workspaceId, computer.taskProgress());
-            } else {
-                workspaceId = workspaces.createWorkspace(owner, computer.taskProgress());
-                computer.bindWorkspaceId(workspaceId);
-            }
-            computer.setChanged();
-            send(player, payload, ComputerAccessResultPayload.SUCCESS);
-            sendArchive(player, computer, payload);
-        } else {
-            send(player, payload, computer.hasActiveUser() ? ComputerAccessResultPayload.BUSY : ComputerAccessResultPayload.INVALID_PASSWORD);
-        }
-    }
-
-    private static void login(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
-        if (computer.hasActiveUser() && !computer.isAuthenticatedBy(player)) {
-            send(player, payload, ComputerAccessResultPayload.BUSY);
-        } else if (computer.authenticate(player, payload.value())) {
-            if (computer.workspaceOwner() == null) computer.bindWorkspaceOwner(player.getUUID());
-            computer.captureDiskArchiveEntries();
-            ComputerWorkspaceData workspaces = ComputerWorkspaceData.access(player.server);
-            java.util.UUID owner = computer.workspaceOwner();
-            java.util.UUID workspaceId = computer.workspaceId();
-            if (workspaceId == null) {
-                workspaceId = workspaces.activeWorkspace(owner);
-                if (workspaceId != null) computer.taskProgress().mergeFrom(workspaces.progress(workspaceId));
-                else workspaceId = workspaces.createWorkspace(owner, computer.taskProgress());
-                computer.bindWorkspaceId(workspaceId);
-            } else {
-                computer.taskProgress().mergeFrom(workspaces.progress(workspaceId));
-            }
-            workspaces.save(workspaceId, computer.taskProgress());
-            computer.setChanged();
-            com.craisinlord.antos.content.antmail.AntmailServerData data = com.craisinlord.antos.content.antmail.AntmailServerData.access(player.server);
-            net.minecraft.resources.ResourceLocation dimension = player.serverLevel().dimension().location();
-            com.craisinlord.antos.content.antmail.AntmailAddress address = data.addressAt(dimension, computer.getBlockPos());
-            if (address != null) data.setLastUsedAddress(player, address);
-            send(player, payload, ComputerAccessResultPayload.SUCCESS);
-            sendArchive(player, computer, payload);
-        } else {
-            send(player, payload, ComputerAccessResultPayload.INVALID_PASSWORD);
-        }
-    }
-
-    private static void eject(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
         try {
             ResourceLocation diskId = ResourceLocation.parse(payload.value());
             boolean ejected = computer.ejectOne(player, diskId);
             send(player, payload, ejected ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID);
+            if (ejected) sendArchive(player, computer);
         } catch (Exception ignored) {
             send(player, payload, ComputerAccessResultPayload.INVALID);
         }
     }
 
-    private static void fileList(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void fileList(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendFile(player, payload, false, "", "unauthorized");
             return;
@@ -420,7 +489,7 @@ public final class ComputerAccessHandler {
         sendFile(player, payload, true, data.toString(), "");
     }
 
-    private static void fileOpen(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void fileOpen(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendFile(player, payload, false, "", "unauthorized");
             return;
@@ -435,7 +504,7 @@ public final class ComputerAccessHandler {
         }
     }
 
-    private static void fileCreate(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void fileCreate(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendFile(player, payload, false, "", "unauthorized");
             return;
@@ -450,7 +519,7 @@ public final class ComputerAccessHandler {
         sendFile(player, payload, result.successful(), request[0], result.error());
     }
 
-    private static void fileSave(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void fileSave(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendFile(player, payload, false, "", "unauthorized");
             return;
@@ -465,7 +534,7 @@ public final class ComputerAccessHandler {
         sendFile(player, payload, result.successful(), request[0], result.error());
     }
 
-    private static void fileDelete(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void fileDelete(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendFile(player, payload, false, "", "unauthorized");
             return;
@@ -475,7 +544,7 @@ public final class ComputerAccessHandler {
         sendFile(player, payload, result.successful(), payload.value(), result.error());
     }
 
-    private static void fileMove(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void fileMove(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendFile(player, payload, false, "", "unauthorized");
             return;
@@ -490,7 +559,7 @@ public final class ComputerAccessHandler {
         sendFile(player, payload, result.successful(), request[1], result.error());
     }
 
-    private static void terminalCommand(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void terminalCommand(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         String[] request = splitFileRequest(payload.value());
         if (request == null) {
             sendTerminal(player, payload, TerminalResult.error("/", "ERROR: INVALID REQUEST"));
@@ -509,7 +578,7 @@ public final class ComputerAccessHandler {
         net.minecraft.nbt.ListTag lines = new net.minecraft.nbt.ListTag();
         for (String line : result.lines()) lines.add(net.minecraft.nbt.StringTag.valueOf(line));
         tag.put("Lines", lines);
-        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), result.status() == TerminalResult.Status.ERROR ? ComputerAccessResultPayload.INVALID : ComputerAccessResultPayload.SUCCESS,
+        sendResult(player, new ComputerAccessResultPayload(result.status() == TerminalResult.Status.ERROR ? ComputerAccessResultPayload.INVALID : ComputerAccessResultPayload.SUCCESS,
                 true, true, payload.action() + "\0" + AntmailWire.encodeTag(tag)));
     }
 
@@ -544,7 +613,7 @@ public final class ComputerAccessHandler {
         }
     }
 
-    private static void desktopState(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void desktopState(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendDesktop(player, payload, false, "unauthorized");
             return;
@@ -552,7 +621,7 @@ public final class ComputerAccessHandler {
         sendDesktop(player, payload, true, AntmailWire.encodeTag(computer.desktopState().save()));
     }
 
-    private static void desktopWallpaper(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void desktopWallpaper(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) {
             sendDesktop(player, payload, false, "unauthorized");
             return;
@@ -568,7 +637,7 @@ public final class ComputerAccessHandler {
         }
     }
 
-    private static void locateStructure(ServerPlayer player, ComputerBlockEntity computer, ComputerAccessPayload payload) {
+    private static void locateStructure(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         ResourceLocation entryId;
         try {
             entryId = ResourceLocation.parse(payload.value());
@@ -579,6 +648,10 @@ public final class ComputerAccessHandler {
         var entry = com.craisinlord.antos.content.guide.ComputerGuideData.entry(entryId);
         boolean unlocked = com.craisinlord.antos.content.guide.ComputerGuideData.entriesFor(computer.diskIds(), computer.taskProgress().unlockedArchiveEntries()).stream()
                 .anyMatch(candidate -> candidate.id().equals(entryId));
+        if (computer.canUseFileSystem(player) && unlocked && entry != null && !entry.locatorId().isBlank()) {
+            runArchiveLocator(player, payload, entry);
+            return;
+        }
         if (!computer.canUseFileSystem(player) || !unlocked || entry == null || entry.structureId().isBlank()
                 || entry.structureTagId().isBlank() || entry.dimensionId().isBlank() || entry.searchRadius() <= 0) {
             sendFile(player, payload, false, "", "unauthorized");
@@ -601,7 +674,7 @@ public final class ComputerAccessHandler {
         }
 
         TagKey<Structure> structures = TagKey.create(Registries.STRUCTURE, structureTagId);
-        net.minecraft.core.BlockPos origin = computer.getBlockPos();
+        net.minecraft.core.BlockPos origin = targetLevel.getSharedSpawnPos();
         var nearest = targetLevel.findNearestMapStructure(structures, origin, entry.searchRadius(), false);
         if (nearest == null) {
             sendFile(player, payload, false, "", "not_found");
@@ -611,12 +684,33 @@ public final class ComputerAccessHandler {
         sendFile(player, payload, true, nearest.getX() + ", " + nearest.getY() + ", " + nearest.getZ(), "");
     }
 
+    private static void runArchiveLocator(ServerPlayer player, ComputerAccessPayload payload, com.craisinlord.antos.content.guide.ComputerGuideData.Entry entry) {
+        com.craisinlord.antos.api.archive.ArchiveLocatorRegistry.Locator locator;
+        ServerLevel targetLevel;
+        try {
+            locator = com.craisinlord.antos.api.archive.ArchiveLocatorRegistry.get(ResourceLocation.parse(entry.locatorId()));
+            targetLevel = entry.dimensionId().isBlank() ? null
+                    : player.server.getLevel(net.minecraft.resources.ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(entry.dimensionId())));
+        } catch (RuntimeException exception) {
+            sendFile(player, payload, false, "", "dimension_unavailable");
+            return;
+        }
+        if (locator == null || targetLevel == null) {
+            sendFile(player, payload, false, "", locator == null ? "unauthorized" : "dimension_unavailable");
+            return;
+        }
+
+        net.minecraft.core.BlockPos nearest = locator.locate(targetLevel, targetLevel.getSharedSpawnPos());
+        if (nearest == null) {
+            sendFile(player, payload, false, "", "not_found");
+            return;
+        }
+        sendFile(player, payload, true, nearest.getX() + ", " + nearest.getY() + ", " + nearest.getZ(), "");
+    }
+
     private static void sendDesktop(ServerPlayer player, ComputerAccessPayload payload, boolean success, String data) {
-        BlockEntity blockEntity = player.serverLevel().getBlockEntity(payload.pos());
-        boolean hasPassword = blockEntity instanceof ComputerBlockEntity computer && computer.hasPassword();
-        boolean authenticated = blockEntity instanceof ComputerBlockEntity computer && computer.isAuthenticated();
-        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
-                hasPassword, authenticated, payload.action() + "\0\0" + data));
+        sendResult(player, new ComputerAccessResultPayload(success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
+                true, true, payload.action() + "\0\0" + data));
     }
 
     private static String[] splitFileRequest(String value) {
@@ -627,19 +721,12 @@ public final class ComputerAccessHandler {
     }
 
     private static void send(ServerPlayer player, ComputerAccessPayload payload, int result) {
-        BlockEntity blockEntity = player.serverLevel().getBlockEntity(payload.pos());
-        boolean hasPassword = blockEntity instanceof ComputerBlockEntity computer && computer.hasPassword();
-        boolean authenticated = blockEntity instanceof ComputerBlockEntity computer && computer.isAuthenticated();
-        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), result, hasPassword, authenticated));
+        sendResult(player, new ComputerAccessResultPayload(result, true, true));
     }
 
     private static void sendFile(ServerPlayer player, ComputerAccessPayload payload, boolean success, String data, String error) {
-        BlockEntity blockEntity = player.serverLevel().getBlockEntity(payload.pos());
-        boolean hasPassword = blockEntity instanceof ComputerBlockEntity computer && computer.hasPassword();
-        boolean authenticated = blockEntity instanceof ComputerBlockEntity computer && computer.isAuthenticated();
-        resultSender.accept(player, new ComputerAccessResultPayload(payload.pos(), success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
-                hasPassword, authenticated, payload.action() + "\0" + error + "\0" + data));
+        sendResult(player, new ComputerAccessResultPayload(success ? ComputerAccessResultPayload.SUCCESS : ComputerAccessResultPayload.INVALID,
+                true, true, payload.action() + "\0" + error + "\0" + data));
     }
 }
-
 

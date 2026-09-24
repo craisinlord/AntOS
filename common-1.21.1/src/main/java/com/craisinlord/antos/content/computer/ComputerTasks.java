@@ -1,7 +1,7 @@
 package com.craisinlord.antos.content.computer;
 
 import com.craisinlord.antos.AntOS;
-import com.craisinlord.antos.content.block.entity.ComputerBlockEntity;
+import com.craisinlord.antos.content.computer.ComputerWorkspace;
 import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.entity.RewardDropEntity;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
@@ -25,7 +25,7 @@ import java.util.List;
 public final class ComputerTasks {
     private static final java.util.Set<String> OVERSIZED_TASK_STATES = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private ComputerTasks() { }
-    public static boolean grantTask(ServerPlayer player, ComputerBlockEntity computer, ResourceLocation taskId) {
+    public static boolean grantTask(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId) {
         ComputerGuideData.Task task = task(taskId);
         if (task == null) return false;
         boolean changed = computer.taskProgress().grant(taskId);
@@ -33,7 +33,7 @@ public final class ComputerTasks {
         return changed;
     }
 
-    public static boolean forceCompleteTask(ServerPlayer player, ComputerBlockEntity computer, ResourceLocation taskId) {
+    public static boolean forceCompleteTask(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId) {
         ComputerGuideData.Task task = task(taskId);
         if (task == null) return false;
         ComputerTaskProgress progress = computer.taskProgress();
@@ -51,7 +51,7 @@ public final class ComputerTasks {
         return progress.isComplete(taskId);
     }
 
-    public static boolean setEventObjectiveProgress(ServerPlayer player, ComputerBlockEntity computer,
+    public static boolean setEventObjectiveProgress(ServerPlayer player, ComputerWorkspace computer,
                                                      ResourceLocation taskId, String objectiveId, int count) {
         ComputerGuideData.Task task = task(taskId);
         if (task == null) return false;
@@ -64,7 +64,7 @@ public final class ComputerTasks {
         return true;
     }
 
-    public static boolean resetTaskProgress(ComputerBlockEntity computer) {
+    public static boolean resetTaskProgress(ComputerWorkspace computer) {
         boolean changed = computer.taskProgress().clearTaskProgress();
         if (changed) {
             computer.setChanged();
@@ -77,7 +77,7 @@ public final class ComputerTasks {
         return ComputerGuideData.tasks().stream().filter(candidate -> candidate.id().equals(id)).findFirst().orElse(null);
     }
 
-    public static boolean isTaskComplete(ServerPlayer player, ComputerBlockEntity computer, ResourceLocation taskId) {
+    public static boolean isTaskComplete(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId) {
         if (player == null || computer == null || taskId == null || task(taskId) == null) return false;
         ComputerTaskProgress progress = computer.taskProgress();
         java.util.UUID workspaceId = computer.workspaceId();
@@ -85,7 +85,7 @@ public final class ComputerTasks {
         return progress.isComplete(taskId);
     }
 
-    public static String updateAndEncode(ServerPlayer player, ComputerBlockEntity computer) {
+    public static String updateAndEncode(ServerPlayer player, ComputerWorkspace computer) {
         ComputerTaskProgress progress = computer.taskProgress();
         evaluateProgress(player, computer, progress, false);
 
@@ -135,26 +135,26 @@ public final class ComputerTasks {
         root.add("tasks", rows);
         String encoded = root.toString();
         if (encoded.length() + 64 > com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS) {
-            String computerKey = player.serverLevel().dimension().location() + ":" + computer.getBlockPos().asLong();
-            if (OVERSIZED_TASK_STATES.add(computerKey)) AntOS.LOGGER.error("Task snapshot for AntOS computer {} in {} exceeds the network payload limit; reduce task/objective definitions",
-                    computer.getBlockPos(), player.serverLevel().dimension().location());
+            String workspaceKey = String.valueOf(computer.workspaceId());
+            if (OVERSIZED_TASK_STATES.add(workspaceKey)) AntOS.LOGGER.error("Task snapshot for Anternet workspace {} exceeds the network payload limit; reduce task/objective definitions",
+                    workspaceKey);
             JsonObject error = new JsonObject(); error.add("tasks", new JsonArray()); error.addProperty("error", "task_snapshot_too_large");
             return error.toString();
         }
         return encoded;
     }
 
-    public static void recordEvent(ServerPlayer player, ComputerBlockEntity computer, String eventType, ResourceLocation target) {
+    public static void recordEvent(ServerPlayer player, ComputerWorkspace computer, String eventType, ResourceLocation target) {
         recordEvent(player, computer, eventType, target, 1);
     }
 
-    public static void recordCustomEvent(ServerPlayer player, ComputerBlockEntity computer, ResourceLocation type,
+    public static void recordCustomEvent(ServerPlayer player, ComputerWorkspace computer, ResourceLocation type,
                                          ResourceLocation target, int amount) {
         if (type == null || !TaskObjectiveRegistry.isRegistered(type)) return;
         recordEvent(player, computer, type.toString(), target, amount);
     }
 
-    private static void recordEvent(ServerPlayer player, ComputerBlockEntity computer, String eventType,
+    private static void recordEvent(ServerPlayer player, ComputerWorkspace computer, String eventType,
                                     ResourceLocation target, int amount) {
         if (player == null || computer == null || target == null || amount <= 0) return;
         ComputerTaskProgress progress = computer.taskProgress();
@@ -174,7 +174,7 @@ public final class ComputerTasks {
         evaluateProgress(player, computer, progress, eventChanged);
     }
 
-    private static void evaluateProgress(ServerPlayer player, ComputerBlockEntity computer, ComputerTaskProgress progress,
+    private static void evaluateProgress(ServerPlayer player, ComputerWorkspace computer, ComputerTaskProgress progress,
                                          boolean alreadyChanged) {
         boolean progressChanged = alreadyChanged;
         java.util.UUID workspaceId = computer.workspaceId();
@@ -215,7 +215,7 @@ public final class ComputerTasks {
         }
     }
 
-    private static void deliverRewards(ServerPlayer player, ComputerBlockEntity computer, ComputerGuideData.Task task) {
+    private static void deliverRewards(ServerPlayer player, ComputerWorkspace computer, ComputerGuideData.Task task) {
         if (task.rewards().isEmpty()) return;
         List<ItemStack> stacks = new java.util.ArrayList<>();
         for (ComputerGuideData.TaskReward reward : task.rewards()) {
@@ -275,7 +275,7 @@ public final class ComputerTasks {
         AntmailServerData data = AntmailServerData.access(player.server);
         AntmailAddress recipient = data.addressFor(player);
         if (recipient == null) {
-            AntOS.LOGGER.warn("Task {} mail reward could not be delivered because player {} has no registered Antmail address",
+            AntOS.LOGGER.warn("Task {} mail reward could not be delivered because player {} has no Antmail profile",
                     task.id(), player.getGameProfile().getName());
             return;
         }
