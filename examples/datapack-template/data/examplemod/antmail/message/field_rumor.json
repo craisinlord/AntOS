@@ -1,0 +1,8 @@
+{
+  "sender": "fieldoffice@antmail.com",
+  "sender_display": "Field Office",
+  "sender_avatar_item": "minecraft:compass",
+  "subject": "Something under the stone",
+  "body": "{player}, the survey drones picked up hollow echoes below the stone layer. Keep your eyes open. I'll write again once I know more.",
+  "trigger": { "type": "advancement", "value": "minecraft:story/mine_stone" }
+}

@@ -1,13 +1,14 @@
 pluginManagement {
     repositories {
         maven { url = 'https://maven.fabricmc.net/' }
+        maven { url = 'https://maven.architectury.dev/' }
         maven { url = 'https://maven.neoforged.net/releases' }
         maven { url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
         gradlePluginPortal()
         mavenCentral()
     }
     plugins {
-        id 'net.fabricmc.fabric-loom-remap' version '1.15.5'
+        id 'dev.architectury.loom' version '1.17.493'
         id 'net.neoforged.moddev' version '2.0.141'
     }
 }

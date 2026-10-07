@@ -1,8 +1,8 @@
 package com.craisinlord.antos.fabric;
 
 import com.craisinlord.antos.AntOS;
+import com.craisinlord.antos.compat.fieldguide.FieldGuideCompat;
 import com.craisinlord.antos.content.antmail.AntmailEventData;
-import com.craisinlord.antos.content.antmail.AntmailServerData;
 import com.craisinlord.antos.content.antazon.AntazonData;
 import com.craisinlord.antos.content.antazon.AntazonSellData;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
@@ -14,6 +14,7 @@ import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.fabric.network.AntOSFabricNetworking;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
@@ -30,8 +31,16 @@ public final class AntOSFabric implements ModInitializer {
         AntOSSettings.load(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
         AntOSFabricContent.register();
         AntOSFabricNetworking.register();
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("fieldguide")) {
+            FieldGuideCompat.initialize();
+        }
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("ftbquests")) {
+            com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat.initialize();
+        }
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
                 com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));
+        // Fabric has no advancement event; AntmailEventData.onTick polls earned advancements instead.
+        AntmailEventData.registerListeners();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TaskDebugCommands.register(dispatcher));
         registerReloadListener("computer_data", ComputerGuideData.instance());
         registerReloadListener("blockle_answers", BlockleAnswers.instance());
@@ -39,10 +48,12 @@ public final class AntOSFabric implements ModInitializer {
         registerReloadListener("antazon_data", AntazonData.instance());
         registerReloadListener("antazon_sell_data", AntazonSellData.instance());
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            FieldGuideCompat.tick(server);
             FloppyTextureSync.tick(server);
-            AntmailServerData.access(server).drainAvailable(server);
             AntmailEventData.onTick(server);
+            com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
         });
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> FieldGuideCompat.shutdown());
         AntOS.LOGGER.info("AntOS initialized");
     }
 

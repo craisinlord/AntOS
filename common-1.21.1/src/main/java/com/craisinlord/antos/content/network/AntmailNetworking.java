@@ -32,7 +32,12 @@ public final class AntmailNetworking {
     }
 
     public static void requestState(int folder, int page, long knownVersion) {
-        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.STATE, "", "", "", "", "", ((long) folder << 32) | (page & 0xffffffffL), knownVersion));
+        requestState(folder, page, knownVersion, "", false, false);
+    }
+
+    public static void requestState(int folder, int page, long knownVersion, String query, boolean unreadOnly, boolean attachmentsOnly) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.STATE, query, Boolean.toString(unreadOnly),
+                Boolean.toString(attachmentsOnly), "", "", ((long) folder << 32) | (page & 0xffffffffL), knownVersion));
     }
 
     public static void requestMessage(UUID messageId) {
@@ -65,6 +70,34 @@ public final class AntmailNetworking {
 
     public static void retry(UUID messageId) {
         sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.RETRY, messageId.toString(), "", "", "", "", 0L, 0L));
+    }
+
+    public static void archive(UUID messageId, boolean sent) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.ARCHIVE, messageId.toString(), Boolean.toString(sent), "", "", "", 0L, 0L));
+    }
+
+    public static void moveToTrash(UUID messageId, int folder) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.TRASH, messageId.toString(), Integer.toString(folder), "", "", "", 0L, 0L));
+    }
+
+    public static void restoreFromTrash(UUID messageId, int folder) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.RESTORE, messageId.toString(), Integer.toString(folder), "", "", "", 0L, 0L));
+    }
+
+    public static void permanentlyDelete(UUID messageId) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.PERMANENT_DELETE, messageId.toString(), "", "", "", "", 0L, 0L));
+    }
+
+    public static void restoreFromArchive(UUID messageId) {
+        restoreFromArchive(messageId, AntmailStateRequestPayload.INBOX);
+    }
+
+    public static void restoreFromArchive(UUID messageId, int folder) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.UNARCHIVE, messageId.toString(), Integer.toString(folder), "", "", "", 0L, 0L));
+    }
+
+    public static void updateProfile(String displayName, String avatarItem) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.UPDATE_PROFILE, displayName, avatarItem, "", "", "", 0L, 0L));
     }
 
     private static void sendPayload(Object payload) {

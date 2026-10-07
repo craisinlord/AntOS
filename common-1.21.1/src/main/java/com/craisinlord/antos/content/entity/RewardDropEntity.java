@@ -29,7 +29,7 @@ public final class RewardDropEntity extends Entity {
     private static final double SPAWN_HEIGHT = 64.0D;
     private static final String REWARDS_TAG = "Rewards";
     private static final String RECIPIENT_TAG = "Recipient";
-    private static final int MAX_REWARD_STACKS = 108;
+    public static final int MAX_REWARD_STACKS = 108;
     private final List<ItemStack> rewards = new ArrayList<>();
     private UUID recipient;
     private UUID payoutAccount;

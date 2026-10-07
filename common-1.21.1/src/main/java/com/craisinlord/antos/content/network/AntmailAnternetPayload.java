@@ -16,6 +16,12 @@ public record AntmailAnternetPayload(int action, String first, String second, St
     public static final int DELETE = 5;
     public static final int DRAFT = 6;
     public static final int RETRY = 7;
+    public static final int ARCHIVE = 8;
+    public static final int TRASH = 9;
+    public static final int RESTORE = 10;
+    public static final int PERMANENT_DELETE = 11;
+    public static final int UNARCHIVE = 12;
+    public static final int UPDATE_PROFILE = 13;
     public static final Type<AntmailAnternetPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "antmail_anternet"));
     public static final StreamCodec<RegistryFriendlyByteBuf, AntmailAnternetPayload> STREAM_CODEC = StreamCodec.of(
             (buf, payload) -> {

@@ -21,6 +21,9 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import com.craisinlord.antos.content.client.screen.InventoryComputerButton;
 
 @EventBusSubscriber(modid = AntOS.MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class AntOSNeoForgeClient {
@@ -31,6 +34,7 @@ public final class AntOSNeoForgeClient {
         event.enqueueWork(() -> {
             AntOSSettings.load(FMLPaths.CONFIGDIR.get().resolve("antos.json"));
             NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onClientLogout);
+            NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onScreenInit);
             AntOSComputerGames.register();
             AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
             AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
@@ -45,6 +49,13 @@ public final class AntOSNeoForgeClient {
 
     private static void onClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         AntOSClientHooks.clearConnectionState();
+    }
+
+    private static void onScreenInit(ScreenEvent.Init.Post event) {
+        if (event.getScreen() instanceof InventoryScreen && AntOSSettings.inventoryComputerButtonEnabled()) {
+            event.addListener(new InventoryComputerButton(event.getScreen().width / 2 - 86,
+                    (event.getScreen().height - 166) / 2 + 4));
+        }
     }
 
     @SubscribeEvent

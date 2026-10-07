@@ -27,6 +27,10 @@ public final class ComputerWorkspaceData extends SavedData {
     private static final String ACCOUNTS_TAG = "Accounts";
     private static final String SNAPSHOTS_TAG = "Snapshots";
     private static final String FACE_ID_LINKS_TAG = "FaceIdLinks";
+    private static final String TEAMS_TAG = "Teams";
+    private static final String TEAM_INVITES_TAG = "TeamInvites";
+    private static final String CLAIMED_REWARDS_TAG = "ClaimedTaskRewards";
+    private static final String PENDING_ANTOS_GRANTS_TAG = "PendingAntOSGrants";
     private static final int ACCOUNT_SCHEMA = 1;
     private static final int PASSWORD_ITERATIONS = 160_000;
     private static final int PASSWORD_SALT_BYTES = 16;
@@ -40,6 +44,11 @@ public final class ComputerWorkspaceData extends SavedData {
     private final Map<UUID, CompoundTag> workspaceSnapshots = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> profileDisks = new LinkedHashMap<>();
     private final Map<UUID, UUID> faceIdAccountByPlayer = new LinkedHashMap<>();
+    private final Map<UUID, Team> teams = new LinkedHashMap<>();
+    private final Map<UUID, UUID> teamByAccount = new LinkedHashMap<>();
+    private final Map<UUID, TeamInvite> teamInvites = new LinkedHashMap<>();
+    private final Map<UUID, Set<ResourceLocation>> claimedTaskRewards = new LinkedHashMap<>();
+    private final Map<UUID, Set<PendingAntOSGrant>> pendingAntOSGrants = new LinkedHashMap<>();
 
     public static ComputerWorkspaceData access(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
@@ -111,6 +120,71 @@ public final class ComputerWorkspaceData extends SavedData {
                 if (data.accounts.containsKey(accountId) && !data.faceIdAccountByPlayer.containsKey(playerId)
                         && data.faceIdAccountByPlayer.values().stream().noneMatch(accountId::equals)) {
                     data.faceIdAccountByPlayer.put(playerId, accountId);
+                }
+            } catch (RuntimeException ignored) { }
+        }
+        ListTag teamRows = tag.getList(TEAMS_TAG, 10);
+        for (int index = 0; index < teamRows.size(); index++) {
+            CompoundTag row = teamRows.getCompound(index);
+            try {
+                UUID teamId = UUID.fromString(row.getString("Id"));
+                UUID ownerId = UUID.fromString(row.getString("Owner"));
+                if (!data.accounts.containsKey(ownerId) || data.teamByAccount.containsKey(ownerId) || data.teams.containsKey(teamId)) continue;
+                Team team = new Team(teamId, ownerId);
+                ListTag members = row.getList("Members", 8);
+                for (int memberIndex = 0; memberIndex < members.size(); memberIndex++) {
+                    try {
+                        UUID memberId = UUID.fromString(members.getString(memberIndex));
+                        if (data.accounts.containsKey(memberId) && !data.teamByAccount.containsKey(memberId)) {
+                            team.members.add(memberId);
+                            data.teamByAccount.put(memberId, teamId);
+                        }
+                    } catch (RuntimeException ignored) { }
+                }
+                if (!team.members.contains(ownerId)) team.members.add(ownerId);
+                team.progress.load(row.getCompound("Progress"));
+                data.teams.put(teamId, team);
+                data.teamByAccount.put(ownerId, teamId);
+            } catch (RuntimeException ignored) { }
+        }
+        ListTag inviteRows = tag.getList(TEAM_INVITES_TAG, 10);
+        for (int index = 0; index < inviteRows.size(); index++) {
+            CompoundTag row = inviteRows.getCompound(index);
+            try {
+                TeamInvite invite = new TeamInvite(UUID.fromString(row.getString("Id")),
+                        UUID.fromString(row.getString("Team")), UUID.fromString(row.getString("Recipient")),
+                        UUID.fromString(row.getString("Inviter")), row.getLong("Created"));
+                if (data.teams.containsKey(invite.teamId()) && data.accounts.containsKey(invite.recipientId())
+                        && data.accounts.containsKey(invite.inviterId()) && !data.teamByAccount.containsKey(invite.recipientId())) {
+                    data.teamInvites.putIfAbsent(invite.id(), invite);
+                }
+            } catch (RuntimeException ignored) { }
+        }
+        ListTag claimedRows = tag.getList(CLAIMED_REWARDS_TAG, 10);
+        for (int index = 0; index < claimedRows.size(); index++) {
+            CompoundTag row = claimedRows.getCompound(index);
+            try {
+                UUID accountId = UUID.fromString(row.getString("Account"));
+                if (!data.accounts.containsKey(accountId)) continue;
+                Set<ResourceLocation> claimed = new LinkedHashSet<>();
+                ListTag ids = row.getList("Tasks", 8);
+                for (int idIndex = 0; idIndex < ids.size(); idIndex++) {
+                    try { claimed.add(ResourceLocation.parse(ids.getString(idIndex))); }
+                    catch (RuntimeException ignored) { }
+                }
+                data.claimedTaskRewards.put(accountId, claimed);
+            } catch (RuntimeException ignored) { }
+        }
+        ListTag pendingRows = tag.getList(PENDING_ANTOS_GRANTS_TAG, 10);
+        for (int index = 0; index < pendingRows.size(); index++) {
+            CompoundTag row = pendingRows.getCompound(index);
+            try {
+                UUID playerId = UUID.fromString(row.getString("Player"));
+                String action = row.getString("Action");
+                ResourceLocation target = ResourceLocation.parse(row.getString("Target"));
+                if ((action.equals("unlock_archive") || action.equals("grant_task")) && target.toString().length() <= 256) {
+                    data.pendingAntOSGrants.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>())
+                            .add(new PendingAntOSGrant(action, target));
                 }
             } catch (RuntimeException ignored) { }
         }
@@ -186,6 +260,29 @@ public final class ComputerWorkspaceData extends SavedData {
                 .findFirst().orElse(null);
     }
 
+    public synchronized boolean queuePendingAntOSGrant(UUID playerId, String action, ResourceLocation target) {
+        if (playerId == null || target == null || action == null || !(action.equals("unlock_archive") || action.equals("grant_task"))
+                || target.toString().length() > 256) return false;
+        boolean added = pendingAntOSGrants.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>())
+                .add(new PendingAntOSGrant(action, target));
+        if (added) setDirty();
+        return true;
+    }
+
+    public synchronized List<PendingAntOSGrant> pendingAntOSGrants(UUID playerId) {
+        return List.copyOf(pendingAntOSGrants.getOrDefault(playerId, Set.of()));
+    }
+
+    public synchronized boolean removePendingAntOSGrant(UUID playerId, PendingAntOSGrant grant) {
+        Set<PendingAntOSGrant> grants = pendingAntOSGrants.get(playerId);
+        if (grants == null || !grants.remove(grant)) return false;
+        if (grants.isEmpty()) pendingAntOSGrants.remove(playerId);
+        setDirty();
+        return true;
+    }
+
+    public record PendingAntOSGrant(String action, ResourceLocation target) { }
+
     public synchronized boolean linkFaceId(UUID playerId, UUID accountId) {
         if (playerId == null || accountId == null || !accounts.containsKey(accountId)) return false;
         UUID linkedAccount = faceIdAccountByPlayer.get(playerId);
@@ -213,6 +310,143 @@ public final class ComputerWorkspaceData extends SavedData {
         return account(id);
     }
 
+    public synchronized TeamInfo team(UUID accountId) {
+        UUID teamId = teamByAccount.get(accountId);
+        Team team = teamId == null ? null : teams.get(teamId);
+        if (team == null) return null;
+        Account owner = accounts.get(team.ownerId);
+        return new TeamInfo(team.id, team.ownerId, owner == null ? "" : owner.displayUsername(),
+                team.members.stream().map(accounts::get).filter(java.util.Objects::nonNull)
+                        .map(account -> new TeamMember(account.accountId(), account.displayUsername(), account.accountId().equals(team.ownerId))).toList());
+    }
+
+    public synchronized List<TeamInviteInfo> invitations(UUID accountId) {
+        return teamInvites.values().stream().filter(invite -> invite.recipientId().equals(accountId))
+                .map(invite -> {
+                    Team team = teams.get(invite.teamId());
+                    Account owner = team == null ? null : accounts.get(team.ownerId);
+                    Account inviter = accounts.get(invite.inviterId());
+                    return team == null ? null : new TeamInviteInfo(invite.id(), team.id,
+                            owner == null ? "" : owner.displayUsername(), inviter == null ? "" : inviter.displayUsername());
+                }).filter(java.util.Objects::nonNull).toList();
+    }
+
+    public synchronized boolean createTeam(UUID ownerId) {
+        if (ownerId == null || !accounts.containsKey(ownerId) || teamByAccount.containsKey(ownerId)) return false;
+        UUID teamId = UUID.randomUUID();
+        Team team = new Team(teamId, ownerId);
+        CompoundTag snapshot = workspaceSnapshots.get(accounts.get(ownerId).workspaceId());
+        if (snapshot != null) team.progress.load(snapshot.getCompound("TaskProgress"));
+        team.members.add(ownerId);
+        teams.put(teamId, team);
+        teamByAccount.put(ownerId, teamId);
+        setDirty();
+        return true;
+    }
+
+    public synchronized TeamInviteInfo inviteToTeam(UUID ownerId, String targetUsername, long createdAt) {
+        UUID teamId = teamByAccount.get(ownerId);
+        Team team = teamId == null ? null : teams.get(teamId);
+        Account recipient = accounts.get(accountIdByUsername.get(normalizeUsername(targetUsername)));
+        if (team == null || !team.ownerId.equals(ownerId) || recipient == null || recipient.accountId().equals(ownerId)
+                || teamByAccount.containsKey(recipient.accountId())) return null;
+        if (teamInvites.values().stream().anyMatch(invite -> invite.teamId().equals(teamId)
+                && invite.recipientId().equals(recipient.accountId()))) return null;
+        UUID inviteId = UUID.randomUUID();
+        teamInvites.put(inviteId, new TeamInvite(inviteId, teamId, recipient.accountId(), ownerId, createdAt));
+        setDirty();
+        return new TeamInviteInfo(inviteId, teamId, accounts.get(team.ownerId).displayUsername(), accounts.get(ownerId).displayUsername());
+    }
+
+    public synchronized boolean acceptTeamInvite(UUID accountId, UUID inviteId) {
+        TeamInvite invite = teamInvites.get(inviteId);
+        if (accountId == null || invite == null || !invite.recipientId().equals(accountId) || teamByAccount.containsKey(accountId)) return false;
+        Team team = teams.get(invite.teamId());
+        if (team == null) { teamInvites.remove(inviteId); setDirty(); return false; }
+        Account account = accounts.get(accountId);
+        CompoundTag snapshot = workspaceSnapshots.get(account.workspaceId());
+        if (snapshot != null) {
+            ComputerTaskProgress personal = new ComputerTaskProgress();
+            personal.load(snapshot.getCompound("TaskProgress"));
+            team.progress.mergeFrom(personal);
+        }
+        team.members.add(accountId);
+        teamByAccount.put(accountId, team.id);
+        teamInvites.values().removeIf(other -> other.recipientId().equals(accountId));
+        setDirty();
+        return true;
+    }
+
+    public synchronized boolean declineTeamInvite(UUID accountId, UUID inviteId) {
+        TeamInvite invite = teamInvites.get(inviteId);
+        if (invite == null || accountId == null || !invite.recipientId().equals(accountId)) return false;
+        teamInvites.remove(inviteId);
+        setDirty();
+        return true;
+    }
+
+    public synchronized boolean leaveTeam(UUID accountId) {
+        UUID teamId = teamByAccount.get(accountId);
+        Team team = teamId == null ? null : teams.get(teamId);
+        if (team == null || team.ownerId.equals(accountId)) return false;
+        persistTeamProgressToAccount(team, accountId);
+        team.members.remove(accountId);
+        teamByAccount.remove(accountId);
+        setDirty();
+        return true;
+    }
+
+    public synchronized boolean disbandTeam(UUID ownerId) {
+        UUID teamId = teamByAccount.get(ownerId);
+        Team team = teamId == null ? null : teams.get(teamId);
+        if (team == null || !team.ownerId.equals(ownerId)) return false;
+        for (UUID memberId : List.copyOf(team.members)) persistTeamProgressToAccount(team, memberId);
+        team.members.forEach(teamByAccount::remove);
+        teamInvites.values().removeIf(invite -> invite.teamId().equals(teamId));
+        teams.remove(teamId);
+        setDirty();
+        return true;
+    }
+
+    public synchronized boolean mergeTeamProgress(UUID accountId, ComputerTaskProgress progress) {
+        UUID teamId = teamByAccount.get(accountId);
+        Team team = teamId == null ? null : teams.get(teamId);
+        if (team == null || progress == null) return false;
+        boolean changed = team.progress.mergeFrom(progress);
+        if (changed) setDirty();
+        return changed;
+    }
+
+    public synchronized ComputerTaskProgress effectiveProgress(UUID accountId, ComputerTaskProgress personal) {
+        ComputerTaskProgress effective = new ComputerTaskProgress();
+        if (personal != null) effective.mergeFrom(personal);
+        UUID teamId = teamByAccount.get(accountId);
+        Team team = teamId == null ? null : teams.get(teamId);
+        if (team != null) effective.mergeFrom(team.progress);
+        return effective;
+    }
+
+    public synchronized boolean hasClaimedTaskReward(UUID accountId, ResourceLocation taskId) {
+        return claimedTaskRewards.getOrDefault(accountId, Set.of()).contains(taskId);
+    }
+
+    public synchronized boolean markTaskRewardClaimed(UUID accountId, ResourceLocation taskId) {
+        if (accountId == null || taskId == null || !accounts.containsKey(accountId)) return false;
+        boolean changed = claimedTaskRewards.computeIfAbsent(accountId, ignored -> new LinkedHashSet<>()).add(taskId);
+        if (changed) setDirty();
+        return changed;
+    }
+
+    private void persistTeamProgressToAccount(Team team, UUID accountId) {
+        Account account = accounts.get(accountId);
+        if (account == null) return;
+        CompoundTag snapshot = workspaceSnapshots.computeIfAbsent(account.workspaceId(), ignored -> new CompoundTag());
+        ComputerTaskProgress personal = new ComputerTaskProgress();
+        personal.load(snapshot.getCompound("TaskProgress"));
+        personal.mergeFrom(team.progress);
+        snapshot.put("TaskProgress", personal.save());
+    }
+
     public synchronized List<AccountInfo> accounts() {
         return accounts.values().stream().map(Account::publicAccount).toList();
     }
@@ -238,6 +472,23 @@ public final class ComputerWorkspaceData extends SavedData {
     public synchronized CompoundTag workspaceSnapshot(UUID workspaceId) {
         CompoundTag snapshot = workspaceId == null ? null : workspaceSnapshots.get(workspaceId);
         return snapshot == null ? null : snapshot.copy();
+    }
+
+    /** Copies only the task progress section of an account workspace, avoiding a copy of its files and desktop. */
+    public synchronized CompoundTag workspaceSection(UUID workspaceId, String key) {
+        CompoundTag snapshot = workspaceId == null ? null : workspaceSnapshots.get(workspaceId);
+        return snapshot == null ? null : snapshot.getCompound(key).copy();
+    }
+
+    /** Replaces one section of an account workspace in place, leaving the rest of the snapshot untouched. */
+    public synchronized boolean saveWorkspaceSection(UUID workspaceId, String key, CompoundTag section) {
+        if (workspaceId == null || section == null || !isAccountWorkspace(workspaceId)) return false;
+        CompoundTag snapshot = workspaceSnapshots.computeIfAbsent(workspaceId, ignored -> new CompoundTag());
+        CompoundTag copy = section.copy();
+        if (copy.equals(snapshot.get(key))) return true;
+        snapshot.put(key, copy);
+        setDirty();
+        return true;
     }
 
     public synchronized boolean saveWorkspaceSnapshot(UUID workspaceId, CompoundTag snapshot) {
@@ -379,8 +630,56 @@ public final class ComputerWorkspaceData extends SavedData {
             faceIdLinks.add(row);
         }
         tag.put(FACE_ID_LINKS_TAG, faceIdLinks);
+        ListTag teamRows = new ListTag();
+        for (Team team : teams.values()) {
+            CompoundTag row = new CompoundTag();
+            row.putString("Id", team.id.toString()); row.putString("Owner", team.ownerId.toString());
+            ListTag members = new ListTag();
+            team.members.forEach(member -> members.add(net.minecraft.nbt.StringTag.valueOf(member.toString())));
+            row.put("Members", members); row.put("Progress", team.progress.save()); teamRows.add(row);
+        }
+        tag.put(TEAMS_TAG, teamRows);
+        ListTag inviteRows = new ListTag();
+        for (TeamInvite invite : teamInvites.values()) {
+            CompoundTag row = new CompoundTag(); row.putString("Id", invite.id().toString());
+            row.putString("Team", invite.teamId().toString()); row.putString("Recipient", invite.recipientId().toString());
+            row.putString("Inviter", invite.inviterId().toString()); row.putLong("Created", invite.createdAt()); inviteRows.add(row);
+        }
+        tag.put(TEAM_INVITES_TAG, inviteRows);
+        ListTag claims = new ListTag();
+        for (Map.Entry<UUID, Set<ResourceLocation>> entry : claimedTaskRewards.entrySet()) {
+            CompoundTag row = new CompoundTag(); row.putString("Account", entry.getKey().toString());
+            ListTag ids = new ListTag(); entry.getValue().forEach(id -> ids.add(net.minecraft.nbt.StringTag.valueOf(id.toString())));
+            row.put("Tasks", ids); claims.add(row);
+        }
+        tag.put(CLAIMED_REWARDS_TAG, claims);
+        ListTag pendingRows = new ListTag();
+        for (Map.Entry<UUID, Set<PendingAntOSGrant>> entry : pendingAntOSGrants.entrySet()) {
+            for (PendingAntOSGrant grant : entry.getValue()) {
+                CompoundTag row = new CompoundTag();
+                row.putString("Player", entry.getKey().toString());
+                row.putString("Action", grant.action());
+                row.putString("Target", grant.target().toString());
+                pendingRows.add(row);
+            }
+        }
+        tag.put(PENDING_ANTOS_GRANTS_TAG, pendingRows);
         return tag;
     }
+
+    private static final class Team {
+        private final UUID id;
+        private final UUID ownerId;
+        private final Set<UUID> members = new LinkedHashSet<>();
+        private final ComputerTaskProgress progress = new ComputerTaskProgress();
+        private Team(UUID id, UUID ownerId) { this.id = id; this.ownerId = ownerId; }
+    }
+
+    private record TeamInvite(UUID id, UUID teamId, UUID recipientId, UUID inviterId, long createdAt) { }
+
+    public record TeamMember(UUID accountId, String displayUsername, boolean owner) { }
+    public record TeamInfo(UUID id, UUID ownerId, String ownerName, List<TeamMember> members) { }
+    public record TeamInviteInfo(UUID id, UUID teamId, String ownerName, String inviterName) { }
 
     private record Account(UUID accountId, String username, String displayUsername, UUID workspaceId,
                            String salt, String verifier, int iterations) {

@@ -1,0 +1,9 @@
+{
+  "sender": "deals@antmail.com",
+  "sender_display": "Antmail Deals",
+  "sender_avatar_item": "minecraft:emerald",
+  "subject": "Ant farm kits: 0% glass, 100% farm",
+  "body": "Upgrade your nest with our new transparent ant farm. Glass not included. Ants not included. Farm not included.",
+  "trigger": { "type": "random", "pool": "spam" },
+  "conditions": { "advancements": ["minecraft:story/mine_stone"] }
+}

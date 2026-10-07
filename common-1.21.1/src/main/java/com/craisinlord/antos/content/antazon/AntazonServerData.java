@@ -17,6 +17,9 @@ import java.util.UUID;
 
 public final class AntazonServerData extends SavedData {
     private static final String DATA_ID = "antos_antazon";
+    public static final int MAX_CART_LINES = 32;
+    private static final int MAX_ORDERS = 1024;
+    private static final int MAX_REVIEWS = 2048;
     private final Map<ResourceLocation, Stock> stock = new LinkedHashMap<>();
     private final Map<UUID, Long> wallets = new LinkedHashMap<>();
     private final Map<UUID, Map<ResourceLocation, PlayerState>> players = new LinkedHashMap<>();
@@ -26,6 +29,11 @@ public final class AntazonServerData extends SavedData {
     private final Map<UUID, CrateLocation> shippingCrates = new LinkedHashMap<>();
     private final List<PlayerReview> reviews = new ArrayList<>();
     private final List<Order> orders = new ArrayList<>();
+    private final Map<UUID, List<CartLine>> carts = new LinkedHashMap<>();
+    /** Products each profile has received; kept separately so trimming old orders never forgets a purchase. */
+    private final Map<UUID, Set<ResourceLocation>> purchased = new LinkedHashMap<>();
+    /** Index over {@link #reviews} by product, so the storefront does not scan every review per product. */
+    private final Map<ResourceLocation, List<PlayerReview>> reviewsByProduct = new LinkedHashMap<>();
 
     public static AntazonServerData access(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
@@ -116,6 +124,37 @@ public final class AntazonServerData extends SavedData {
                         row.getInt("Rating"), row.getString("Title"), row.getString("Body"), row.getLong("GameTime")));
             } catch (RuntimeException ignored) { }
         }
+        ListTag purchasedTags = tag.getList("Purchased", 10);
+        for (int index = 0; index < purchasedTags.size(); index++) {
+            CompoundTag row = purchasedTags.getCompound(index);
+            try {
+                UUID player = UUID.fromString(row.getString("Player"));
+                ListTag idsTag = row.getList("Products", 8);
+                for (int idIndex = 0; idIndex < idsTag.size(); idIndex++) {
+                    ResourceLocation id = parse(idsTag.getString(idIndex));
+                    if (id != null) data.purchased.computeIfAbsent(player, ignored -> new LinkedHashSet<>()).add(id);
+                }
+            } catch (RuntimeException ignored) { }
+        }
+        // Saves from before the purchased index only have the order history to go on.
+        for (Order order : data.orders) data.recordPurchase(order);
+        data.trimHistory();
+        data.rebuildReviewIndex();
+        ListTag cartTags = tag.getList("Carts", 10);
+        for (int index = 0; index < cartTags.size(); index++) {
+            CompoundTag row = cartTags.getCompound(index);
+            try {
+                UUID owner = UUID.fromString(row.getString("Owner"));
+                List<CartLine> lines = new ArrayList<>();
+                ListTag lineTags = row.getList("Lines", 10);
+                for (int lineIndex = 0; lineIndex < lineTags.size(); lineIndex++) {
+                    CompoundTag line = lineTags.getCompound(lineIndex);
+                    ResourceLocation product = parse(line.getString("Product"));
+                    if (product != null) lines.add(new CartLine(product, Math.max(0, line.getInt("Option")), Math.max(1, Math.min(64, line.getInt("Units")))));
+                }
+                if (!lines.isEmpty()) data.carts.put(owner, lines);
+            } catch (RuntimeException ignored) { }
+        }
         return data;
     }
 
@@ -156,9 +195,7 @@ public final class AntazonServerData extends SavedData {
         }
         tag.put("Players", playerTags);
         ListTag orderTags = new ListTag();
-        int start = Math.max(0, orders.size() - 1024);
-        for (int index = start; index < orders.size(); index++) {
-            Order order = orders.get(index);
+        for (Order order : orders) {
             CompoundTag row = new CompoundTag();
             row.putString("Id", order.id().toString());
             row.putString("Player", order.player().toString());
@@ -191,9 +228,7 @@ public final class AntazonServerData extends SavedData {
         }
         tag.put("Reviewed", reviewedTags);
         ListTag reviewTags = new ListTag();
-        int reviewStart = Math.max(0, reviews.size() - 2048);
-        for (int index = reviewStart; index < reviews.size(); index++) {
-            PlayerReview review = reviews.get(index);
+        for (PlayerReview review : reviews) {
             CompoundTag row = new CompoundTag();
             row.putString("Player", review.player().toString());
             row.putString("Product", review.product().toString());
@@ -216,6 +251,34 @@ public final class AntazonServerData extends SavedData {
             crateTags.add(row);
         }
         tag.put("ShippingCrates", crateTags);
+        ListTag cartTags = new ListTag();
+        for (Map.Entry<UUID, List<CartLine>> entry : carts.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            CompoundTag row = new CompoundTag();
+            row.putString("Owner", entry.getKey().toString());
+            ListTag lines = new ListTag();
+            for (CartLine line : entry.getValue()) {
+                CompoundTag lineTag = new CompoundTag();
+                lineTag.putString("Product", line.product().toString());
+                lineTag.putInt("Option", line.option());
+                lineTag.putInt("Units", line.units());
+                lines.add(lineTag);
+            }
+            row.put("Lines", lines);
+            cartTags.add(row);
+        }
+        tag.put("Carts", cartTags);
+        ListTag purchasedTags = new ListTag();
+        for (Map.Entry<UUID, Set<ResourceLocation>> entry : purchased.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            CompoundTag row = new CompoundTag();
+            row.putString("Player", entry.getKey().toString());
+            ListTag ids = new ListTag();
+            for (ResourceLocation id : entry.getValue()) ids.add(net.minecraft.nbt.StringTag.valueOf(id.toString()));
+            row.put("Products", ids);
+            purchasedTags.add(row);
+        }
+        tag.put("Purchased", purchasedTags);
         return tag;
     }
 
@@ -225,7 +288,9 @@ public final class AntazonServerData extends SavedData {
 
     public synchronized void setShippingCrate(UUID owner, ResourceLocation dimension, net.minecraft.core.BlockPos position) {
         if (owner == null || dimension == null || position == null) return;
-        shippingCrates.put(owner, new CrateLocation(dimension.toString(), position.asLong()));
+        CrateLocation location = new CrateLocation(dimension.toString(), position.asLong());
+        // Crate lookups run on every Antazon request; only an actual move changes saved state.
+        if (location.equals(shippingCrates.put(owner, location))) return;
         setDirty();
     }
 
@@ -297,12 +362,29 @@ public final class AntazonServerData extends SavedData {
                 changed = true;
             }
         }
+        List<CartLine> oldCart = carts.remove(playerId);
+        if (oldCart != null && !oldCart.isEmpty()) {
+            List<CartLine> merged = new ArrayList<>(carts.getOrDefault(profileId, List.of()));
+            for (CartLine line : oldCart) if (merged.size() < MAX_CART_LINES) merged.add(line);
+            carts.put(profileId, List.copyOf(merged));
+            changed = true;
+        }
+        Set<ResourceLocation> oldPurchased = purchased.remove(playerId);
+        if (oldPurchased != null) {
+            purchased.computeIfAbsent(profileId, ignored -> new LinkedHashSet<>()).addAll(oldPurchased);
+            changed = true;
+        }
+        boolean reviewsChanged = false;
         for (int index = 0; index < reviews.size(); index++) {
             PlayerReview review = reviews.get(index);
             if (review.player().equals(playerId)) {
                 reviews.set(index, new PlayerReview(profileId, review.product(), review.rating(), review.title(), review.body(), review.gameTime()));
-                changed = true;
+                reviewsChanged = true;
             }
+        }
+        if (reviewsChanged) {
+            rebuildReviewIndex();
+            changed = true;
         }
         if (changed) setDirty();
     }
@@ -342,15 +424,54 @@ public final class AntazonServerData extends SavedData {
 
     public synchronized void addOrder(Order order) {
         orders.add(order);
+        recordPurchase(order);
+        trimHistory();
         setDirty();
+    }
+
+    private void recordPurchase(Order order) {
+        if (order.status().equals("DELIVERED")) purchased.computeIfAbsent(order.player(), ignored -> new LinkedHashSet<>()).add(order.product());
+    }
+
+    /** Keeps order and review history bounded in memory, not just in the save file. */
+    private void trimHistory() {
+        if (orders.size() > MAX_ORDERS) orders.subList(0, orders.size() - MAX_ORDERS).clear();
+        while (reviews.size() > MAX_REVIEWS) {
+            PlayerReview oldest = reviews.remove(0);
+            List<PlayerReview> productReviews = reviewsByProduct.get(oldest.product());
+            if (productReviews != null && !productReviews.isEmpty()) {
+                productReviews.remove(0);
+                if (productReviews.isEmpty()) reviewsByProduct.remove(oldest.product());
+            }
+        }
+    }
+
+    private void rebuildReviewIndex() {
+        reviewsByProduct.clear();
+        for (PlayerReview review : reviews) reviewsByProduct.computeIfAbsent(review.product(), ignored -> new ArrayList<>()).add(review);
     }
 
     public synchronized List<Order> orders(UUID player) {
         return orders.stream().filter(order -> order.player().equals(player)).toList();
     }
 
-    public synchronized Set<ResourceLocation> wishlist(UUID player) {
-        return Set.copyOf(wishlists.getOrDefault(player, Set.of()));
+    public synchronized List<ResourceLocation> wishlist(UUID player) {
+        return List.copyOf(wishlists.getOrDefault(player, Set.of()));
+    }
+
+    public synchronized List<CartLine> cart(UUID owner) {
+        return owner == null ? List.of() : List.copyOf(carts.getOrDefault(owner, List.of()));
+    }
+
+    public synchronized void setCart(UUID owner, List<CartLine> lines) {
+        if (owner == null) return;
+        if (lines == null || lines.isEmpty()) carts.remove(owner);
+        else carts.put(owner, List.copyOf(lines.subList(0, Math.min(MAX_CART_LINES, lines.size()))));
+        setDirty();
+    }
+
+    public synchronized boolean hasPurchased(UUID player, ResourceLocation product) {
+        return purchased.getOrDefault(player, Set.of()).contains(product);
     }
 
     public synchronized boolean toggleWishlist(UUID player, ResourceLocation product) {
@@ -367,12 +488,14 @@ public final class AntazonServerData extends SavedData {
 
     public synchronized void addReview(PlayerReview review) {
         reviews.add(review);
+        reviewsByProduct.computeIfAbsent(review.product(), ignored -> new ArrayList<>()).add(review);
         reviewed.computeIfAbsent(review.player(), ignored -> new LinkedHashSet<>()).add(review.product());
+        trimHistory();
         setDirty();
     }
 
     public synchronized List<PlayerReview> reviews(ResourceLocation product) {
-        return reviews.stream().filter(review -> review.product().equals(product)).toList();
+        return List.copyOf(reviewsByProduct.getOrDefault(product, List.of()));
     }
 
     private static ResourceLocation parse(String value) {
@@ -383,5 +506,6 @@ public final class AntazonServerData extends SavedData {
     public record Stock(int remaining, long nextRestockDay) { }
     public record PlayerState(int quantity, long reset, long lastPurchase) { }
     public record Order(UUID id, UUID player, ResourceLocation product, String option, int units, long gameTime, String status) { }
+    public record CartLine(ResourceLocation product, int option, int units) { }
     public record PlayerReview(UUID player, ResourceLocation product, int rating, String title, String body, long gameTime) { }
 }

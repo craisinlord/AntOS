@@ -36,7 +36,12 @@ public final class ComputerNetworking {
                     ComputerAccessPayload.ANTAZON_SELL_STATE, ComputerAccessPayload.ANTAZON_PREPARE,
                     ComputerAccessPayload.ANTAZON_PRICES, ComputerAccessPayload.ANTAZON_CRATE_LINK,
                     ComputerAccessPayload.ANTAZON_ONBOARDING, ComputerAccessPayload.ANTAZON_ONBOARDING_COMPLETE,
-                    ComputerAccessPayload.ANTAZON_ONBOARDING_RESET -> true;
+                    ComputerAccessPayload.ANTAZON_ONBOARDING_RESET,
+                    ComputerAccessPayload.ANTAZON_CART, ComputerAccessPayload.ANTAZON_CHECKOUT,
+                    ComputerAccessPayload.TASK_CLAIM_REWARD, ComputerAccessPayload.TEAM_CREATE,
+                    ComputerAccessPayload.TEAM_INVITE, ComputerAccessPayload.TEAM_ACCEPT_INVITE,
+                    ComputerAccessPayload.TEAM_DECLINE_INVITE, ComputerAccessPayload.TEAM_LEAVE,
+                    ComputerAccessPayload.TEAM_DISBAND -> true;
             default -> false;
         };
     }
@@ -98,8 +103,24 @@ public final class ComputerNetworking {
     }
 
     public static void requestTasks() {
-        send(ComputerAccessPayload.TASK_STATE, "");
+        requestTasks("");
     }
+
+    /** {@code known} lists the snapshot hashes the client already holds so the server can skip resending them. */
+    public static void requestTasks(String known) {
+        send(ComputerAccessPayload.TASK_STATE, known == null ? "" : known);
+    }
+
+    public static void claimTaskReward(ResourceLocation taskId) {
+        send(ComputerAccessPayload.TASK_CLAIM_REWARD, taskId.toString());
+    }
+
+    public static void createTeam() { send(ComputerAccessPayload.TEAM_CREATE, ""); }
+    public static void inviteToTeam(String username) { send(ComputerAccessPayload.TEAM_INVITE, username); }
+    public static void acceptTeamInvite(String inviteId) { send(ComputerAccessPayload.TEAM_ACCEPT_INVITE, inviteId); }
+    public static void declineTeamInvite(String inviteId) { send(ComputerAccessPayload.TEAM_DECLINE_INVITE, inviteId); }
+    public static void leaveTeam() { send(ComputerAccessPayload.TEAM_LEAVE, ""); }
+    public static void disbandTeam() { send(ComputerAccessPayload.TEAM_DISBAND, ""); }
 
     public static void recordArchiveViewed(ResourceLocation entryId) {
         send(ComputerAccessPayload.ARCHIVE_VIEWED, entryId.toString());
@@ -114,7 +135,7 @@ public final class ComputerNetworking {
     }
 
     public static void requestAntazon() {
-        send(ComputerAccessPayload.ANTAZON_STATE, "");
+        send(ComputerAccessPayload.ANTAZON_STATE, com.craisinlord.antos.content.client.AntazonClientState.catalogVersion());
     }
 
     public static void requestAntazonWallet() {
@@ -167,6 +188,18 @@ public final class ComputerNetworking {
 
     public static void requestAntazonOrders() {
         send(ComputerAccessPayload.ANTAZON_ORDERS, "");
+    }
+
+    public static void requestAntazonCart() {
+        send(ComputerAccessPayload.ANTAZON_CART, "");
+    }
+
+    public static void saveAntazonCart(String encodedCart) {
+        send(ComputerAccessPayload.ANTAZON_CART, encodedCart.isBlank() ? "[]" : encodedCart);
+    }
+
+    public static void checkoutAntazon() {
+        send(ComputerAccessPayload.ANTAZON_CHECKOUT, "");
     }
 
     public static void reviewAntazonProduct(ResourceLocation productId, int rating, String title, String body) {

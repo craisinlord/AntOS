@@ -11,8 +11,6 @@ import com.craisinlord.antos.content.guide.ComputerGuideData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.StringTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,10 +20,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Supplier;
 import software.bernie.geckolib.animatable.GeoBlockEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
@@ -37,7 +32,6 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 
 public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEntity, ComputerWorkspace {
     private static final ResourceLocation INTRODUCTION_DISK = ResourceLocation.fromNamespaceAndPath("antos", "introduction");
-    private static final String DISKS_TAG = "Disks";
     private static final String ACTIVE_UNTIL_TAG = "ActiveUntil";
     private static final String PASSWORD_TAG = "Password";
     private static final String AUTHENTICATED_TAG = "Authenticated";
@@ -46,7 +40,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     private static final String TASK_PROGRESS_TAG = "TaskProgress";
     private static final String WORKSPACE_OWNER_TAG = "WorkspaceOwner";
     private static final String WORKSPACE_ID_TAG = "WorkspaceId";
-    private final Set<ResourceLocation> physicalDiskIds = new LinkedHashSet<>();
     private final ComputerFileSystem fileSystem = new ComputerFileSystem();
     private final ComputerDesktopState desktopState = new ComputerDesktopState();
     private final ComputerTaskProgress taskProgress = new ComputerTaskProgress();
@@ -99,27 +92,24 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         ResourceLocation diskId = stack.get(AntOSObjects.FLOPPY_DISK_COMPONENT.get());
         ComputerGuideData.Disk disk = diskId == null ? null : ComputerGuideData.disk(diskId);
         if (disk == null) return false;
-        ComputerWorkspaceData accountData = level instanceof net.minecraft.server.level.ServerLevel serverLevel && workspaceOwner != null
-                ? ComputerWorkspaceData.access(serverLevel.getServer()) : null;
-        boolean profileOwned = accountData != null && accountData.account(workspaceOwner) != null;
-        if (profileOwned && (!(player instanceof ServerPlayer serverPlayer)
-                || com.craisinlord.antos.content.network.AnternetAccountHandler.session(serverPlayer) == null
-                || !workspaceOwner.equals(com.craisinlord.antos.content.network.AnternetAccountHandler.session(serverPlayer).accountId()))) return false;
-        if (profileOwned) {
-            CompoundTag snapshot = accountData.workspaceSnapshot(workspaceId);
-            if (snapshot != null) {
-                fileSystem.load(snapshot, level.registryAccess());
-                desktopState.load(snapshot.getCompound(DESKTOP_TAG));
-                taskProgress.load(snapshot.getCompound(TASK_PROGRESS_TAG));
-            }
+        if (!(player instanceof ServerPlayer serverPlayer)) return false;
+        ComputerWorkspaceData.AccountInfo account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(serverPlayer);
+        if (account == null) return false;
+        if (workspaceOwner == null && !authenticateAccount(serverPlayer, account)) return false;
+        if (!account.accountId().equals(workspaceOwner) || workspaceId == null) return false;
+        ComputerWorkspaceData accountData = ComputerWorkspaceData.access(serverPlayer.server);
+        CompoundTag snapshot = accountData.workspaceSnapshot(workspaceId);
+        if (snapshot != null) {
+            fileSystem.load(snapshot, level.registryAccess());
+            desktopState.load(snapshot.getCompound(DESKTOP_TAG));
+            taskProgress.load(snapshot.getCompound(TASK_PROGRESS_TAG));
         }
-        boolean alreadyInstalled = profileOwned ? accountData.profileDisks(workspaceOwner).contains(diskId) : physicalDiskIds.contains(diskId);
+        boolean alreadyInstalled = accountData.profileDisks(workspaceOwner).contains(diskId);
         if (alreadyInstalled) {
             activate();
             return true;
         }
-        if (profileOwned) accountData.addProfileDisk(workspaceOwner, diskId);
-        else this.physicalDiskIds.add(diskId);
+        accountData.addProfileDisk(workspaceOwner, diskId);
         for (ResourceLocation taskId : disk.tasks()) taskProgress.grant(taskId);
         for (ResourceLocation entryId : disk.entries()) taskProgress.unlockArchiveEntry(entryId);
         if (!disk.wallpaper().isBlank()) {
@@ -132,20 +122,12 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         stack.shrink(1);
         activate();
         setChanged();
-        if (profileOwned) saveAccountWorkspace();
-        else saveWorkspaceProgress();
-        if (profileOwned && player instanceof ServerPlayer serverPlayer) {
-            com.craisinlord.antos.content.network.ComputerAccessHandler.sendArchive(serverPlayer, this);
-        }
+        saveAccountWorkspace();
+        com.craisinlord.antos.content.network.ComputerAccessHandler.sendArchive(serverPlayer, this);
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
         return true;
-    }
-
-    public boolean requiresAccountSession() {
-        return level instanceof net.minecraft.server.level.ServerLevel serverLevel && workspaceOwner != null
-                && ComputerWorkspaceData.access(serverLevel.getServer()).account(workspaceOwner) != null;
     }
 
     public void activate() {
@@ -177,43 +159,30 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     }
 
     public List<ResourceLocation> diskIds() {
-        Set<ResourceLocation> installed = physicalDiskIds;
+        List<ResourceLocation> installed = List.of();
         if (level instanceof net.minecraft.server.level.ServerLevel serverLevel && workspaceOwner != null) {
             ComputerWorkspaceData data = ComputerWorkspaceData.access(serverLevel.getServer());
-            if (data.account(workspaceOwner) != null) installed = new LinkedHashSet<>(data.profileDisks(workspaceOwner));
+            if (data.account(workspaceOwner) != null) installed = data.profileDisks(workspaceOwner);
         }
-        List<ResourceLocation> ids = new ArrayList<>(installed.size() + 1);
+        java.util.ArrayList<ResourceLocation> ids = new java.util.ArrayList<>(installed.size() + 1);
         ids.add(INTRODUCTION_DISK);
         ids.addAll(installed);
         return List.copyOf(ids);
-    }
-
-    public boolean ejectOne(Player player) {
-        if (physicalDiskIds.isEmpty() || !(player instanceof ServerPlayer serverPlayer)) {
-            return false;
-        }
-        return ejectOne(serverPlayer, physicalDiskIds.iterator().next());
     }
 
     public boolean ejectOne(ServerPlayer player, ResourceLocation diskId) {
         if (level == null || level.isClientSide || diskId == null || INTRODUCTION_DISK.equals(diskId)) {
             return false;
         }
-        ComputerWorkspaceData accountData = null;
-        if (level instanceof net.minecraft.server.level.ServerLevel serverLevel && workspaceOwner != null) {
-            ComputerWorkspaceData candidate = ComputerWorkspaceData.access(serverLevel.getServer());
-            if (candidate.account(workspaceOwner) != null) accountData = candidate;
-        }
-        if (accountData != null) {
-            if (!accountData.removeProfileDisk(workspaceOwner, diskId)) return false;
-        } else {
-            if (!playerCanReach(player) || !physicalDiskIds.remove(diskId)) return false;
-        }
+        ComputerWorkspaceData.AccountInfo account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+        if (!(level instanceof net.minecraft.server.level.ServerLevel serverLevel) || workspaceOwner == null
+                || account == null || !workspaceOwner.equals(account.accountId()) || !playerCanReach(player)) return false;
+        ComputerWorkspaceData accountData = ComputerWorkspaceData.access(serverLevel.getServer());
+        if (!accountData.removeProfileDisk(workspaceOwner, diskId)) return false;
         ItemStack disk = diskStack(diskId);
         net.minecraft.world.entity.item.ItemEntity dropped = player.drop(disk, false);
         if (dropped == null) {
-            if (accountData != null) accountData.addProfileDisk(workspaceOwner, diskId);
-            else physicalDiskIds.add(diskId);
+            accountData.addProfileDisk(workspaceOwner, diskId);
             return false;
         }
         setChanged();
@@ -361,7 +330,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
                 || workspaceOwner != null && !workspaceOwner.equals(account.accountId()) && !workspaceOwner.equals(player.getUUID())
                 || activeUser != null && !activeUser.equals(player.getUUID()) && isAuthenticated()) return false;
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
-        Set<ResourceLocation> legacyDisks = new LinkedHashSet<>(physicalDiskIds);
         CompoundTag snapshot = data.workspaceSnapshot(account.workspaceId());
         boolean hasLegacyState = workspaceId != null || workspaceOwner != null || taskProgress.hasRecoverableProgress()
                 || fileSystem.list().size() > 3 || hasCustomDesktopState();
@@ -379,8 +347,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         }
         workspaceOwner = account.accountId();
         workspaceId = account.workspaceId();
-        for (ResourceLocation diskId : legacyDisks) data.addProfileDisk(account.accountId(), diskId);
-        physicalDiskIds.clear();
         activeUser = player.getUUID();
         authenticated = true;
         authenticatedUntil = 0L;
@@ -492,17 +458,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     @Override
     protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.loadAdditional(tag, registries);
-        physicalDiskIds.clear();
-        ListTag disks = tag.getList(DISKS_TAG, 8);
-        for (int index = 0; index < disks.size(); index++) {
-            try {
-                ResourceLocation diskId = ResourceLocation.parse(disks.getString(index));
-                if (!INTRODUCTION_DISK.equals(diskId)) {
-                    physicalDiskIds.add(diskId);
-                }
-            } catch (Exception ignored) {
-            }
-        }
         activeUntil = tag.getLong(ACTIVE_UNTIL_TAG);
         password = tag.getString(PASSWORD_TAG);
         workspaceOwner = tag.hasUUID(WORKSPACE_OWNER_TAG) ? tag.getUUID(WORKSPACE_OWNER_TAG) : null;
@@ -518,11 +473,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
-        ListTag disks = new ListTag();
-        for (ResourceLocation diskId : physicalDiskIds) {
-            disks.add(StringTag.valueOf(diskId.toString()));
-        }
-        tag.put(DISKS_TAG, disks);
         tag.putLong(ACTIVE_UNTIL_TAG, activeUntil);
         boolean accountWorkspace = level instanceof net.minecraft.server.level.ServerLevel serverLevel && workspaceOwner != null
                 && ComputerWorkspaceData.access(serverLevel.getServer()).account(workspaceOwner) != null;
@@ -541,9 +491,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         CompoundTag tag = new CompoundTag();
         tag.putBoolean("HasPassword", hasPassword());
         tag.putBoolean(AUTHENTICATED_TAG, isAuthenticated());
-        ListTag disks = new ListTag();
-        for (ResourceLocation diskId : physicalDiskIds) disks.add(StringTag.valueOf(diskId.toString()));
-        tag.put(DISKS_TAG, disks);
         return tag;
     }
 

@@ -41,7 +41,7 @@ public final class AnternetAccountHandler {
     }
 
     public static void requestDiskInsertion(ServerPlayer player, ComputerBlockEntity computer, InteractionHand hand, ItemStack stack) {
-        if (session(player) != null || !computer.requiresAccountSession() || !computer.playerCanReach(player)
+        if (session(player) != null || !computer.playerCanReach(player)
                 || player.getItemInHand(hand) != stack || !stack.is(com.craisinlord.antos.content.AntOSObjects.FLOPPY_DISK.get())
                 || stack.get(com.craisinlord.antos.content.AntOSObjects.FLOPPY_DISK_COMPONENT.get()) == null) return;
         ResourceLocation diskId = stack.get(com.craisinlord.antos.content.AntOSObjects.FLOPPY_DISK_COMPONENT.get());
@@ -159,6 +159,10 @@ public final class AnternetAccountHandler {
             PENDING_INSERTIONS.remove(player.getUUID());
         }
         com.craisinlord.antos.content.antazon.AntazonServerData.access(server).migratePlayerToProfile(player.getUUID(), account.accountId());
+        com.craisinlord.antos.content.item.AntroidPhoneItem.syncPendingDisks(player, account);
+        com.craisinlord.antos.compat.ftbquests.AntOSFTBBridge.deliverPending(player, account);
+        com.craisinlord.antos.content.antmail.AntmailEventData.onSession(player, account);
+        com.craisinlord.antos.content.computer.ComputerAccountLoginEvents.fire(player, account);
         resultSender.accept(player, new AnternetAccountResultPayload(AnternetAccountResultPayload.SUCCESS,
                 account.accountId(), account.workspaceId(), account.displayUsername()));
     }

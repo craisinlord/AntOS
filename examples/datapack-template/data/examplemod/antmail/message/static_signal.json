@@ -1,0 +1,12 @@
+{
+  "sender": "unknown@antmail.com",
+  "sender_display": "?̵?̸?̶@̵?̷?",
+  "sender_avatar_entity": "minecraft:enderman",
+  "subject": "can you hear it",
+  "body": "it is quiet down there. [glitch]too quiet[/glitch]. the field office does not know about [redact]the second tunnel[/redact].\n\ndo not reply.",
+  "trigger": { "type": "task_complete", "value": "examplemod:stronghold_scout" },
+  "style": "corrupted",
+  "delete_after_read": true,
+  "deliver_window": { "from": 18000, "to": 22000 },
+  "notification": "silent"
+}

@@ -9,6 +9,27 @@ sourceSets.main {
     resources.srcDirs += project(':common-1.21.1').sourceSets.main.resources.srcDirs
 }
 
+def generatedVersionSource = layout.buildDirectory.file('generated/sources/antosVersion/java/com/craisinlord/antos/AntOSBuildVersion.java')
+tasks.register('generateAntOSVersion') {
+    inputs.property 'version', project.version
+    outputs.file generatedVersionSource
+    doLast {
+        def sourceFile = generatedVersionSource.get().asFile
+        sourceFile.parentFile.mkdirs()
+        sourceFile.text = """package com.craisinlord.antos;
+
+public final class AntOSBuildVersion {
+    public static final String VALUE = \"${project.version}\";
+
+    private AntOSBuildVersion() {}
+}
+"""
+    }
+}
+sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated/sources/antosVersion/java'))
+tasks.named('compileJava') { dependsOn tasks.named('generateAntOSVersion') }
+tasks.named('sourcesJar') { dependsOn tasks.named('generateAntOSVersion') }
+
 neoForge {
     version = neoforge_version_1_21_1
     mods {
@@ -22,6 +43,10 @@ neoForge {
 
 dependencies {
     implementation "software.bernie.geckolib:geckolib-neoforge-1.21.1:${geckolib_version}"
+    compileOnly "dev.ftb.mods:ftb-quests-neoforge:${ftb_quests_version_1_21_1}"
+    compileOnly("dev.ftb.mods:ftb-library-neoforge:${ftb_library_version_1_21_1}") { transitive = false }
+    compileOnly("dev.ftb.mods:ftb-teams-neoforge:${ftb_teams_version_1_21_1}") { transitive = false }
+    compileOnly "dev.architectury:architectury-neoforge:${architectury_version_1_21_1}"
 }
 
 processResources {

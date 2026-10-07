@@ -8,7 +8,9 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -83,6 +85,17 @@ public final class AntOSSettings {
         save();
     }
 
+    public static synchronized Boolean taskGroupCollapsed(String groupId) {
+        return config.taskGroupCollapsed == null ? null : config.taskGroupCollapsed.get(groupId);
+    }
+
+    public static synchronized void setTaskGroupCollapsed(String groupId, boolean collapsed) {
+        if (groupId == null || groupId.isBlank()) return;
+        if (config.taskGroupCollapsed == null) config.taskGroupCollapsed = new HashMap<>();
+        config.taskGroupCollapsed.put(groupId, collapsed);
+        save();
+    }
+
     private static void save() {
         if (configPath == null) return;
         try (Writer writer = Files.newBufferedWriter(configPath)) {
@@ -98,6 +111,10 @@ public final class AntOSSettings {
 
     public static boolean unlockAllGameEntries() {
         return config.unlockAllGameEntries;
+    }
+
+    public static boolean inventoryComputerButtonEnabled() {
+        return config.inventoryComputerButton;
     }
 
     public static boolean appEnabled(String appId) {
@@ -121,14 +138,17 @@ public final class AntOSSettings {
     private static final class Config {
         private boolean unlockAllArchiveEntries;
         private boolean unlockAllGameEntries;
+        private boolean inventoryComputerButton;
         private DesktopApps desktopApps = new DesktopApps();
         private String lastAnternetUsername = "";
         private boolean initialBootSeen;
         private Set<String> completedComputerTours = new HashSet<>();
+        private Map<String, Boolean> taskGroupCollapsed = new HashMap<>();
 
         private Config withDefaults() {
             if (desktopApps == null) desktopApps = new DesktopApps();
             if (completedComputerTours == null) completedComputerTours = new HashSet<>();
+            if (taskGroupCollapsed == null) taskGroupCollapsed = new HashMap<>();
             return this;
         }
     }

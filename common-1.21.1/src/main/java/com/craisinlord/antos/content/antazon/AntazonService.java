@@ -32,21 +32,37 @@ public final class AntazonService {
                                           ResourceLocation productId, String optionId, int units) {
         if (player == null || computer == null || productId == null || optionId == null || units < 1 || units > 64)
             return PurchaseResult.failed("invalid_request");
+        CrateRef deliveryCrate = resolveCrate(player, computer);
+        List<ItemStack> deliveries = new ArrayList<>();
+        PurchaseResult result = purchase(player, computer, deliveryCrate, productId, optionId, units, deliveries);
+        if (result.success()) launchDelivery(player, deliveryCrate, deliveries);
+        return result;
+    }
+
+    /**
+     * Charges for and records one purchase, adding its reward stacks to {@code deliveries} instead of launching them,
+     * so checkout can resolve the crate once and send every line in a single drop.
+     */
+    private static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer, CrateRef deliveryCrate,
+                                           ResourceLocation productId, String optionId, int units, List<ItemStack> deliveries) {
+        if (player == null || computer == null || productId == null || optionId == null || units < 1 || units > 64)
+            return PurchaseResult.failed("invalid_request");
         AntazonData.Product product = AntazonData.product(productId);
         if (product == null || !product.enabled()) return PurchaseResult.failed("product_unavailable");
         if (!unlocked(player, computer, product)) return PurchaseResult.failed("task_locked");
-        if (!optionId.equals("default")) return PurchaseResult.failed("invalid_request");
-        CrateRef deliveryCrate = resolveCrate(player, computer);
+        int optionIndex = -1;
+        if (!optionId.equals("default")) {
+            try { optionIndex = Integer.parseInt(optionId); }
+            catch (NumberFormatException exception) { return PurchaseResult.failed("invalid_request"); }
+            if (optionIndex < 0 || optionIndex >= product.payments().size()) return PurchaseResult.failed("invalid_request");
+        }
         if (deliveryCrate == null) return PurchaseResult.failed("crate_unavailable");
         long gameTime = player.serverLevel().getGameTime();
         long day = gameTime / MINECRAFT_DAY;
         AntazonServerData data = AntazonServerData.access(player.server);
         synchronized (data) {
             AntazonData.Availability availability = product.availability();
-            AntazonServerData.Stock current = data.stock(productId);
-            if (current == null) current = new AntazonServerData.Stock(availability.serverStock(), day + availability.restockMinecraftDays());
-            if (availability.restockMinecraftDays() > 0 && day >= current.nextRestockDay())
-                current = new AntazonServerData.Stock(availability.serverStock(), day + availability.restockMinecraftDays());
+            AntazonServerData.Stock current = currentStock(data, product, day);
             int requiredUnits = Math.multiplyExact(product.quantity(), units);
             if (availability.serverStock() > 0 && current.remaining() < requiredUnits) return PurchaseResult.failed("out_of_stock");
             UUID profile = accountOwner(computer, player);
@@ -62,36 +78,130 @@ public final class AntazonService {
             UUID account = accountOwner(computer, player);
             AntazonData.Payment payment = null;
             String paymentReceipt = "";
-            for (AntazonData.Payment candidate : product.payments()) {
-                int unitPayment = product.deal().active(day)
-                        ? Math.max(1, candidate.amount() * (100 - product.deal().discountPercent()) / 100)
-                        : candidate.amount();
-                int totalPayment = Math.multiplyExact(unitPayment, units);
+            List<AntazonData.Payment> candidates = optionIndex < 0 ? product.payments() : List.of(product.payments().get(optionIndex));
+            for (AntazonData.Payment candidate : candidates) {
+                int totalPayment = Math.multiplyExact(unitPrice(product, candidate, day), units);
                 if (pay(player, data, account, candidate, totalPayment)) {
                     payment = candidate;
                     paymentReceipt = totalPayment + " " + (candidate.type().equals("antcoins") ? "antcoins" : candidate.resource());
                     break;
                 }
             }
-            if (payment == null) return PurchaseResult.failed("payment_unavailable");
-            if (availability.serverStock() > 0) current = new AntazonServerData.Stock(current.remaining() - requiredUnits, current.nextRestockDay());
-            data.setStock(productId, current);
+            if (payment == null) return PurchaseResult.failed(optionIndex < 0 ? "payment_unavailable" : "insufficient_payment");
+            // Unlimited products have no stock to track, so they never touch the stock table.
+            if (availability.serverStock() > 0) data.setStock(productId, new AntazonServerData.Stock(current.remaining() - requiredUnits, current.nextRestockDay()));
             data.setPlayerState(profile, productId, new AntazonServerData.PlayerState(playerQuantity + requiredUnits, reset, gameTime));
             UUID orderId = UUID.randomUUID();
             data.addOrder(new AntazonServerData.Order(orderId, profile, productId, paymentReceipt, requiredUnits, gameTime, "DELIVERED"));
-            BlockPos landing = deliveryCrate.position();
-            RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), deliveryCrate.level());
-            drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(deliveryCrate.level(), landing), landing.getZ() + 0.5D);
-            drop.setRewards(rewards, player);
-            RewardDropEntity.announceIncoming(player);
-            deliveryCrate.level().addFreshEntity(drop);
-            return PurchaseResult.accepted(orderId, requiredUnits);
+            deliveries.addAll(rewards);
+            return PurchaseResult.accepted(orderId, requiredUnits, paymentReceipt);
+        }
+    }
+
+    /** Merges like stacks and drops them on the crate, splitting into several crates only past the per-drop stack cap. */
+    private static void launchDelivery(ServerPlayer player, CrateRef crate, List<ItemStack> deliveries) {
+        if (crate == null || deliveries.isEmpty()) return;
+        List<ItemStack> merged = new ArrayList<>();
+        for (ItemStack stack : deliveries) {
+            ItemStack remaining = stack.copy();
+            for (ItemStack existing : merged) {
+                if (remaining.isEmpty()) break;
+                if (!ItemStack.isSameItemSameComponents(existing, remaining)) continue;
+                int moved = Math.min(remaining.getCount(), existing.getMaxStackSize() - existing.getCount());
+                existing.grow(moved);
+                remaining.shrink(moved);
+            }
+            while (!remaining.isEmpty()) merged.add(remaining.split(remaining.getMaxStackSize()));
+        }
+        BlockPos landing = crate.position();
+        int perDrop = RewardDropEntity.MAX_REWARD_STACKS - 1;
+        for (int start = 0; start < merged.size(); start += perDrop) {
+            List<ItemStack> contents = new ArrayList<>(merged.subList(start, Math.min(merged.size(), start + perDrop)));
+            contents.add(new ItemStack(Items.CHEST, 1));
+            RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), crate.level());
+            drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(crate.level(), landing), landing.getZ() + 0.5D);
+            drop.setRewards(contents, player);
+            crate.level().addFreshEntity(drop);
+        }
+        RewardDropEntity.announceIncoming(player);
+    }
+
+    public static CheckoutResult checkout(ServerPlayer player, ComputerWorkspace computer) {
+        if (player == null || computer == null || !computer.canUseFileSystem(player)) return new CheckoutResult(List.of(), List.of());
+        AntazonServerData data = AntazonServerData.access(player.server);
+        UUID owner = accountOwner(computer, player);
+        List<AntazonServerData.CartLine> cart = data.cart(owner);
+        CrateRef crate = cart.isEmpty() ? null : resolveCrate(player, computer);
+        List<ItemStack> deliveries = new ArrayList<>();
+        List<AntazonServerData.CartLine> remaining = new ArrayList<>();
+        List<CheckoutLine> results = new ArrayList<>();
+        for (AntazonServerData.CartLine line : cart) {
+            PurchaseResult result;
+            try {
+                result = purchase(player, computer, crate, line.product(), Integer.toString(line.option()), line.units(), deliveries);
+            } catch (ArithmeticException exception) {
+                result = PurchaseResult.failed("invalid_request");
+            }
+            results.add(new CheckoutLine(line, result.status(), result.receipt()));
+            if (!result.success()) remaining.add(line);
+        }
+        launchDelivery(player, crate, deliveries);
+        if (!cart.equals(remaining)) data.setCart(owner, remaining);
+        return new CheckoutResult(List.copyOf(results), List.copyOf(remaining));
+    }
+
+    public static List<AntazonServerData.CartLine> sanitizeCart(List<AntazonServerData.CartLine> lines) {
+        Map<String, AntazonServerData.CartLine> merged = new LinkedHashMap<>();
+        for (AntazonServerData.CartLine line : lines) {
+            AntazonData.Product product = AntazonData.product(line.product());
+            if (product == null || !product.enabled() || line.option() < 0 || line.option() >= product.payments().size()) continue;
+            String key = line.product() + "|" + line.option();
+            AntazonServerData.CartLine previous = merged.get(key);
+            if (previous == null && merged.size() >= AntazonServerData.MAX_CART_LINES) continue;
+            int units = Math.max(1, Math.min(64, line.units() + (previous == null ? 0 : previous.units())));
+            merged.put(key, new AntazonServerData.CartLine(line.product(), line.option(), units));
+        }
+        return List.copyOf(merged.values());
+    }
+
+    public static int unitPrice(AntazonData.Product product, AntazonData.Payment payment, long day) {
+        return product.deal().active(day)
+                ? Math.max(1, payment.amount() * (100 - product.deal().discountPercent()) / 100)
+                : payment.amount();
+    }
+
+    public static AntazonServerData.Stock currentStock(AntazonServerData data, AntazonData.Product product, long day) {
+        AntazonData.Availability availability = product.availability();
+        AntazonServerData.Stock current = data.stock(product.id());
+        if (current == null) current = new AntazonServerData.Stock(availability.serverStock(), day + availability.restockMinecraftDays());
+        if (availability.restockMinecraftDays() > 0 && day >= current.nextRestockDay())
+            current = new AntazonServerData.Stock(availability.serverStock(), day + availability.restockMinecraftDays());
+        return current;
+    }
+
+    public static int limitUsed(AntazonServerData data, UUID profile, AntazonData.Product product, long day) {
+        AntazonServerData.PlayerState state = data.playerState(profile, product.id());
+        return state.reset() == resetMarker(product.availability().playerLimitReset(), day) ? state.quantity() : 0;
+    }
+
+    public static long owned(ServerPlayer player, AntazonServerData data, UUID account, AntazonData.Payment payment) {
+        if (payment.type().equals("antcoins")) return data.wallet(account);
+        if (!payment.type().equals("item")) return 0L;
+        try {
+            Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(payment.resource()));
+            return item == Items.AIR ? 0L : player.getInventory().countItem(item);
+        } catch (RuntimeException exception) {
+            return 0L;
         }
     }
 
     public static Manifest manifest(ServerPlayer player, ComputerWorkspace computer) {
         if (player == null || computer == null || !computer.canUseFileSystem(player)) return Manifest.failed("unauthorized");
-        CrateRef crate = resolveCrate(player, computer);
+        return manifest(computer, resolveCrate(player, computer));
+    }
+
+    /** The manifest for an already-resolved crate, so callers that hold one do not search for it again. */
+    public static Manifest manifest(ComputerWorkspace computer, CrateRef crate) {
         if (crate == null) return Manifest.failed(computer.isRemoteWorkspace() ? "crate_unavailable" : "crate_required");
         ChestBlockEntity chest = crate.chest();
         Map<ResourceLocation, ManifestEntry> entries = new LinkedHashMap<>();
@@ -107,7 +217,7 @@ public final class AntazonService {
             ManifestEntry previous = entries.get(itemId);
             entries.put(itemId, new ManifestEntry(itemId,
                     (previous == null ? 0 : previous.count()) + stack.getCount(),
-                    Math.addExact(previous == null ? 0L : previous.value(), value), rule != null));
+                    Math.addExact(previous == null ? 0L : previous.value(), value), rule != null, rule == null || rule.greenTint(), rule == null || rule.renderMobFromSpawnEgg()));
             unsupported |= rule == null;
         }
         long total = entries.values().stream().mapToLong(ManifestEntry::value).sum();
@@ -172,7 +282,7 @@ public final class AntazonService {
         BlockPos chestPos = crate.position();
         ChestBlockEntity chest = crate.chest();
         synchronized (AntazonServerData.access(player.server)) {
-            Manifest manifest = manifest(player, computer);
+            Manifest manifest = manifest(computer, crate);
             if (!manifest.ready()) return SellResult.failed(manifest.status());
             List<ItemStack> shipmentContents = new ArrayList<>();
             List<ItemStack> originalContents = new ArrayList<>();
@@ -181,8 +291,9 @@ public final class AntazonService {
                 ItemStack stack = chest.getItem(slot);
                 originalContents.add(stack.copy());
                 if (stack.isEmpty()) continue;
-                if (AntazonSellData.rule(BuiltInRegistries.ITEM.getKey(stack.getItem())) == null) return SellResult.failed("crate_changed");
-                currentTotal = Math.addExact(currentTotal, Math.multiplyExact((long) stack.getCount(), AntazonSellData.rule(BuiltInRegistries.ITEM.getKey(stack.getItem())).value()));
+                AntazonSellData.Rule rule = AntazonSellData.rule(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+                if (rule == null) return SellResult.failed("crate_changed");
+                currentTotal = Math.addExact(currentTotal, Math.multiplyExact((long) stack.getCount(), rule.value()));
                 shipmentContents.add(stack.copy());
             }
             if (currentTotal != manifest.total()) return SellResult.failed("crate_changed");
@@ -219,13 +330,12 @@ public final class AntazonService {
         AntazonServerData data = AntazonServerData.access(player.server);
         UUID profile = profileId(player);
         if (data.hasReviewed(profile, productId)) return ReviewResult.failed("already_reviewed");
-        boolean purchased = data.orders(profile).stream().anyMatch(order -> order.product().equals(productId) && order.status().equals("DELIVERED"));
-        if (!purchased) return ReviewResult.failed("purchase_required");
+        if (!data.hasPurchased(profile, productId)) return ReviewResult.failed("purchase_required");
         data.addReview(new AntazonServerData.PlayerReview(profile, productId, rating, title.trim(), body.trim(), player.serverLevel().getGameTime()));
         return ReviewResult.accepted();
     }
 
-    private static boolean unlocked(ServerPlayer player, ComputerWorkspace computer, AntazonData.Product product) {
+    public static boolean unlocked(ServerPlayer player, ComputerWorkspace computer, AntazonData.Product product) {
         if (product.unlockTasks().isEmpty()) return true;
         boolean any = product.unlockMode().equals("any");
         for (ResourceLocation task : product.unlockTasks()) {
@@ -275,12 +385,10 @@ public final class AntazonService {
                 remaining -= count;
             }
         }
-        // Antazon packaging is part of every successful delivery and becomes the next shipping cost.
-        stacks.add(new ItemStack(Items.CHEST, 1));
         return stacks;
     }
 
-    private static UUID accountOwner(ComputerWorkspace computer, ServerPlayer player) {
+    public static UUID accountOwner(ComputerWorkspace computer, ServerPlayer player) {
         return computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
     }
 
@@ -345,10 +453,14 @@ public final class AntazonService {
 
     public record CrateRef(ServerLevel level, BlockPos position, ChestBlockEntity chest) { }
 
-    public record PurchaseResult(boolean success, String status, UUID orderId, int units) {
-        static PurchaseResult accepted(UUID orderId, int units) { return new PurchaseResult(true, "accepted", orderId, units); }
-        static PurchaseResult failed(String status) { return new PurchaseResult(false, status, null, 0); }
+    public record PurchaseResult(boolean success, String status, UUID orderId, int units, String receipt) {
+        static PurchaseResult accepted(UUID orderId, int units, String receipt) { return new PurchaseResult(true, "accepted", orderId, units, receipt); }
+        static PurchaseResult failed(String status) { return new PurchaseResult(false, status, null, 0, ""); }
     }
+
+    public record CheckoutLine(AntazonServerData.CartLine line, String status, String receipt) { }
+
+    public record CheckoutResult(List<CheckoutLine> lines, List<AntazonServerData.CartLine> remaining) { }
 
     public record SellResult(boolean success, String status, long amount) {
         static SellResult accepted(long amount) { return new SellResult(true, "shipment_launched", amount); }
@@ -365,7 +477,7 @@ public final class AntazonService {
         boolean ready() { return status.isBlank() && total > 0L; }
     }
 
-    public record ManifestEntry(ResourceLocation item, int count, long value, boolean sellable) { }
+    public record ManifestEntry(ResourceLocation item, int count, long value, boolean sellable, boolean greenTint, boolean renderMobFromSpawnEgg) { }
 
     public record ReviewResult(boolean success, String status) {
         static ReviewResult accepted() { return new ReviewResult(true, "review_accepted"); }

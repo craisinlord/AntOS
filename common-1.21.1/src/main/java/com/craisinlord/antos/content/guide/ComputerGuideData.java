@@ -8,6 +8,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
@@ -23,14 +24,20 @@ import java.util.Map;
 public final class ComputerGuideData extends SimplePreparableReloadListener<ComputerGuideData.LoadedData> {
     private static final int MAX_TASK_DEFINITIONS = 512;
     private static final int MAX_TASK_OBJECTIVES = 64;
+    private static final String TASK_CATEGORY_DIRECTORY = "computer/task/category";
+    private static final String TASK_GROUP_DIRECTORY = "computer/task/group";
     private static final ComputerGuideData INSTANCE = new ComputerGuideData();
     private static final ResourceLocation INTRODUCTION = ResourceLocation.fromNamespaceAndPath("antos", "introduction");
     private static volatile Map<ResourceLocation, Entry> entries = Map.of();
+    private static volatile Map<ResourceLocation, Entry> fieldGuideEntries = Map.of();
+    private static volatile java.util.Set<ResourceLocation> fieldGuideConflicts = java.util.Set.of();
     private static volatile Map<ResourceLocation, Disk> disks = Map.of();
     private static volatile long diskTextureRevision;
     private static volatile Map<ResourceLocation, DiskCategory> categories = Map.of();
     private static volatile Map<ResourceLocation, Wallpaper> wallpapers = Map.of();
     private static volatile Map<ResourceLocation, Task> tasks = Map.of();
+    private static volatile Map<ResourceLocation, TaskCategory> taskCategories = Map.of();
+    private static volatile Map<ResourceLocation, TaskGroup> taskGroups = Map.of();
     private static volatile Boolean serverUnlockAllArchiveEntries;
     private static volatile Boolean serverUnlockAllGameEntries;
 
@@ -42,7 +49,41 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     public static Entry entry(ResourceLocation id) {
-        return entries.get(id);
+        Entry entry = entries.get(id);
+        return entry != null ? entry : fieldGuideEntries.get(id);
+    }
+
+    public static boolean replaceFieldGuideEntries(Map<ResourceLocation, Entry> definitions) {
+        Map<ResourceLocation, Entry> filtered = new LinkedHashMap<>();
+        java.util.Set<ResourceLocation> conflicts = new java.util.LinkedHashSet<>();
+        definitions.forEach((id, entry) -> {
+            if (entries.containsKey(id)) {
+                conflicts.add(id);
+            } else {
+                filtered.put(id, entry);
+            }
+        });
+        for (ResourceLocation id : conflicts) {
+            if (!fieldGuideConflicts.contains(id)) {
+                AntOS.LOGGER.warn("Field Guide Archive entry {} conflicts with an existing AntOS entry and was skipped", id);
+            }
+        }
+        fieldGuideConflicts = java.util.Set.copyOf(conflicts);
+        Map<ResourceLocation, Entry> replacement = Map.copyOf(filtered);
+        if (fieldGuideEntries.equals(replacement)) return false;
+        fieldGuideEntries = replacement;
+        return true;
+    }
+
+    public static Component archiveTitle(Entry entry) {
+        String key = entry.titleKey();
+        return key.startsWith("literal:") ? Component.literal(key.substring("literal:".length())) : Component.translatable(key);
+    }
+
+    private static Map<ResourceLocation, Entry> allEntries() {
+        Map<ResourceLocation, Entry> result = new LinkedHashMap<>(fieldGuideEntries);
+        result.putAll(entries);
+        return result;
     }
 
     public static Disk disk(ResourceLocation id) {
@@ -77,8 +118,47 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return wallpapers.get(id);
     }
 
+    /** Sorted views are cached against the map instance they were built from; a reload swaps the map and rebuilds them. */
+    private record SortedView<T>(Map<ResourceLocation, T> source, List<T> sorted) { }
+    private static volatile SortedView<Task> sortedTasks;
+    private static volatile SortedView<TaskCategory> sortedTaskCategories;
+    private static volatile SortedView<TaskGroup> sortedTaskGroups;
+
     public static List<Task> tasks() {
-        return tasks.values().stream().sorted(Comparator.comparingInt(Task::sortOrder).thenComparing(task -> task.id().toString())).toList();
+        Map<ResourceLocation, Task> current = tasks;
+        SortedView<Task> view = sortedTasks;
+        if (view == null || view.source() != current) {
+            view = new SortedView<>(current, current.values().stream()
+                    .sorted(Comparator.comparingInt(Task::sortOrder).thenComparing(task -> task.id().toString())).toList());
+            sortedTasks = view;
+        }
+        return view.sorted();
+    }
+
+    public static Task task(ResourceLocation id) {
+        return id == null ? null : tasks.get(id);
+    }
+
+    public static List<TaskCategory> taskCategories() {
+        Map<ResourceLocation, TaskCategory> current = taskCategories;
+        SortedView<TaskCategory> view = sortedTaskCategories;
+        if (view == null || view.source() != current) {
+            view = new SortedView<>(current, current.values().stream()
+                    .sorted(Comparator.comparingInt(TaskCategory::sortOrder).thenComparing(category -> category.id().toString())).toList());
+            sortedTaskCategories = view;
+        }
+        return view.sorted();
+    }
+
+    public static List<TaskGroup> taskGroups() {
+        Map<ResourceLocation, TaskGroup> current = taskGroups;
+        SortedView<TaskGroup> view = sortedTaskGroups;
+        if (view == null || view.source() != current) {
+            view = new SortedView<>(current, current.values().stream()
+                    .sorted(Comparator.comparingInt(TaskGroup::sortOrder).thenComparing(group -> group.id().toString())).toList());
+            sortedTaskGroups = view;
+        }
+        return view.sorted();
     }
 
     public static List<Wallpaper> wallpapers() {
@@ -105,13 +185,16 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     public static List<Entry> entriesFor(List<ResourceLocation> diskIds, java.util.Collection<ResourceLocation> additionallyUnlocked) {
+        Map<ResourceLocation, Entry> archiveEntries = allEntries();
         if (unlockAllArchiveEntries()) {
             Map<ResourceLocation, Entry> result = new LinkedHashMap<>();
             result.put(INTRODUCTION, introduction());
-            result.putAll(entries);
+            result.putAll(archiveEntries);
             return result.values().stream().sorted(Comparator.comparing(entry -> entry.titleKey().toString())).toList();
         }
         Map<ResourceLocation, Entry> result = new LinkedHashMap<>();
+        archiveEntries.values().stream().filter(Entry::unlockedByDefault)
+                .forEach(entry -> result.put(entry.id(), entry));
         for (ResourceLocation diskId : diskIds) {
             if (INTRODUCTION.equals(diskId)) {
                 result.put(INTRODUCTION, introduction());
@@ -122,14 +205,14 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 continue;
             }
             for (ResourceLocation entryId : disk.entries()) {
-                Entry entry = entries.get(entryId);
+                Entry entry = archiveEntries.get(entryId);
                 if (entry != null) {
                     result.putIfAbsent(entryId, entry);
                 }
             }
         }
         for (ResourceLocation entryId : additionallyUnlocked) {
-            Entry entry = entries.get(entryId);
+            Entry entry = archiveEntries.get(entryId);
             if (entry != null) result.putIfAbsent(entryId, entry);
         }
         return result.values().stream().sorted(Comparator.comparing(entry -> entry.titleKey().toString())).toList();
@@ -138,7 +221,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     private static Entry introduction() {
         return new Entry(INTRODUCTION, "article", "general", "guide.antos.entry.introduction.title",
                 "guide.antos.entry.introduction.subtitle", List.of("guide.antos.entry.introduction.description"),
-                "antos:floppy_disk", "", "", "", "", "", "", 0, "", "", "", "", 0.0F, 1.0F, true);
+                "antos:floppy_disk", "", "", "", "", "", "", 0, "", "", "", "", 0.0F, 1.0F, true, false);
     }
 
     /** Encodes loaded definitions for connected clients. */
@@ -152,31 +235,34 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         unlockedEntries.forEach(id -> unlockedArray.add(id.toString()));
         root.add("unlocked_entries", unlockedArray);
         JsonArray entryArray = new JsonArray();
-        entries.values().stream().sorted(Comparator.comparing(entry -> entry.id().toString())).forEach(entry -> {
+        allEntries().values().stream().sorted(Comparator.comparing(entry -> entry.id().toString())).forEach(entry -> {
             JsonObject object = new JsonObject();
             object.addProperty("id", entry.id().toString());
-            object.addProperty("type", entry.type());
-            object.addProperty("category", entry.category());
+            if (!entry.type().equals("article")) object.addProperty("type", entry.type());
+            if (!entry.category().equals("general")) object.addProperty("category", entry.category());
             object.addProperty("title", entry.titleKey());
-            object.addProperty("subtitle", entry.subtitleKey());
-            JsonArray descriptions = new JsonArray();
-            entry.descriptionKeys().forEach(descriptions::add);
-            object.add("description", descriptions);
-            object.addProperty("item", entry.itemId());
-            object.addProperty("entity", entry.entityId());
-            object.addProperty("enchantment", entry.enchantmentId());
-            object.addProperty("recipe", entry.recipeId());
-            object.addProperty("structure", entry.structureId());
-            object.addProperty("structure_tag", entry.structureTagId());
-            object.addProperty("dimension", entry.dimensionId());
-            object.addProperty("search_radius", entry.searchRadius());
-            object.addProperty("locator", entry.locatorId());
-            object.addProperty("cover_item", entry.coverItemId());
-            object.addProperty("cover_entity", entry.coverEntityId());
-            object.addProperty("cover_potion", entry.coverPotionId());
-            object.addProperty("rotation", entry.rotation());
-            object.addProperty("render_scale", entry.renderScale());
-            object.addProperty("green_tint", entry.greenTint());
+            if (!entry.subtitleKey().isEmpty()) object.addProperty("subtitle", entry.subtitleKey());
+            if (!entry.descriptionKeys().isEmpty()) {
+                JsonArray descriptions = new JsonArray();
+                entry.descriptionKeys().forEach(descriptions::add);
+                object.add("description", descriptions);
+            }
+            addIfPresent(object, "item", entry.itemId());
+            addIfPresent(object, "entity", entry.entityId());
+            addIfPresent(object, "enchantment", entry.enchantmentId());
+            addIfPresent(object, "recipe", entry.recipeId());
+            addIfPresent(object, "structure", entry.structureId());
+            addIfPresent(object, "structure_tag", entry.structureTagId());
+            addIfPresent(object, "dimension", entry.dimensionId());
+            if (entry.searchRadius() != 0) object.addProperty("search_radius", entry.searchRadius());
+            addIfPresent(object, "locator", entry.locatorId());
+            addIfPresent(object, "cover_item", entry.coverItemId());
+            addIfPresent(object, "cover_entity", entry.coverEntityId());
+            addIfPresent(object, "cover_potion", entry.coverPotionId());
+            if (entry.rotation() != 0.0F) object.addProperty("rotation", entry.rotation());
+            if (entry.renderScale() != 1.0F) object.addProperty("render_scale", entry.renderScale());
+            if (!entry.greenTint()) object.addProperty("green_tint", false);
+            if (entry.unlockedByDefault()) object.addProperty("unlocked_by_default", true);
             entryArray.add(object);
         });
         root.add("entries", entryArray);
@@ -221,6 +307,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return root.toString();
     }
 
+    private static void addIfPresent(JsonObject object, String key, String value) {
+        if (value != null && !value.isEmpty()) object.addProperty(key, value);
+    }
+
     /** Applies the server's definitions on the client. */
     public static void applyNetworkSnapshot(String json) {
         try {
@@ -260,7 +350,14 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             }
             JsonArray taskArray = root.getAsJsonArray("tasks");
             if (taskArray != null) for (JsonElement element : taskArray) parseTask(element.getAsJsonObject(), loadedTasks);
+            Map<ResourceLocation, Entry> loadedFieldGuideEntries = new HashMap<>();
+            loadedEntries.entrySet().removeIf(entry -> {
+                if (!entry.getKey().getNamespace().equals("fieldguide_compat")) return false;
+                loadedFieldGuideEntries.put(entry.getKey(), entry.getValue());
+                return true;
+            });
             entries = Map.copyOf(loadedEntries);
+            fieldGuideEntries = Map.copyOf(loadedFieldGuideEntries);
             disks = Map.copyOf(loadedDisks);
             categories = Map.copyOf(loadedCategories);
             wallpapers = Map.copyOf(loadedWallpapers);
@@ -280,6 +377,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         Map<ResourceLocation, DiskCategory> loadedCategories = new HashMap<>();
         Map<ResourceLocation, Wallpaper> loadedWallpapers = new HashMap<>();
         Map<ResourceLocation, Task> loadedTasks = new HashMap<>();
+        Map<ResourceLocation, TaskCategory> loadedTaskCategories = new HashMap<>();
+        Map<ResourceLocation, TaskGroup> loadedTaskGroups = new HashMap<>();
         for (Map.Entry<ResourceLocation, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources("computer/entry", path -> path.getPath().endsWith(".json")).entrySet()) {
             ResourceLocation id = resourceId(resource.getKey(), "computer/entry");
             try {
@@ -316,7 +415,18 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 AntOS.LOGGER.error("Failed to load computer wallpaper {}", resource.getKey(), exception);
             }
         }
+        for (Map.Entry<ResourceLocation, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources(TASK_CATEGORY_DIRECTORY, path -> path.getPath().endsWith(".json")).entrySet()) {
+            ResourceLocation id = resourceId(resource.getKey(), TASK_CATEGORY_DIRECTORY);
+            try { parseTaskCategory(id, JsonParser.parseReader(resource.getValue().openAsReader()), loadedTaskCategories); }
+            catch (Exception exception) { AntOS.LOGGER.error("Failed to load computer task category {}", resource.getKey(), exception); }
+        }
+        for (Map.Entry<ResourceLocation, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources(TASK_GROUP_DIRECTORY, path -> path.getPath().endsWith(".json")).entrySet()) {
+            ResourceLocation id = resourceId(resource.getKey(), TASK_GROUP_DIRECTORY);
+            try { parseTaskGroup(id, JsonParser.parseReader(resource.getValue().openAsReader()), loadedTaskGroups); }
+            catch (Exception exception) { AntOS.LOGGER.error("Failed to load computer task group {}", resource.getKey(), exception); }
+        }
         for (Map.Entry<ResourceLocation, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources("computer/task", path -> path.getPath().endsWith(".json")).entrySet().stream()
+                .filter(resource -> !resource.getKey().getPath().startsWith(TASK_CATEGORY_DIRECTORY + "/") && !resource.getKey().getPath().startsWith(TASK_GROUP_DIRECTORY + "/"))
                 .sorted(Map.Entry.comparingByKey()).toList()) {
             if (loadedTasks.size() >= MAX_TASK_DEFINITIONS) {
                 AntOS.LOGGER.warn("AntOS task limit reached ({}); additional task definitions are skipped", MAX_TASK_DEFINITIONS);
@@ -326,7 +436,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             try { parseTask(id, JsonParser.parseReader(resource.getValue().openAsReader()), loadedTasks); }
             catch (Exception exception) { AntOS.LOGGER.error("Failed to load computer task {}", resource.getKey(), exception); }
         }
-        return new LoadedData(Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks));
+        return new LoadedData(Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks),
+                Map.copyOf(loadedTaskCategories), Map.copyOf(loadedTaskGroups));
     }
 
     @Override
@@ -337,14 +448,16 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         diskTextureRevision++;
         wallpapers = data.wallpapers();
         tasks = data.tasks();
+        taskCategories = data.taskCategories();
+        taskGroups = data.taskGroups();
         validateLoadedData(data, resourceManager);
         int snapshotLength = encodeNetworkSnapshot().length();
         if (snapshotLength > com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS) {
             AntOS.LOGGER.error("AntOS guide sync data is {} characters; it exceeds the network limit of {}. Reduce loaded Archive entries, disks, wallpapers, or descriptions.",
                     snapshotLength, com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS);
         }
-        AntOS.LOGGER.info("Loaded AntOS data: {} Archive entries, {} disks, {} wallpapers, and {} tasks",
-                entries.size(), disks.size(), wallpapers.size(), tasks.size());
+        AntOS.LOGGER.info("Loaded AntOS data: {} Archive entries, {} disks, {} wallpapers, {} tasks, {} task categories, and {} task groups",
+                entries.size(), disks.size(), wallpapers.size(), tasks.size(), taskCategories.size(), taskGroups.size());
     }
 
     private static void validateLoadedData(LoadedData data, ResourceManager resourceManager) {
@@ -406,7 +519,27 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                     AntOS.LOGGER.warn("AntOS task {} rewards missing advancement {}", task.id(), reward.target());
             }
         }
+        for (Task task : data.tasks().values()) warnMissingIcon("task", task.id(), task.iconItem(), task.iconEntity());
+        for (TaskCategory category : data.taskCategories().values()) {
+            warnMissingIcon("task category", category.id(), category.iconItem(), category.iconEntity());
+            if (category.group() != null && !data.taskGroups().containsKey(category.group()))
+                AntOS.LOGGER.warn("AntOS task category {} refers to missing task group {}; it is shown ungrouped", category.id(), category.group());
+        }
+        for (TaskGroup group : data.taskGroups().values()) warnMissingIcon("task group", group.id(), group.iconItem(), group.iconEntity());
         warnTaskCycles(data.tasks());
+    }
+
+    private static void warnMissingIcon(String kind, ResourceLocation id, String iconItem, String iconEntity) {
+        if (!iconItem.isBlank()) {
+            ResourceLocation item = ResourceLocation.tryParse(iconItem);
+            if (item == null || !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(item))
+                AntOS.LOGGER.warn("AntOS {} {} uses missing icon item {}", kind, id, iconItem);
+        }
+        if (!iconEntity.isBlank()) {
+            ResourceLocation entity = ResourceLocation.tryParse(iconEntity);
+            if (entity == null || !net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(entity))
+                AntOS.LOGGER.warn("AntOS {} {} uses missing icon entity {}", kind, id, iconEntity);
+        }
     }
 
     private static void warnTaskCycles(Map<ResourceLocation, Task> taskData) {
@@ -470,8 +603,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         renderScale = Math.max(0.1F, Math.min(3.0F, renderScale));
         boolean greenTint = !object.has("green_tint") || !object.get("green_tint").isJsonPrimitive()
                 || object.get("green_tint").getAsBoolean();
+        boolean unlockedByDefault = object.has("unlocked_by_default") && object.get("unlocked_by_default").isJsonPrimitive()
+                && object.get("unlocked_by_default").getAsBoolean();
         target.put(id, new Entry(id, type, category, title, subtitle, description, item, entity, enchantment, recipe, structure, structureTag, dimension, searchRadius, locator,
-                coverItem, coverEntity, coverPotion, rotation, renderScale, greenTint));
+                coverItem, coverEntity, coverPotion, rotation, renderScale, greenTint, unlockedByDefault));
     }
 
     private static void parseDisk(ResourceLocation id, JsonElement element, Map<ResourceLocation, Disk> target) {
@@ -566,6 +701,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         }
         List<ResourceLocation> requires = resourceIds(object.get("requires"));
         List<ResourceLocation> archives = resourceIds(object.get("archive_entries"));
+        boolean greenTint = !object.has("green_tint") || !object.get("green_tint").isJsonPrimitive() || object.get("green_tint").getAsBoolean();
+        boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive() || object.get("render_mob_from_spawn_egg").getAsBoolean();
         List<TaskReward> rewards = new ArrayList<>();
         JsonElement rewardElement = object.get("rewards");
         int rewardUnits = 0;
@@ -636,21 +773,81 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             JsonObject row = item.getAsJsonObject(); String objectiveId = string(row, "id", "");
             String type = string(row, "type", ""); String destination = string(row, "target", "");
             String statType = string(row, "stat_type", "");
+            String tagMode = string(row, "tag_mode", "any");
             boolean supportedStat = type.equals("stat") && List.of("custom", "block_mined", "item_crafted", "item_used", "item_broken", "item_picked_up", "item_dropped", "entity_killed", "entity_killed_by").contains(statType);
             boolean eventObjective = type.equals("mail_read") || type.equals("archive_viewed")
+                    || com.craisinlord.antos.content.computer.ComputerLocationObjectives.TYPES.contains(type)
                     || type.contains(":") && ResourceLocation.tryParse(type) != null;
             if (objectiveId.isBlank() || objectiveId.length() > 128 || !objectiveIds.add(objectiveId)
-                    || destination.isBlank() || !(type.equals("item") || type.equals("advancement") || supportedStat || eventObjective)) {
+                    || destination.isBlank() || !(type.equals("item") || type.equals("item_tag") || type.equals("advancement") || supportedStat || eventObjective)
+                    || type.equals("item_tag") && !tagMode.equals("any") && !tagMode.equals("all")
+                    || row.has("consume") && row.get("consume").isJsonPrimitive() && row.get("consume").getAsBoolean()
+                    && !type.equals("item") && !type.equals("item_tag")) {
                 AntOS.LOGGER.warn("Ignoring task {} objective '{}' with duplicate/invalid ID, missing target, or unsupported type '{}'", id, objectiveId, type);
                 continue;
             }
+            if ((type.equals("item") || type.equals("item_tag")) && destination.startsWith("#")) {
+                AntOS.LOGGER.warn("Ignoring task {} objective {}: use type 'item_tag' with a tag ID without #", id, objectiveId);
+                continue;
+            }
+            if (type.equals("item_tag")) {
+                ResourceLocation tagId = ResourceLocation.tryParse(destination);
+                if (tagId == null) {
+                    AntOS.LOGGER.warn("Ignoring task {} objective {} with invalid item tag {}", id, objectiveId, destination);
+                    continue;
+                }
+            }
+            if (type.equals("item")) {
+                ResourceLocation itemId = ResourceLocation.tryParse(destination);
+                if (itemId == null) {
+                    AntOS.LOGGER.warn("Ignoring task {} objective {} with invalid item ID {}", id, objectiveId, destination);
+                    continue;
+                }
+            }
             int count = Math.max(1, Math.min(1_000_000, row.has("count") ? row.get("count").getAsInt() : 1));
             objectives.add(new Objective(objectiveId, type, destination, statType, string(row, "description", ""), count,
-                    row.has("optional") && row.get("optional").getAsBoolean()));
+                    row.has("optional") && row.get("optional").getAsBoolean(),
+                    !row.has("sticky") || !row.get("sticky").isJsonPrimitive() || row.get("sticky").getAsBoolean(),
+                    tagMode,
+                    row.has("consume") && row.get("consume").isJsonPrimitive() && row.get("consume").getAsBoolean()));
         }
         target.put(id, new Task(id, title, description, program, category, order, availability, requires, objectives, archives, rewards, x, y,
                 object.has("hide_until_dependencies_complete") && object.get("hide_until_dependencies_complete").getAsBoolean(),
-                object.has("invisible_until_completed") && object.get("invisible_until_completed").getAsBoolean()));
+                object.has("invisible_until_completed") && object.get("invisible_until_completed").getAsBoolean(), greenTint,
+                string(object, "icon", ""), string(object, "icon_entity", ""), renderMobFromSpawnEgg));
+    }
+
+    private static void parseTaskCategory(ResourceLocation id, JsonElement element, Map<ResourceLocation, TaskCategory> target) {
+        if (!element.isJsonObject()) return;
+        JsonObject object = element.getAsJsonObject();
+        String title = string(object, "title", "task.category." + id.getNamespace() + "." + id.getPath().replace('/', '.'));
+        String groupValue = string(object, "group", "");
+        ResourceLocation group = null;
+        if (!groupValue.isBlank()) {
+            group = ResourceLocation.tryParse(groupValue);
+            if (group == null) AntOS.LOGGER.warn("AntOS task category {} has invalid group {}; it is shown ungrouped", id, groupValue);
+        }
+        boolean greenTint = !object.has("green_tint") || !object.get("green_tint").isJsonPrimitive()
+                || object.get("green_tint").getAsBoolean();
+        boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive() || object.get("render_mob_from_spawn_egg").getAsBoolean();
+        target.put(id, new TaskCategory(id, title, string(object, "icon", ""), string(object, "icon_entity", ""), boundedSortOrder(object), group, greenTint, renderMobFromSpawnEgg));
+    }
+
+    private static void parseTaskGroup(ResourceLocation id, JsonElement element, Map<ResourceLocation, TaskGroup> target) {
+        if (!element.isJsonObject()) return;
+        JsonObject object = element.getAsJsonObject();
+        String title = string(object, "title", "task.group." + id.getNamespace() + "." + id.getPath().replace('/', '.'));
+        boolean collapsed = object.has("collapsed") && object.get("collapsed").isJsonPrimitive() && object.get("collapsed").getAsBoolean();
+        boolean greenTint = !object.has("green_tint") || !object.get("green_tint").isJsonPrimitive()
+                || object.get("green_tint").getAsBoolean();
+        boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive() || object.get("render_mob_from_spawn_egg").getAsBoolean();
+        target.put(id, new TaskGroup(id, title, string(object, "icon", ""), string(object, "icon_entity", ""), boundedSortOrder(object), collapsed, greenTint, renderMobFromSpawnEgg));
+    }
+
+    private static int boundedSortOrder(JsonObject object) {
+        if (!object.has("sort_order")) return 0;
+        try { return Math.max(-100000, Math.min(100000, object.get("sort_order").getAsInt())); }
+        catch (RuntimeException ignored) { return 0; }
     }
 
     private static int boundedPosition(JsonObject position, String key) {
@@ -709,7 +906,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public record Entry(ResourceLocation id, String type, String category, String titleKey, String subtitleKey,
                          List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
                          String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
-                         String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint) {
+                         String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
+                         boolean unlockedByDefault) {
     }
 
     public record Disk(ResourceLocation id, ResourceLocation category, String titleKey, List<ResourceLocation> entries, String wallpaper, List<ResourceLocation> tasks) {
@@ -722,12 +920,15 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
 
     public record Task(ResourceLocation id, String titleKey, String descriptionKey, String program, String category, int sortOrder, String availability,
                        List<ResourceLocation> requires, List<Objective> objectives, List<ResourceLocation> archiveEntries, List<TaskReward> rewards, int x, int y,
-                       boolean hideUntilDependenciesComplete, boolean invisibleUntilCompleted) { }
-    public record Objective(String id, String type, String target, String statType, String descriptionKey, int count, boolean optional) { }
+                       boolean hideUntilDependenciesComplete, boolean invisibleUntilCompleted, boolean greenTint, String iconItem, String iconEntity, boolean renderMobFromSpawnEgg) { }
+    public record TaskCategory(ResourceLocation id, String titleKey, String iconItem, String iconEntity, int sortOrder, ResourceLocation group, boolean greenTint, boolean renderMobFromSpawnEgg) { }
+    public record TaskGroup(ResourceLocation id, String titleKey, String iconItem, String iconEntity, int sortOrder, boolean collapsed, boolean greenTint, boolean renderMobFromSpawnEgg) { }
+    public record Objective(String id, String type, String target, String statType, String descriptionKey, int count, boolean optional, boolean sticky, String tagMode, boolean consume) { }
     public record TaskReward(String type, ResourceLocation itemId, int count, int experiencePoints, ResourceLocation target,
                              String sender, String subject, String body, int durationTicks, int amplifier) { }
 
-    record LoadedData(Map<ResourceLocation, Entry> entries, Map<ResourceLocation, Disk> disks, Map<ResourceLocation, DiskCategory> categories, Map<ResourceLocation, Wallpaper> wallpapers, Map<ResourceLocation, Task> tasks) {
+    record LoadedData(Map<ResourceLocation, Entry> entries, Map<ResourceLocation, Disk> disks, Map<ResourceLocation, DiskCategory> categories, Map<ResourceLocation, Wallpaper> wallpapers, Map<ResourceLocation, Task> tasks,
+                      Map<ResourceLocation, TaskCategory> taskCategories, Map<ResourceLocation, TaskGroup> taskGroups) {
     }
 }
 

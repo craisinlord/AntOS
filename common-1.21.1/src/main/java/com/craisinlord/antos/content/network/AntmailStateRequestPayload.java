@@ -11,6 +11,8 @@ public record AntmailStateRequestPayload(int folder, int page, long knownVersion
     public static final int INBOX = 0;
     public static final int SENT = 1;
     public static final int DRAFTS = 2;
+    public static final int ARCHIVE = 3;
+    public static final int TRASH = 4;
     public static final Type<AntmailStateRequestPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "antmail_state_request"));
     public static final StreamCodec<RegistryFriendlyByteBuf, AntmailStateRequestPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, AntmailStateRequestPayload::folder,

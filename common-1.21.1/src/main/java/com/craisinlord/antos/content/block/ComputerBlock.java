@@ -20,8 +20,6 @@ import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
-import net.minecraft.world.level.storage.loot.LootParams;
-import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
@@ -103,32 +101,6 @@ public final class ComputerBlock extends BaseEntityBlock {
     }
 
     @Override
-    protected java.util.List<ItemStack> getDrops(BlockState state, LootParams.Builder builder) {
-        net.minecraft.world.entity.Entity breaker = builder.getOptionalParameter(LootContextParams.THIS_ENTITY);
-        if (breaker instanceof Player) return java.util.List.of();
-        java.util.List<ItemStack> drops = super.getDrops(state, builder);
-        BlockEntity blockEntity = builder.getOptionalParameter(LootContextParams.BLOCK_ENTITY);
-        if (blockEntity instanceof ComputerBlockEntity computer) {
-            for (ItemStack drop : drops) {
-                if (drop.is(AntOSObjects.COMPUTER_ITEM.get())) {
-                    com.craisinlord.antos.content.item.ComputerItem.storeComputerState(drop, computer, builder.getLevel().registryAccess());
-                }
-            }
-        }
-        return drops;
-    }
-
-    @Override
-    public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, BlockEntity blockEntity, ItemStack tool) {
-        if (blockEntity instanceof ComputerBlockEntity computer) {
-            ItemStack portableComputer = new ItemStack(AntOSObjects.COMPUTER_ITEM.get());
-            com.craisinlord.antos.content.item.ComputerItem.storeComputerState(portableComputer, computer, level.registryAccess());
-            if (!player.addItem(portableComputer)) player.drop(portableComputer, false);
-        }
-        super.playerDestroy(level, player, pos, state, blockEntity, tool);
-    }
-
-    @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new ComputerBlockEntity(pos, state, AntOSObjects.COMPUTER_BLOCK_ENTITY);
     }
@@ -142,18 +114,15 @@ public final class ComputerBlock extends BaseEntityBlock {
     protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos, Player player,
                                               InteractionHand hand, BlockHitResult hitResult) {
         if (level.getBlockEntity(pos) instanceof ComputerBlockEntity computer) {
-            if (level.isClientSide) {
-                if (stack.is(AntOSObjects.FLOPPY_DISK.get())) {
-                    return ItemInteractionResult.SUCCESS;
-                }
-            } else if (computer.insert(stack, player)) {
-                return ItemInteractionResult.CONSUME;
-            } else if (stack.is(AntOSObjects.FLOPPY_DISK.get()) && computer.requiresAccountSession()
-                    && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
-                    && com.craisinlord.antos.content.network.AnternetAccountHandler.session(serverPlayer) == null) {
-                com.craisinlord.antos.content.network.AnternetAccountHandler.requestDiskInsertion(serverPlayer, computer, hand, stack);
+            if (level.isClientSide && stack.is(AntOSObjects.FLOPPY_DISK.get())) {
                 return ItemInteractionResult.SUCCESS;
-            } else if (stack.is(AntOSObjects.FLOPPY_DISK.get()) && computer.requiresAccountSession()) {
+            }
+            if (stack.is(AntOSObjects.FLOPPY_DISK.get()) && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                if (com.craisinlord.antos.content.network.AnternetAccountHandler.session(serverPlayer) == null) {
+                    com.craisinlord.antos.content.network.AnternetAccountHandler.requestDiskInsertion(serverPlayer, computer, hand, stack);
+                } else {
+                    computer.insert(stack, player);
+                }
                 return ItemInteractionResult.SUCCESS;
             }
         }

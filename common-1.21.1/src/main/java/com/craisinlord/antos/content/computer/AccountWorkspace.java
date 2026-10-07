@@ -20,20 +20,30 @@ public final class AccountWorkspace implements ComputerWorkspace {
     private final ComputerDesktopState desktopState = new ComputerDesktopState();
     private final ComputerTaskProgress taskProgress = new ComputerTaskProgress();
     private boolean authenticated = true;
+    /** Files and desktop are only decoded when a request touches them; most requests only need task progress. */
+    private boolean workspaceLoaded;
+    private int savedProgressRevision;
 
     public AccountWorkspace(ServerPlayer owner, ComputerWorkspaceData.AccountInfo account) {
         this.owner = owner;
         this.account = account;
+        CompoundTag progress = ComputerWorkspaceData.access(owner.server).workspaceSection(account.workspaceId(), "TaskProgress");
+        if (progress != null) taskProgress.load(progress);
+        savedProgressRevision = taskProgress.revision();
+    }
+
+    private void loadWorkspace() {
+        if (workspaceLoaded) return;
+        workspaceLoaded = true;
         CompoundTag snapshot = ComputerWorkspaceData.access(owner.server).workspaceSnapshot(account.workspaceId());
         if (snapshot != null) {
             fileSystem.load(snapshot, owner.serverLevel().registryAccess());
             desktopState.load(snapshot.getCompound("Desktop"));
-            taskProgress.load(snapshot.getCompound("TaskProgress"));
         }
     }
 
-    @Override public ComputerFileSystem fileSystem() { return fileSystem; }
-    @Override public ComputerDesktopState desktopState() { return desktopState; }
+    @Override public ComputerFileSystem fileSystem() { loadWorkspace(); return fileSystem; }
+    @Override public ComputerDesktopState desktopState() { loadWorkspace(); return desktopState; }
     @Override public ComputerTaskProgress taskProgress() { return taskProgress; }
     @Override public UUID workspaceOwner() { return account.accountId(); }
     @Override public UUID workspaceId() { return account.workspaceId(); }
@@ -73,24 +83,27 @@ public final class AccountWorkspace implements ComputerWorkspace {
     }
 
     @Override public boolean selectWallpaper(ResourceLocation id) {
-        if (ComputerGuideData.wallpaper(id) == null || !desktopState.selectWallpaper(id)) return false;
+        if (ComputerGuideData.wallpaper(id) == null || !desktopState().selectWallpaper(id)) return false;
         saveAccountWorkspace();
         return true;
     }
 
     @Override public void saveAccountWorkspace() {
+        if (!workspaceLoaded) {
+            saveWorkspaceProgress();
+            return;
+        }
         CompoundTag snapshot = new CompoundTag();
         fileSystem.save(snapshot, owner.serverLevel().registryAccess());
         snapshot.put("Desktop", desktopState.save());
         snapshot.put("TaskProgress", taskProgress.save());
         ComputerWorkspaceData.access(owner.server).saveWorkspaceSnapshot(account.workspaceId(), snapshot);
+        savedProgressRevision = taskProgress.revision();
     }
 
     @Override public void saveWorkspaceProgress() {
-        ComputerWorkspaceData data = ComputerWorkspaceData.access(owner.server);
-        CompoundTag snapshot = data.workspaceSnapshot(account.workspaceId());
-        if (snapshot == null) snapshot = new CompoundTag();
-        snapshot.put("TaskProgress", taskProgress.save());
-        data.saveWorkspaceSnapshot(account.workspaceId(), snapshot);
+        if (taskProgress.revision() == savedProgressRevision) return;
+        ComputerWorkspaceData.access(owner.server).saveWorkspaceSection(account.workspaceId(), "TaskProgress", taskProgress.save());
+        savedProgressRevision = taskProgress.revision();
     }
 }

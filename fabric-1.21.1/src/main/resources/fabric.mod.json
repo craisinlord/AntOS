@@ -17,6 +17,10 @@
     "java": ">=21",
     "fabric-api": "*",
     "geckolib": "*"
+  },
+  "suggests": {
+    "ftbquests": "*",
+    "fieldguide": "*"
   }
 }
 

@@ -1,0 +1,8 @@
+{
+  "sender": "deals@antmail.com",
+  "sender_display": "Antmail Deals",
+  "sender_avatar_item": "minecraft:emerald",
+  "subject": "Is your tunnel insured, {player}?",
+  "body": "Cave-ins happen. Gravel happens. Protect your colony today with Tunnel Shield Premium. Reply STOP to never be contacted again (you will be contacted again).",
+  "trigger": { "type": "random", "pool": "spam", "weight": 2 }
+}

@@ -1,0 +1,15 @@
+{
+  "sender": "fieldoffice@antmail.com",
+  "sender_display": "Field Office",
+  "sender_avatar_item": "minecraft:compass",
+  "subject": "I found more",
+  "body": "The echoes line up with old village records. Check the map I sent with this message.",
+  "trigger": { "type": "mail_read", "value": "examplemod:field_rumor", "delay": 1 },
+  "delivery": {
+    "on": "read",
+    "items": [
+      { "explorer_map": "#minecraft:village", "name": "item.examplemod.survey_map" },
+      { "id": "minecraft:bread", "count": 4 }
+    ]
+  }
+}

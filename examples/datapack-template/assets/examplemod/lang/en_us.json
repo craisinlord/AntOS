@@ -14,6 +14,7 @@
   "task.examplemod.stronghold_scout.description": "The archive points to an old stone complex. Confirm the site in person.",
   "task.examplemod.stronghold_scout.enter_stronghold": "Enter a stronghold",
   "task.category.examplemod.meadow_research": "Meadow Research",
+  "task.group.examplemod.fieldwork": "Fieldwork",
   "antazon.examplemod.reinforced_nest_bundle.name": "Reinforced Nest Bundle",
   "antazon.examplemod.reinforced_nest_bundle.description": "A supply bundle for expanding a busy nest.",
   "antazon.examplemod.reinforced_nest_bundle.review.title": "Reliable starter supplies",
@@ -24,5 +25,6 @@
   "antazon.examplemod.task_reward_crate.review.title": "Worth finishing the assignment",
   "antazon.examplemod.task_reward_crate.review.body": "The crate makes the first research milestone feel rewarding.",
   "antazon.examplemod.welcome.subject": "A note from the field",
-  "antazon.examplemod.welcome.body": "Welcome to the colony network. Here is your first clue: @item:minecraft:diamond"
+  "antazon.examplemod.welcome.body": "Welcome to the colony network. Here is your first clue: @item:minecraft:diamond",
+  "item.examplemod.survey_map": "Field Office Survey Map"
 }

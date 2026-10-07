@@ -29,3 +29,17 @@ type="required"
 versionRange="*"
 ordering="AFTER"
 side="BOTH"
+
+[[dependencies.antos]]
+modId="ftbquests"
+type="optional"
+versionRange="*"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.antos]]
+modId="fieldguide"
+type="optional"
+versionRange="[1.18.0,)"
+ordering="AFTER"
+side="BOTH"

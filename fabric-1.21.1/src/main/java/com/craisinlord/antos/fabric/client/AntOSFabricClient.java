@@ -16,6 +16,10 @@ import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import com.craisinlord.antos.content.client.screen.InventoryComputerButton;
 
 public final class AntOSFabricClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
@@ -28,6 +32,12 @@ public final class AntOSFabricClient implements ClientModInitializer {
         FloppyDiskModelProperties.register(AntOSFabricContent.FLOPPY_DISK);
         AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
         AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
+        ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+            if (screen instanceof InventoryScreen && AntOSSettings.inventoryComputerButtonEnabled()) {
+                Screens.getButtons(screen).add(new InventoryComputerButton(scaledWidth / 2 - 86,
+                        (scaledHeight - 166) / 2 + 4));
+            }
+        });
         BlockEntityRendererRegistry.register(AntOSFabricContent.COMPUTER_BLOCK_ENTITY, ComputerRenderer::new);
         EntityRendererRegistry.register(AntOSFabricContent.REWARD_DROP_ENTITY, RewardDropRenderer::new);
     }

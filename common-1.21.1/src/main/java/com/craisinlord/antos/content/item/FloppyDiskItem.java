@@ -6,12 +6,30 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
 
 public class FloppyDiskItem extends Item {
     public FloppyDiskItem(Properties properties) {
         super(properties.stacksTo(1));
+    }
+
+    @Override
+    public InteractionResultHolder<ItemStack> use(net.minecraft.world.level.Level level,
+                                                   net.minecraft.world.entity.player.Player player,
+                                                   InteractionHand hand) {
+        InteractionHand otherHand = hand == InteractionHand.MAIN_HAND
+                ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+        ItemStack phone = player.getItemInHand(otherHand);
+        ItemStack floppy = player.getItemInHand(hand);
+        if (phone.getItem() instanceof AntroidPhoneItem) {
+            if (player instanceof ServerPlayer serverPlayer) AntroidPhoneItem.insertDisk(serverPlayer, phone, floppy);
+            return InteractionResultHolder.sidedSuccess(floppy, level.isClientSide);
+        }
+        return super.use(level, player, hand);
     }
 
     @Override

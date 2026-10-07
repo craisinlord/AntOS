@@ -66,7 +66,7 @@ public final class TaskDebugCommands {
             return 0;
         }
         ComputerTasks.forceCompleteTask(player, computer, taskId);
-        context.getSource().sendSuccess(() -> Component.literal("Force-completed task and processed its rewards: " + taskId), false);
+        context.getSource().sendSuccess(() -> Component.literal("Force-completed task; rewards are ready to claim: " + taskId), false);
         return 1;
     }
 
@@ -116,7 +116,8 @@ public final class TaskDebugCommands {
         context.getSource().sendSuccess(() -> Component.literal(taskId + " // " + state), false);
         for (ComputerGuideData.Objective objective : task.objectives()) {
             int current = progress.objectiveCount(taskId, objective.id());
-            context.getSource().sendSuccess(() -> Component.literal("  " + objective.id() + " = " + current + "/" + objective.count()
+            int goal = ComputerTasks.objectiveProgressGoal(player, objective);
+            context.getSource().sendSuccess(() -> Component.literal("  " + objective.id() + " = " + current + "/" + goal
                     + (objective.optional() ? " (optional)" : "")), false);
         }
         return 1;

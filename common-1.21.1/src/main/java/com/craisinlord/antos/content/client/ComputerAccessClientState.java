@@ -46,7 +46,7 @@ public final class ComputerAccessClientState {
 
     public static void clear() {
         RESULTS.remove(ComputerWorkspaceClientKey.of());
-        ComputerTasksClientState.clear();
+        ComputerTasksClientState.clearTransient();
         ComputerArchiveUnlockClientState.clear();
         ComputerTerminalClientState.clear();
         AntazonClientState.clear();

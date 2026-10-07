@@ -44,6 +44,16 @@ public record ComputerAccessPayload(int action, String value) implements CustomP
     public static final int ANTAZON_ONBOARDING_COMPLETE = 37;
     public static final int ANTAZON_ONBOARDING_RESET = 38;
     public static final int ANTAZON_CRATE_LINK = 39;
+    public static final int TASK_CLAIM_REWARD = 40;
+    public static final int TEAM_CREATE = 41;
+    public static final int TEAM_INVITE = 42;
+    public static final int TEAM_ACCEPT_INVITE = 43;
+    public static final int TEAM_DECLINE_INVITE = 44;
+    public static final int TEAM_LEAVE = 45;
+    public static final int TEAM_DISBAND = 46;
+    public static final int TEAM_RESULT = 47;
+    public static final int ANTAZON_CART = 48;
+    public static final int ANTAZON_CHECKOUT = 49;
     public static final Type<ComputerAccessPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "computer_access"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ComputerAccessPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, ComputerAccessPayload::action,

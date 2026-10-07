@@ -1,0 +1,6 @@
+{
+  "title": "task.category.examplemod.meadow_research",
+  "icon": "minecraft:compass",
+  "sort_order": 10,
+  "group": "examplemod:fieldwork"
+}

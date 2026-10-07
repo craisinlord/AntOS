@@ -36,4 +36,30 @@ public final class AntmailRenderMarkers {
     }
 
     public record Extracted(String body, List<AntmailAttachment> attachments) { }
+
+    private static final Pattern STYLE_MARKER = Pattern.compile("\\[(glitch|redact)](.*?)\\[/\\1]", Pattern.DOTALL);
+
+    public enum SegmentKind { PLAIN, GLITCH, REDACT }
+
+    public record Segment(SegmentKind kind, String text) { }
+
+    /** Splits {@code [glitch]text[/glitch]} and {@code [redact]text[/redact]} presentation markup out of mail text. */
+    public static List<Segment> segments(String text) {
+        List<Segment> segments = new ArrayList<>();
+        if (text == null || text.isEmpty()) return segments;
+        Matcher matcher = STYLE_MARKER.matcher(text);
+        int last = 0;
+        while (matcher.find()) {
+            if (matcher.start() > last) segments.add(new Segment(SegmentKind.PLAIN, text.substring(last, matcher.start())));
+            segments.add(new Segment(matcher.group(1).equals("glitch") ? SegmentKind.GLITCH : SegmentKind.REDACT, matcher.group(2)));
+            last = matcher.end();
+        }
+        if (last < text.length()) segments.add(new Segment(SegmentKind.PLAIN, text.substring(last)));
+        return segments;
+    }
+
+    /** Mail text with presentation markup removed, for single-line previews. */
+    public static String stripStyleMarkers(String text) {
+        return text == null ? "" : STYLE_MARKER.matcher(text).replaceAll("$2");
+    }
 }

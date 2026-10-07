@@ -18,6 +18,10 @@ public record AntmailDraft(UUID id, AntmailAddress sender, AntmailAddress recipi
         }
     }
 
+    public AntmailDraft withoutAttachments() {
+        return attachments.isEmpty() ? this : new AntmailDraft(id, sender, recipient, subject, body, List.of());
+    }
+
     public CompoundTag toTag() {
         CompoundTag tag = new CompoundTag();
         tag.putString("Id", id.toString());
