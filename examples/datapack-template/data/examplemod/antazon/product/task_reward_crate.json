@@ -14,6 +14,7 @@
   ],
   "unlock_tasks": ["examplemod:field_basics"],
   "unlock_mode": "all",
+  "hidden_until_unlocked": true,
   "availability": {
     "server_stock": 4,
     "restock_after_minecraft_days": 4,

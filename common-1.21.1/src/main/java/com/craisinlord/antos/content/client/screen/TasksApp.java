@@ -33,11 +33,12 @@ import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 final class TasksApp extends ComputerApp {
     private static final int NODE_SIZE = 32;
     private static final int NODE_GRID = 56;
+    private static final float DEFAULT_MAP_ZOOM = 0.85F;
 
     int refreshTicks;
     int mapScrollX;
     int mapScrollY;
-    private float mapZoom = 1.0F;
+    private float mapZoom = DEFAULT_MAP_ZOOM;
     Window panningWindow;
     double panStartX;
     double panStartY;
@@ -186,14 +187,15 @@ final class TasksApp extends ComputerApp {
             screen.box(g, x, bodyY + 1, x + 20, bodyY + 19, toggleColor);
             g.drawCenteredString(font, Component.literal(">"), x + 10, bodyY + 5, toggleColor);
         }
-        int categoriesVisible = Math.max(1, (bodyHeight - 52) / 19);
+        int categoriesVisible = Math.max(1, (bodyHeight - 52 + 18) / 19);
         categoryScroll = Math.max(0, Math.min(categoryScroll, Math.max(0, sidebarRows.size() - categoriesVisible)));
         int categoryY = bodyY + 39;
         for (int rowIndex = categoryScroll; sidebarWidth > 0 && rowIndex < sidebarRows.size() && rowIndex < categoryScroll + categoriesVisible; rowIndex++) {
             SidebarRow sidebarRow = sidebarRows.get(rowIndex);
             boolean header = sidebarRow.category().isBlank();
             boolean selected = !header && sidebarRow.category().equals(selectedCategory);
-            if (selected || screen.hovered(x + 2, categoryY - 2, sidebarWidth - 4, 16)) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY + 14, HOVER_FILL);
+            boolean rowHovered = screen.hovered(x + 2, categoryY - 2, sidebarWidth - 4, 16);
+            if (selected || rowHovered) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY + 14, HOVER_FILL);
             int iconLeft = x + 4 + sidebarRow.indent();
             boolean hasIcon = !sidebarRow.iconItem().isBlank() || !sidebarRow.iconEntity().isBlank();
             if (hasIcon) {
@@ -211,11 +213,16 @@ final class TasksApp extends ComputerApp {
             boolean rowHasClaimable = sidebarCount.claimable();
             int categoryLabelWidth = Math.max(1, sidebarRight - font.width(count) - 10 - labelX);
             int labelColor = header ? PALE_GREEN : selected ? GREEN : 0xFF87B787;
-            g.drawString(font, Component.literal(screen.trimToWidth(sidebarRow.label().toUpperCase(Locale.ROOT), categoryLabelWidth)), labelX, categoryY + 2, labelColor, false);
+            drawSidebarLabel(g, sidebarRow.label().toUpperCase(Locale.ROOT), labelX, categoryY + 2, categoryLabelWidth, labelColor, rowHovered);
             g.drawString(font, Component.literal(count), sidebarRight - font.width(count) - 6, categoryY + 2,
                     rowHasClaimable || header || selected ? PALE_GREEN : 0xFF638063, false);
             categoryY += 19;
-            if (categoryY > bodyY + bodyHeight - 12) break;
+        }
+        if (sidebarWidth > 0 && categoryScroll + categoriesVisible < sidebarRows.size()) {
+            int arrowX = sidebarRight - 14;
+            int arrowY = bodyY + bodyHeight - 13;
+            g.fill(arrowX - 2, arrowY - 1, arrowX + 12, arrowY + 11, 0xFF071007);
+            g.drawCenteredString(font, Component.literal("v"), arrowX + 5, arrowY, 0xFF87B787);
         }
         if (sidebarWidth > 0 && screen.hovered(x + 4, bodyY + 18, sidebarWidth - 8, 16)) {
             int tipX = sidebarRight + 5;
@@ -334,7 +341,7 @@ final class TasksApp extends ComputerApp {
         int centerWidth = compact ? 42 : 48;
         int helpX = compact ? mapX + mapW - 18 : mapX + mapW - 84;
         drawTeamButton(g, zoomOutX, controlY, 14, "-", false);
-        if (!compact) g.drawString(font, Component.literal(Math.round(mapZoom * 100) + "%"), zoomOutX + 18, controlY + 4, PALE_GREEN, false);
+        if (!compact) g.drawString(font, Component.literal(Math.round(mapZoom / DEFAULT_MAP_ZOOM * 100) + "%"), zoomOutX + 18, controlY + 4, PALE_GREEN, false);
         drawTeamButton(g, zoomInX, controlY, 14, "+", false);
         drawTeamButton(g, centerX, controlY, centerWidth, "CENTER", false);
         drawTeamButton(g, helpX, controlY, 14, "?", false);
@@ -695,6 +702,31 @@ final class TasksApp extends ComputerApp {
     private record Cell(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task, int column, int row) { }
 
     private record SidebarRow(String group, String category, String label, String iconItem, String iconEntity, int indent, boolean greenTint, boolean renderMobFromSpawnEgg) { }
+
+    private void drawSidebarLabel(GuiGraphics g, String label, int x, int y, int width, int color, boolean hovered) {
+        int labelWidth = font.width(label);
+        if (labelWidth <= width) {
+            g.drawString(font, Component.literal(label), x, y, color, false);
+            return;
+        }
+        if (!hovered) {
+            g.drawString(font, Component.literal(screen.trimToWidth(label, width)), x, y, color, false);
+            return;
+        }
+        int overflow = labelWidth - width;
+        long travelTime = overflow * 45L;
+        long pauseTime = 900L;
+        long cycleTime = pauseTime * 2 + travelTime * 2;
+        long phase = System.currentTimeMillis() % cycleTime;
+        int offset;
+        if (phase < pauseTime) offset = 0;
+        else if (phase < pauseTime + travelTime) offset = (int) ((phase - pauseTime) / 45L);
+        else if (phase < pauseTime * 2 + travelTime) offset = overflow;
+        else offset = overflow - (int) ((phase - pauseTime * 2 - travelTime) / 45L);
+        int start = font.plainSubstrByWidth(label, offset).length();
+        String visibleLabel = font.plainSubstrByWidth(label.substring(start), width);
+        g.drawString(font, Component.literal(visibleLabel), x, y, color, false);
+    }
 
     private record SidebarEntry(String group, String category, int sortOrder, boolean defined) { }
 
@@ -1118,7 +1150,7 @@ final class TasksApp extends ComputerApp {
                 return true;
             }
             int categoryOffset = (int) mouseY - (bodyY + 37);
-            int visibleCategories = Math.max(1, (bodyHeight - 52) / 19);
+            int visibleCategories = Math.max(1, (bodyHeight - 52 + 18) / 19);
             int visibleIndex = categoryOffset / 19;
             int categoryIndex = categoryScroll + visibleIndex;
             List<SidebarRow> sidebarRows = visibleSidebarRows();
@@ -1234,7 +1266,7 @@ final class TasksApp extends ComputerApp {
                 return true;
             }
             if (!compactControls && screen.inside(mapX + 21, controlY, 29, 15, mouseX, mouseY)) {
-                mapZoom = 1.0F;
+                mapZoom = DEFAULT_MAP_ZOOM;
                 centerMapOn(categoryRowsForSelected(), mapX, mapY, mapW, mapH, "");
                 return true;
             }
@@ -1282,7 +1314,7 @@ final class TasksApp extends ComputerApp {
         int sidebarWidth = sidebarShown ? 124 : 0;
         int contentOffset = sidebarWidth > 0 ? sidebarWidth + 9 : 30;
         if (sidebarShown && screen.inside(sidebarX, bodyY + 37, sidebarWidth, Math.max(1, bodyHeight - 37), localX, localY)) {
-            int visible = Math.max(1, (bodyHeight - 52) / 19);
+            int visible = Math.max(1, (bodyHeight - 52 + 18) / 19);
             categoryScroll = Math.max(0, Math.min(Math.max(0, visibleSidebarRows().size() - visible),
                     categoryScroll - (int) Math.signum(scrollY)));
         } else if (!selectedTaskId.isBlank()
@@ -1357,7 +1389,7 @@ final class TasksApp extends ComputerApp {
                 centerCurrentMap();
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_0) {
-                mapZoom = 1.0F;
+                mapZoom = DEFAULT_MAP_ZOOM;
                 centerCurrentMap();
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_HOME) {

@@ -5,6 +5,7 @@
   "item.antos.floppy_disk": "Floppy Disk",
   "button.antos.open_computer": "Open AntOS",
   "antmail.antos.notification": "New Antmail from %s",
+  "antos.tasks.objective_complete": "Objective complete: %s — %s",
   "item.antos.floppy_disk.tooltip": "Insert into an AntOS computer",
   "screen.antos.computer": "AntOS",
   "guide.antos.category.general": "GENERAL",

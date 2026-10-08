@@ -494,7 +494,7 @@ public final class ComputerScreen extends Screen {
             case "ARCHIVE" -> "Discover creatures, items, recipes, and locations. Insert floppy disks to unlock new entries and wallpapers.";
             case "TASKS" -> "Follow tasks, watch your progress, and earn useful rewards as you play.";
             case "ANTMAIL" -> "Read messages, receive task rewards, and send notes or attachments to other AntOS users.";
-            case "ANTAZON" -> "Buy supplies with Antcoins, or sell eligible items from a nearby chest to earn Antcoins. Deliveries include a chest for your next shipment.";
+            case "ANTAZON" -> "Buy supplies with Antcoins, or sell eligible items from a nearby chest to earn Antcoins. Products can arrive in a delivery chest, at configured coordinates, or directly in your inventory.";
             case "SETTINGS" -> "Change wallpapers, manage installed disks, and adjust computer options.";
             case "TERMINAL" -> "Use commands to work with files and perform computer actions directly.";
             case "TEXT" -> "Write, edit, and save plain text documents.";

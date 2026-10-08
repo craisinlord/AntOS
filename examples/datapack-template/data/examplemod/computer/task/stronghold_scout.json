@@ -18,7 +18,8 @@
       "type": "structure_entered",
       "target": "minecraft:stronghold",
       "description": "task.examplemod.stronghold_scout.enter_stronghold",
-      "count": 1
+      "count": 1,
+      "notify_player": false
     }
   ]
 }

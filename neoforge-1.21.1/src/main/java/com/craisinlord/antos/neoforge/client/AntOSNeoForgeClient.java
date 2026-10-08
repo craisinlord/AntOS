@@ -23,6 +23,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import com.craisinlord.antos.content.client.screen.InventoryComputerButton;
 
 @EventBusSubscriber(modid = AntOS.MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
@@ -52,9 +53,9 @@ public final class AntOSNeoForgeClient {
     }
 
     private static void onScreenInit(ScreenEvent.Init.Post event) {
-        if (event.getScreen() instanceof InventoryScreen && AntOSSettings.inventoryComputerButtonEnabled()) {
-            event.addListener(new InventoryComputerButton(event.getScreen().width / 2 - 86,
-                    (event.getScreen().height - 166) / 2 + 4));
+        if ((event.getScreen() instanceof InventoryScreen || event.getScreen() instanceof CreativeModeInventoryScreen)
+                && AntOSSettings.inventoryComputerButtonEnabled()) {
+            event.addListener(new InventoryComputerButton(4, 4));
         }
     }
 

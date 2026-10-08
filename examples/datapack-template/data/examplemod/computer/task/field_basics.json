@@ -12,7 +12,8 @@
       "type": "item",
       "target": "minecraft:iron_ingot",
       "description": "task.examplemod.field_basics.iron_samples",
-      "count": 4
+      "count": 4,
+      "notify_player": true
     }
   ],
   "rewards": [

@@ -112,13 +112,14 @@ Add tasks at `data/<namespace>/computer/task/<path>.json`. A disk can grant star
       "type": "item",
       "target": "minecraft:iron_ingot",
       "description": "task.examplemod.field_basics.iron_samples",
-      "count": 4
+      "count": 4,
+      "notify_player": true
     }
   ]
 }
 ```
 
-Supported objective types are `item`, `item_tag`, `advancement`, `stat`, `mail_read`, `archive_viewed`, and registered mod objective IDs. With FTB Quests installed, AntOS also supports `ftbquests:quest_completed` and `ftbquests:task_completed`; their `target` is the FTB hexadecimal object ID. Objectives require `id`, `type`, `description`, and usually `target`; `count` defaults to `1`, and `optional: true` prevents an objective from blocking completion.
+Supported objective types are `item`, `item_tag`, `advancement`, `stat`, `mail_read`, `archive_viewed`, and registered mod objective IDs. With FTB Quests installed, AntOS also supports `ftbquests:quest_completed` and `ftbquests:task_completed`; their `target` is the FTB hexadecimal object ID. Objectives require `id`, `type`, `description`, and usually `target`; `count` defaults to `1`, and `optional: true` prevents an objective from blocking completion. Set `notify_player` to `false` to suppress the action-bar message and chime when that objective is completed; it defaults to `true`.
 
 `item` checks for one exact item ID. `item_tag` checks an item tag ID without a leading `#`. Its optional `tag_mode` accepts `any` or `all` and defaults to `any` when omitted. For `any`, `count` is the total number of matching items required across all members. For `all`, `count` is required for each item currently in the tag, and progress shows how many tag members have met that amount. Item tags are limited to 128 members. For example, this objective requires any combination of 16 planks; omitting `tag_mode` selects `any`:
 
@@ -221,7 +222,7 @@ Then add `"pool": "examplemod:field_rumors"` and optionally `"weight": 2` to a m
 
 ### Antazon
 
-Antazon is the in-game supply shop and AntCoin exchange. It supports catalog browsing, AntCoin purchases, selling configured items from a nearby chest for AntCoins, task-based unlocks, shared server stock, Minecraft-time restocking, player limits, cooldowns, seeded reviews, verified player reviews, daily deals, a shopping cart, persistent server wishlists, order history, and Archive-style item or mob previews. Successful purchases arrive through the falling chest delivery system. Purchases are final and are not refundable.
+Antazon is the in-game supply shop and AntCoin exchange. It supports catalog browsing, AntCoin purchases, selling configured items from a nearby chest for AntCoins, task-based unlocks, shared server stock, Minecraft-time restocking, player limits, cooldowns, seeded reviews, verified player reviews, daily deals, a shopping cart, persistent server wishlists, order history, and Archive-style item or mob previews. Purchases can arrive in a falling chest, directly in the player's inventory, or at a configured coordinate in the player's current dimension. Purchases are final and are not refundable.
 
 Add products at `data/<namespace>/antazon/product/<path>.json`; the product ID is `<namespace>:<path>`. Product data is loaded during server data reloads. The product must define `quantity`, at least one payment, and one reward. Optional `thumbnail` and `gallery` objects use `{ "item": "namespace:item" }` or `{ "entity": "namespace:entity" }` and control the catalog thumbnail and product-page previews. Set optional `green_tint` to `false` to show those previews in their normal colors; it defaults to `true`. Set optional `render_mob_from_spawn_egg` to `false` to show spawn eggs as item icons throughout the product previews; it defaults to `true`.
 
@@ -237,6 +238,7 @@ Add products at `data/<namespace>/antazon/product/<path>.json`; the product ID i
   ],
   "unlock_tasks": ["examplemod:field_basics"],
   "unlock_mode": "all",
+  "hidden_until_unlocked": false,
   "availability": {
     "server_stock": 20,
     "restock_after_minecraft_days": 3,
@@ -268,11 +270,40 @@ Add products at `data/<namespace>/antazon/product/<path>.json`; the product ID i
 }
 ```
 
-Product payments use `type: "antcoins"`; the resource is conventionally `antcoins` and the amount is the AntCoin price. Sell rules live at `data/<namespace>/antazon/sell/<path>.json` with an `item` ID and AntCoin `value`. Optional `green_tint` controls the item preview in Sell and Prices; it defaults to `true`, and `false` shows the normal colors. Set `render_mob_from_spawn_egg` to `false` to show a spawn egg as the item in Sell and Prices; it defaults to `true`. In the Antazon Sell tab, place items in a single chest next to the computer, select every occupied sellable slot, and ship the chest. The chest is consumed and each purchase delivery includes a replacement chest.
+Set `delivery` to `"falling_chest"` (the default) to send the rewards to the linked delivery chest, or to `"direct"` to put rewards in the player's inventory immediately. If the inventory has no room, remaining items drop beside the player. Direct products can be purchased without a linked delivery chest. Set `delivery` to `"falling_chest_location"` to send rewards to coordinates in the purchasing player's current dimension; include a `delivery_location` object with integer `x`, `y`, and `z` fields. The destination chunk must already be loaded and the coordinates must be inside the world border. For example:
+
+```json
+"delivery": "falling_chest_location",
+"delivery_location": { "x": 120, "y": 64, "z": -240 }
+```
+
+Product payments use `type: "antcoins"`; the resource is conventionally `antcoins` and the amount is the AntCoin price. Sell rules live at `data/<namespace>/antazon/sell/<path>.json` with an `item` ID and AntCoin `value`. Optional `green_tint` controls the item preview in Sell and Prices; it defaults to `true`, and `false` shows the normal colors. Set `render_mob_from_spawn_egg` to `false` to show a spawn egg as the item in Sell and Prices; it defaults to `true`. In the Antazon Sell tab, place items in a single chest next to the computer, select every occupied sellable slot, and ship the chest. The chest is consumed and falling-chest purchase deliveries include a replacement chest.
+
+Antazon accepts item tags wherever it takes items. A product can sell from an item pool instead of, or as well as, fixed `rewards`. `item_pool.items` lists item IDs, and `item_pool.tag` or `item_pool.tags` adds every item in those item tags. The pool creates one listing per item, with ID `<product id>/<item namespace>/<item path>`, and each listing delivers its item × `count` plus any fixed `rewards`. `server_stock`, `player_limit` and `cooldown_minecraft_days` apply to the whole pool, so a limit of 1 per day means one item from the pool per day. Wishlist entries, orders and reviews stay separate for each listing. With `"mode": "all"`, every item is listed. With `"mode": "rotate"`, the shop lists `rotation.picks` items and changes them every `rotation.every_minecraft_days` (default `1`; one Minecraft day is 24,000 game ticks, about 20 real minutes, and sleeping doesn't skip it). Set `rotation.every_real_hours` instead to rotate on the real-world clock, aligned to UTC, so `24` changes at midnight UTC. A rotation can't set both. Restocks work the same way: set `availability.restock_after_minecraft_days` or `availability.restock_after_real_hours`, not both. The product page's "RESTOCKS IN" and "CHANGES IN" countdowns use the unit each timer is set in, for example "2.4 MINECRAFT DAYS" or "3H 12M" of real time. "RESTOCKS IN" only shows while stock is below `server_stock`. Listings for items that aren't selected are hidden and can't be bought, and they're removed from carts when the selection changes. The same happens to any cart line whose product is removed or disabled. `rotation.order` is `shuffled` by default: a seeded random order that shows every item once before any repeats, and is the same for every player on the server. Set it to `sequential` to go in item-ID order. Use `{item}` in `name` or `description` for the item's localized name. A listing's thumbnail and gallery default to its item when the product doesn't set them. Item pools are separate from `deal.pool`, and deal pools only choose among the listings on sale that day.
+
+```json
+{
+  "name": "Hat of the Day: {item}",
+  "description": "Today's hat. Tomorrow's will be different.",
+  "category": "cosmetics",
+  "quantity": 1,
+  "payments": [{ "type": "antcoins", "resource": "antcoins", "amount": 100 }],
+  "item_pool": {
+    "tag": "examplemod:shop_hats",
+    "count": 1,
+    "mode": "rotate",
+    "rotation": { "picks": 1, "every_minecraft_days": 1, "order": "shuffled" }
+  }
+}
+```
+
+Sell rules accept `item`, `items`, `tag` or `tags`, and an item named directly takes its value from that rule rather than from a tag rule. Item payments (`"type": "item"`) accept `"resource": "#namespace:tag"` to take any items in that tag. Tags are resolved the first time the shop is used after a data reload.
 
 Payment choices are tried in data-file order, and the first affordable option is used. AntOS's built-in products use AntCoins. Each product has one purchase definition: `quantity` controls how many reward sets arrive, and `payments` lists the accepted payment choices. `rewards` defines the contents of one reward set. `server_stock` is shared by the server; set it to `0` for unlimited stock. `player_limit_reset` accepts `none`, `minecraft_day`, or `minecraft_week`.
 
-Products can reference any loaded task IDs with `unlock_tasks`. Use `unlock_mode` of `all` or `any`. Daily deals use Minecraft days and apply their discount on the server during active cycle days. Reviews in product data are configured shop reviews; players can add one verified review after a delivered purchase. Wishlists and order history are saved on the shared server. AntMail can compose product links and wishlist messages from Antazon, and recipients can open shared product links directly in the shop.
+Products can reference any loaded task IDs with `unlock_tasks`. Use `unlock_mode` of `all` or `any`. Set `hidden_until_unlocked` to `true` to hide a locked product from the catalog until its task requirements are met; it defaults to `false`. Locked product details show task names and completion state. Daily deals use Minecraft days and apply their discount on the server. `cycle_minecraft_days` sets the cycle, and optional `day_offset` staggers products on fixed cycle days: a seven-day cycle with offsets `0` through `6` assigns one product to each day. Products with the same non-empty `deal.pool` value rotate as one deal pool; each day selects one enabled product in stable product-ID order, advancing to the next product the following Minecraft day. Pools are shared across datapacks and should use namespaced values such as `examplemod:daily`. Pool selection takes precedence over cycle and offset. Reviews in product data are configured shop reviews; players can add one verified review after a delivered purchase. Wishlists and order history are saved on the shared server. New orders preserve paid amount, discount, and pool for deal reporting; legacy orders remain readable and report zero for unavailable fields. Operators can run `/antos antazon deals` to compare deal and regular order counts, units, revenue, and average discount per product; pooled products include their pool name. AntMail can compose product links and wishlist messages from Antazon, and recipients can open shared product links directly in the shop.
+
+Operators can manage AntCoin balances with `/antcoin give <player> <amount>`, `/antcoin get <player>`, and `/antcoin set <player> <amount>`. These commands target the player's signed-in Anternet profile when available.
 
 ### Wallpapers and disk categories
 

@@ -233,15 +233,23 @@ public final class AntazonClientState {
             JsonObject reward = rewardElement.getAsJsonObject();
             rewards.add(new RewardRow(reward.get("item").getAsString(), reward.get("count").getAsInt()));
         }
-        return new ProductRow(row.get("id").getAsString(), row.get("name").getAsString(), row.get("description").getAsString(),
+        String poolItem = poolItemName(string(row, "pool_item", ""));
+        return new ProductRow(row.get("id").getAsString(), withPoolItem(row.get("name").getAsString(), poolItem),
+                withPoolItem(row.get("description").getAsString(), poolItem),
                 row.get("category").getAsString(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
-                row.has("remaining") ? row.get("remaining").getAsInt() : -1, row.has("restock_at") ? row.get("restock_at").getAsLong() : 0L,
+                row.has("remaining") ? row.get("remaining").getAsInt() : -1, deadline(row, "restock_in_ms"), bool(row, "restock_real", false),
                 row.has("limit") ? row.get("limit").getAsInt() : 0, row.has("limit_used") ? row.get("limit_used").getAsInt() : 0,
                 string(row, "limit_reset", "none"), row.get("deal_active").getAsBoolean(), row.get("deal_label").getAsString(),
                 row.get("deal_discount").getAsInt(), bool(row, "locked", false), strings(row.getAsJsonArray("unlock_tasks")),
-                string(row, "unlock_mode", "all"), strings(row.getAsJsonArray("tags")), thumbnail, List.copyOf(gallery),
+                string(row, "unlock_mode", "all"), bool(row, "hidden_until_unlocked", false), strings(row.getAsJsonArray("tags")), thumbnail, List.copyOf(gallery),
                 row.get("quantity").getAsInt(), row.has("cooldown_ends") ? row.get("cooldown_ends").getAsLong() : 0L,
-                List.copyOf(payments), List.copyOf(rewards), List.copyOf(reviews), bool(row, "purchased", false), bool(row, "reviewed", false));
+                List.copyOf(payments), List.copyOf(rewards), List.copyOf(reviews), bool(row, "purchased", false), bool(row, "reviewed", false),
+                deadline(row, "rotates_in_ms"), bool(row, "rotates_real", false));
+    }
+
+    private static long deadline(JsonObject row, String key) {
+        long remaining = row.has(key) ? row.get(key).getAsLong() : 0L;
+        return remaining > 0L ? System.currentTimeMillis() + remaining : 0L;
     }
 
     private static List<CartLine> cart(JsonArray array) {
@@ -274,6 +282,21 @@ public final class AntazonClientState {
 
     private static boolean bool(JsonObject object, String key, boolean fallback) {
         return object.has(key) && object.get(key).isJsonPrimitive() ? object.get(key).getAsBoolean() : fallback;
+    }
+
+    private static String withPoolItem(String text, String poolItem) {
+        if (poolItem.isBlank()) return text;
+        return net.minecraft.network.chat.Component.translatable(text).getString().replace("{item}", poolItem);
+    }
+
+    private static String poolItemName(String itemId) {
+        if (itemId.isBlank()) return "";
+        try {
+            net.minecraft.world.item.Item item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(itemId));
+            return new net.minecraft.world.item.ItemStack(item).getHoverName().getString();
+        } catch (RuntimeException exception) {
+            return itemId;
+        }
     }
 
     private static String string(JsonObject object, String key, String fallback) {
@@ -325,11 +348,11 @@ public final class AntazonClientState {
         ONBOARDING_RECEIVED.remove(key); CARTS.remove(key); CART_RECEIVED.remove(key); CHECKOUTS.remove(key); NOTICES.remove(key);
     }
 
-    public record ProductRow(String id, String name, String description, String category, boolean greenTint, boolean renderMobFromSpawnEgg, int remaining, long restockAt,
+    public record ProductRow(String id, String name, String description, String category, boolean greenTint, boolean renderMobFromSpawnEgg, int remaining, long restockAt, boolean restockReal,
                              int limit, int limitUsed, String limitReset, boolean dealActive, String dealLabel, int dealDiscount,
-                             boolean locked, List<String> unlockTasks, String unlockMode, List<String> tags, PreviewAsset thumbnail,
+                             boolean locked, List<String> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, List<String> tags, PreviewAsset thumbnail,
                              List<PreviewAsset> gallery, int quantity, long cooldownEnds, List<PaymentRow> payments, List<RewardRow> rewards,
-                             List<ReviewRow> reviews, boolean purchased, boolean reviewed) {
+                             List<ReviewRow> reviews, boolean purchased, boolean reviewed, long rotatesAt, boolean rotatesReal) {
         public double rating() {
             return reviews.isEmpty() ? 0.0D : reviews.stream().mapToInt(ReviewRow::rating).average().orElse(0.0D);
         }

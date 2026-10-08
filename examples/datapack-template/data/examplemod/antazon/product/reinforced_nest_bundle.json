@@ -48,6 +48,7 @@
     "enabled": true,
     "label": "computer.antos.product.reinforced_nest_bundle.deal",
     "discount_percent": 20,
+    "pool": "examplemod:daily",
     "cycle_minecraft_days": 1
   }
 }

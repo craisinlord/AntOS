@@ -49,7 +49,7 @@ final class AntazonApp extends ComputerApp {
     private static final int DIM = 0xFF638063;
     private static final int RED = 0xFFFF7777;
     private static final int PANEL = 0xFF071007;
-    private static final int ROW = 27;
+    private static final int ROW = 25;
     private final List<Hit> hits = new ArrayList<>();
     private final List<ScrollArea> scrollAreas = new ArrayList<>();
     private double clickY;
@@ -137,6 +137,17 @@ final class AntazonApp extends ComputerApp {
             g.pose().translate(x, y, 0.0F);
             g.pose().scale(0.85F, 0.85F, 1.0F);
             g.drawString(font, screen.trimToWidth(text, Math.max(1, (int) (maxWidth / 0.85F))), 0, 0, color, false);
+        } finally {
+            g.pose().popPose();
+        }
+    }
+
+    private void chartSmall(GuiGraphics g, String text, int x, int y, int maxWidth, int color) {
+        g.pose().pushPose();
+        try {
+            g.pose().translate(x, y, 0.0F);
+            g.pose().scale(0.68F, 0.68F, 1.0F);
+            g.drawString(font, screen.trimToWidth(text, Math.max(1, (int) (maxWidth / 0.68F))), 0, 0, color, false);
         } finally {
             g.pose().popPose();
         }
@@ -274,6 +285,25 @@ final class AntazonApp extends ComputerApp {
         if (days > 0L) return days + "D " + hours + "H";
         if (hours > 0L) return hours + "H " + minutes + "M";
         return Math.max(1L, minutes) + "M";
+    }
+
+    private String countdown(long deadline, boolean real) {
+        long remaining = Math.max(0L, deadline - System.currentTimeMillis());
+        if (real) return realDuration(remaining);
+        double days = Math.max(0.1D, Math.ceil(remaining / 120_000.0D) / 10.0D);
+        return (days == Math.rint(days) ? Long.toString((long) days) : String.format(java.util.Locale.ROOT, "%.1f", days))
+                + (days == 1.0D ? " MINECRAFT DAY" : " MINECRAFT DAYS");
+    }
+
+    private String realDuration(long millis) {
+        long seconds = Math.max(0L, millis) / 1000L;
+        long days = seconds / 86400L;
+        long hours = seconds % 86400L / 3600L;
+        long minutes = seconds % 3600L / 60L;
+        if (days > 0L) return days + "D " + hours + "H";
+        if (hours > 0L) return hours + "H " + minutes + "M";
+        if (minutes > 0L) return minutes + "M " + seconds % 60L + "S";
+        return Math.max(1L, seconds) + "S";
     }
 
     private int drawStars(GuiGraphics g, double rating, int x, int y) {
@@ -477,6 +507,7 @@ final class AntazonApp extends ComputerApp {
     private List<AntazonClientState.ProductRow> filterProducts(List<AntazonClientState.ProductRow> products) {
         String query = state.search.trim().toLowerCase(Locale.ROOT);
         return products.stream()
+                .filter(product -> !product.hiddenUntilUnlocked() || !product.locked())
                 .filter(product -> state.category.equals("ALL") || product.category().equalsIgnoreCase(state.category))
                 .filter(product -> !state.filterDeals || product.dealActive())
                 .filter(product -> !state.filterStock || blocker(product).isEmpty())
@@ -495,7 +526,8 @@ final class AntazonApp extends ComputerApp {
             renderLoading(g, x, y + h / 2, w, "LOADING SUPPLIES");
             return;
         }
-        List<AntazonClientState.ProductRow> products = AntazonClientState.products();
+        List<AntazonClientState.ProductRow> products = AntazonClientState.products().stream()
+                .filter(product -> !product.hiddenUntilUnlocked() || !product.locked()).toList();
         int top = y + 24;
         int chipWidth = 46;
         int searchWidth = w - chipWidth * 3 - 12;
@@ -508,7 +540,7 @@ final class AntazonApp extends ComputerApp {
         chip(g, chipX + chipWidth + 4, top, chipWidth, state.filterStock, "IN STOCK", () -> { state.filterStock = !state.filterStock; state.scroll = 0; });
         chip(g, chipX + (chipWidth + 4) * 2, top, chipWidth, state.filterAfford, "AFFORDABLE", () -> { state.filterAfford = !state.filterAfford; state.scroll = 0; });
         int bodyTop = top + 22;
-        int bodyBottom = y + h - 12;
+        int bodyBottom = y + h - 2;
         List<String> categories = categories(products);
         if (!categories.contains(state.category)) state.category = "ALL";
         int railWidth = w >= 300 ? 86 : 0;
@@ -721,7 +753,7 @@ final class AntazonApp extends ComputerApp {
                     var task = ComputerTasksClientState.get().stream()
                             .filter(row -> row.id().equals(taskId)).findFirst().orElse(null);
                     boolean known = task != null && task.visible();
-                    String title = known ? AntOSPlayerText.apply(Component.translatable(task.title()).getString()) : "Sealed task";
+                    String title = known ? AntOSPlayerText.apply(Component.translatable(task.title()).getString()) : taskId;
                     String prefix = task != null && task.complete() ? "[X] " : "[ ] ";
                     int rowY = line;
                     if (known && screen.hovered(detailX, rowY - 1, detailWidth, 11)) g.fill(detailX, rowY - 1, detailX + detailWidth, rowY + 10, HOVER_FILL);
@@ -775,14 +807,14 @@ final class AntazonApp extends ComputerApp {
                 for (int stars = 5; stars >= 1; stars--) {
                     int count = stars;
                     long matching = product.reviews().stream().filter(review -> review.rating() == count).count();
-                    int barY = line + (5 - stars) * 6;
-                    small(g, Integer.toString(stars), barX, barY, 8, MUTED);
+                    int barY = line + (5 - stars) * 8;
+                    chartSmall(g, Integer.toString(stars), barX, barY, 8, MUTED);
                     g.fill(barX + 7, barY + 1, barX + 7 + barWidth, barY + 5, DARK_GREEN);
                     int filled = (int) (barWidth * matching / Math.max(1, product.reviews().size()));
                     if (filled > 0) g.fill(barX + 7, barY + 1, barX + 7 + filled, barY + 5, GREEN);
-                    small(g, Long.toString(matching), barX + barWidth + 10, barY, 14, MUTED);
+                    chartSmall(g, Long.toString(matching), barX + barWidth + 10, barY, 14, MUTED);
                 }
-                line += 34;
+                line += 43;
                 for (var review : product.reviews()) {
                     g.fill(detailX, line, detailX + detailWidth, line + 1, DIVIDER);
                     line += 4;
@@ -861,7 +893,11 @@ final class AntazonApp extends ComputerApp {
         g.drawString(font, screen.trimToWidth(availability, innerWidth), innerX, line + 2, blocked ? (product.locked() ? MUTED : RED) : GREEN, false);
         line += 12;
         if (product.remaining() >= 0 && product.restockAt() > 0L && line + 9 < stepperY) {
-            small(g, "RESTOCKS IN " + duration(product.restockAt() - gameTime()), innerX, line, innerWidth, MUTED);
+            small(g, "RESTOCKS IN " + countdown(product.restockAt(), product.restockReal()), innerX, line, innerWidth, MUTED);
+            line += 9;
+        }
+        if (product.rotatesAt() > 0L && line + 9 < stepperY) {
+            small(g, "CHANGES IN " + countdown(product.rotatesAt(), product.rotatesReal()), innerX, line, innerWidth, MUTED);
             line += 9;
         }
         if (product.limit() > 0 && line + 9 < stepperY) {

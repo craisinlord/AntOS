@@ -41,7 +41,11 @@ public final class AntOSFabric implements ModInitializer {
                 com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));
         // Fabric has no advancement event; AntmailEventData.onTick polls earned advancements instead.
         AntmailEventData.registerListeners();
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TaskDebugCommands.register(dispatcher));
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            TaskDebugCommands.register(dispatcher);
+            com.craisinlord.antos.content.antazon.AntazonCommands.register(dispatcher);
+            com.craisinlord.antos.content.antazon.AntcoinCommands.register(dispatcher);
+        });
         registerReloadListener("computer_data", ComputerGuideData.instance());
         registerReloadListener("blockle_answers", BlockleAnswers.instance());
         registerReloadListener("antmail_data", AntmailEventData.instance());

@@ -34,8 +34,14 @@ public final class AntazonService {
             return PurchaseResult.failed("invalid_request");
         CrateRef deliveryCrate = resolveCrate(player, computer);
         List<ItemStack> deliveries = new ArrayList<>();
-        PurchaseResult result = purchase(player, computer, deliveryCrate, productId, optionId, units, deliveries);
-        if (result.success()) launchDelivery(player, deliveryCrate, deliveries);
+        List<ItemStack> directDeliveries = new ArrayList<>();
+        List<LocationDelivery> locationDeliveries = new ArrayList<>();
+        PurchaseResult result = purchase(player, computer, deliveryCrate, productId, optionId, units, deliveries, directDeliveries, locationDeliveries);
+        if (result.success()) {
+            launchDelivery(player, deliveryCrate, deliveries);
+            deliverDirect(player, directDeliveries);
+            launchLocationDeliveries(player, locationDeliveries);
+        }
         return result;
     }
 
@@ -44,7 +50,8 @@ public final class AntazonService {
      * so checkout can resolve the crate once and send every line in a single drop.
      */
     private static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer, CrateRef deliveryCrate,
-                                           ResourceLocation productId, String optionId, int units, List<ItemStack> deliveries) {
+                                           ResourceLocation productId, String optionId, int units, List<ItemStack> deliveries,
+                                           List<ItemStack> directDeliveries, List<LocationDelivery> locationDeliveries) {
         if (player == null || computer == null || productId == null || optionId == null || units < 1 || units > 64)
             return PurchaseResult.failed("invalid_request");
         AntazonData.Product product = AntazonData.product(productId);
@@ -56,9 +63,19 @@ public final class AntazonService {
             catch (NumberFormatException exception) { return PurchaseResult.failed("invalid_request"); }
             if (optionIndex < 0 || optionIndex >= product.payments().size()) return PurchaseResult.failed("invalid_request");
         }
-        if (deliveryCrate == null) return PurchaseResult.failed("crate_unavailable");
+        if (product.delivery().equals("falling_chest") && deliveryCrate == null) return PurchaseResult.failed("crate_unavailable");
+        BlockPos deliveryLocation = null;
+        if (product.delivery().equals("falling_chest_location")) {
+            AntazonData.DeliveryLocation coordinates = product.deliveryLocation();
+            if (coordinates == null) return PurchaseResult.failed("delivery_unavailable");
+            deliveryLocation = new BlockPos(coordinates.x(), coordinates.y(), coordinates.z());
+            ServerLevel level = player.serverLevel();
+            if (!level.isInWorldBounds(deliveryLocation) || !level.getWorldBorder().isWithinBounds(deliveryLocation)
+                    || !level.hasChunkAt(deliveryLocation)) return PurchaseResult.failed("delivery_unavailable");
+        }
         long gameTime = player.serverLevel().getGameTime();
         long day = gameTime / MINECRAFT_DAY;
+        if (!AntazonData.availableOn(product, day)) return PurchaseResult.failed("product_unavailable");
         AntazonServerData data = AntazonServerData.access(player.server);
         synchronized (data) {
             AntazonData.Availability availability = product.availability();
@@ -66,7 +83,8 @@ public final class AntazonService {
             int requiredUnits = Math.multiplyExact(product.quantity(), units);
             if (availability.serverStock() > 0 && current.remaining() < requiredUnits) return PurchaseResult.failed("out_of_stock");
             UUID profile = accountOwner(computer, player);
-            AntazonServerData.PlayerState playerState = data.playerState(profile, productId);
+            ResourceLocation limitKey = AntazonData.limitKey(product);
+            AntazonServerData.PlayerState playerState = data.playerState(profile, limitKey);
             long reset = resetMarker(availability.playerLimitReset(), day);
             int playerQuantity = playerState.reset() == reset ? playerState.quantity() : 0;
             if (availability.playerLimit() > 0 && playerQuantity + requiredUnits > availability.playerLimit()) return PurchaseResult.failed("player_limit");
@@ -89,11 +107,16 @@ public final class AntazonService {
             }
             if (payment == null) return PurchaseResult.failed(optionIndex < 0 ? "payment_unavailable" : "insufficient_payment");
             // Unlimited products have no stock to track, so they never touch the stock table.
-            if (availability.serverStock() > 0) data.setStock(productId, new AntazonServerData.Stock(current.remaining() - requiredUnits, current.nextRestockDay()));
-            data.setPlayerState(profile, productId, new AntazonServerData.PlayerState(playerQuantity + requiredUnits, reset, gameTime));
+            if (availability.serverStock() > 0) data.setStock(limitKey, new AntazonServerData.Stock(current.remaining() - requiredUnits, current.nextRestockDay()));
+            data.setPlayerState(profile, limitKey, new AntazonServerData.PlayerState(playerQuantity + requiredUnits, reset, gameTime));
             UUID orderId = UUID.randomUUID();
-            data.addOrder(new AntazonServerData.Order(orderId, profile, productId, paymentReceipt, requiredUnits, gameTime, "DELIVERED"));
-            deliveries.addAll(rewards);
+            AntazonData.Deal deal = activeDeal(product, day);
+            int paidAmount = Math.multiplyExact(unitPrice(product, payment, day), units);
+            data.addOrder(new AntazonServerData.Order(orderId, profile, productId, paymentReceipt, requiredUnits, gameTime, "DELIVERED",
+                    paidAmount, deal.enabled() ? deal.discountPercent() : 0, deal.enabled() ? deal.pool() : ""));
+            if (product.delivery().equals("direct")) directDeliveries.addAll(rewards);
+            else if (product.delivery().equals("falling_chest_location")) locationDeliveries.add(new LocationDelivery(deliveryLocation, rewards));
+            else deliveries.addAll(rewards);
             return PurchaseResult.accepted(orderId, requiredUnits, paymentReceipt);
         }
     }
@@ -126,35 +149,73 @@ public final class AntazonService {
         RewardDropEntity.announceIncoming(player);
     }
 
+    private static void deliverDirect(ServerPlayer player, List<ItemStack> deliveries) {
+        for (ItemStack stack : deliveries) {
+            ItemStack remaining = stack.copy();
+            player.getInventory().add(remaining);
+            if (!remaining.isEmpty()) player.drop(remaining, false);
+        }
+    }
+
+    private static void launchLocationDeliveries(ServerPlayer player, List<LocationDelivery> deliveries) {
+        ServerLevel level = player.serverLevel();
+        for (LocationDelivery delivery : deliveries) {
+            List<ItemStack> contents = new ArrayList<>();
+            for (ItemStack stack : delivery.rewards()) {
+                ItemStack remaining = stack.copy();
+                while (!remaining.isEmpty()) contents.add(remaining.split(remaining.getMaxStackSize()));
+            }
+            contents.add(new ItemStack(Items.CHEST, 1));
+            for (int start = 0; start < contents.size(); start += RewardDropEntity.MAX_REWARD_STACKS) {
+                List<ItemStack> chunk = new ArrayList<>(contents.subList(start, Math.min(contents.size(), start + RewardDropEntity.MAX_REWARD_STACKS)));
+                RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
+                BlockPos landing = delivery.position();
+                drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
+                drop.setRewards(chunk, player);
+                level.addFreshEntity(drop);
+            }
+            RewardDropEntity.announceIncoming(player);
+        }
+    }
+
     public static CheckoutResult checkout(ServerPlayer player, ComputerWorkspace computer) {
         if (player == null || computer == null || !computer.canUseFileSystem(player)) return new CheckoutResult(List.of(), List.of());
         AntazonServerData data = AntazonServerData.access(player.server);
         UUID owner = accountOwner(computer, player);
         List<AntazonServerData.CartLine> cart = data.cart(owner);
-        CrateRef crate = cart.isEmpty() ? null : resolveCrate(player, computer);
+        boolean hasFallingChestOrder = cart.stream().anyMatch(line -> {
+            AntazonData.Product product = AntazonData.product(line.product());
+            return product != null && product.delivery().equals("falling_chest");
+        });
+        CrateRef crate = hasFallingChestOrder ? resolveCrate(player, computer) : null;
         List<ItemStack> deliveries = new ArrayList<>();
+        List<ItemStack> directDeliveries = new ArrayList<>();
+        List<LocationDelivery> locationDeliveries = new ArrayList<>();
         List<AntazonServerData.CartLine> remaining = new ArrayList<>();
         List<CheckoutLine> results = new ArrayList<>();
         for (AntazonServerData.CartLine line : cart) {
             PurchaseResult result;
             try {
-                result = purchase(player, computer, crate, line.product(), Integer.toString(line.option()), line.units(), deliveries);
+                result = purchase(player, computer, crate, line.product(), Integer.toString(line.option()), line.units(), deliveries, directDeliveries, locationDeliveries);
             } catch (ArithmeticException exception) {
                 result = PurchaseResult.failed("invalid_request");
             }
             results.add(new CheckoutLine(line, result.status(), result.receipt()));
-            if (!result.success()) remaining.add(line);
+            if (!result.success() && !result.status().equals("product_unavailable")) remaining.add(line);
         }
         launchDelivery(player, crate, deliveries);
+        deliverDirect(player, directDeliveries);
+        launchLocationDeliveries(player, locationDeliveries);
         if (!cart.equals(remaining)) data.setCart(owner, remaining);
         return new CheckoutResult(List.copyOf(results), List.copyOf(remaining));
     }
 
-    public static List<AntazonServerData.CartLine> sanitizeCart(List<AntazonServerData.CartLine> lines) {
+    public static List<AntazonServerData.CartLine> sanitizeCart(List<AntazonServerData.CartLine> lines, long day) {
         Map<String, AntazonServerData.CartLine> merged = new LinkedHashMap<>();
         for (AntazonServerData.CartLine line : lines) {
             AntazonData.Product product = AntazonData.product(line.product());
-            if (product == null || !product.enabled() || line.option() < 0 || line.option() >= product.payments().size()) continue;
+            if (product == null || !product.enabled() || !AntazonData.availableOn(product, day)
+                    || line.option() < 0 || line.option() >= product.payments().size()) continue;
             String key = line.product() + "|" + line.option();
             AntazonServerData.CartLine previous = merged.get(key);
             if (previous == null && merged.size() >= AntazonServerData.MAX_CART_LINES) continue;
@@ -165,34 +226,64 @@ public final class AntazonService {
     }
 
     public static int unitPrice(AntazonData.Product product, AntazonData.Payment payment, long day) {
-        return product.deal().active(day)
-                ? Math.max(1, payment.amount() * (100 - product.deal().discountPercent()) / 100)
+        AntazonData.Deal deal = activeDeal(product, day);
+        return deal.enabled()
+                ? Math.max(1, payment.amount() * (100 - deal.discountPercent()) / 100)
                 : payment.amount();
+    }
+
+    public static AntazonData.Deal activeDeal(AntazonData.Product product, long day) {
+        AntazonData.Deal deal = product.deal();
+        if (!deal.enabled()) return deal;
+        if (deal.pool().isBlank()) return deal.active(day) ? deal : inactiveDeal(deal);
+        List<AntazonData.Product> pool = AntazonData.products().stream()
+                .filter(candidate -> candidate.enabled() && candidate.deal().enabled() && candidate.deal().pool().equals(deal.pool())
+                        && AntazonData.availableOn(candidate, day))
+                .sorted(java.util.Comparator.comparing(candidate -> candidate.id().toString())).toList();
+        if (pool.isEmpty()) return inactiveDeal(deal);
+        int selected = Math.floorMod(day, pool.size());
+        return pool.get(selected).id().equals(product.id()) ? deal : inactiveDeal(deal);
+    }
+
+    private static AntazonData.Deal inactiveDeal(AntazonData.Deal deal) {
+        return new AntazonData.Deal(false, deal.label(), deal.discountPercent(), deal.cycleMinecraftDays(), deal.dayOffset(), deal.pool());
     }
 
     public static AntazonServerData.Stock currentStock(AntazonServerData data, AntazonData.Product product, long day) {
         AntazonData.Availability availability = product.availability();
-        AntazonServerData.Stock current = data.stock(product.id());
-        if (current == null) current = new AntazonServerData.Stock(availability.serverStock(), day + availability.restockMinecraftDays());
-        if (availability.restockMinecraftDays() > 0 && day >= current.nextRestockDay())
-            current = new AntazonServerData.Stock(availability.serverStock(), day + availability.restockMinecraftDays());
+        AntazonServerData.Stock current = data.stock(AntazonData.limitKey(product));
+        boolean real = availability.restockRealHours() > 0L;
+        long clock = real ? System.currentTimeMillis() / 60_000L : day;
+        long interval = real ? availability.restockRealHours() * 60L : availability.restockMinecraftDays();
+        if (current == null) current = new AntazonServerData.Stock(availability.serverStock(), clock + interval);
+        if (interval > 0 && clock >= current.nextRestockDay())
+            current = new AntazonServerData.Stock(availability.serverStock(), clock + interval);
         return current;
     }
 
+    public static long restockInMillis(AntazonData.Product product, AntazonServerData.Stock stock, long gameTime) {
+        AntazonData.Availability availability = product.availability();
+        if (availability.serverStock() <= 0 || !availability.restocks() || stock.remaining() >= availability.serverStock()) return 0L;
+        if (availability.restockRealHours() > 0L) return Math.max(0L, stock.nextRestockDay() * 60_000L - System.currentTimeMillis());
+        return Math.max(0L, (stock.nextRestockDay() * MINECRAFT_DAY - gameTime) * 50L);
+    }
+
     public static int limitUsed(AntazonServerData data, UUID profile, AntazonData.Product product, long day) {
-        AntazonServerData.PlayerState state = data.playerState(profile, product.id());
+        AntazonServerData.PlayerState state = data.playerState(profile, AntazonData.limitKey(product));
         return state.reset() == resetMarker(product.availability().playerLimitReset(), day) ? state.quantity() : 0;
     }
 
     public static long owned(ServerPlayer player, AntazonServerData data, UUID account, AntazonData.Payment payment) {
         if (payment.type().equals("antcoins")) return data.wallet(account);
         if (!payment.type().equals("item")) return 0L;
-        try {
-            Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(payment.resource()));
-            return item == Items.AIR ? 0L : player.getInventory().countItem(item);
-        } catch (RuntimeException exception) {
-            return 0L;
+        java.util.function.Predicate<ItemStack> matches = AntazonTags.matcher(payment.resource());
+        if (matches == null) return 0L;
+        long count = 0L;
+        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (matches.test(stack)) count += stack.getCount();
         }
+        return count;
     }
 
     public static Manifest manifest(ServerPlayer player, ComputerWorkspace computer) {
@@ -357,15 +448,12 @@ public final class AntazonService {
     private static boolean pay(ServerPlayer player, AntazonServerData data, UUID account, AntazonData.Payment payment, int amount) {
         if (payment.type().equals("antcoins")) return data.debit(account, amount);
         if (!payment.type().equals("item")) return false;
-        ResourceLocation id;
-        try { id = ResourceLocation.parse(payment.resource()); }
-        catch (RuntimeException exception) { return false; }
-        Item item = BuiltInRegistries.ITEM.get(id);
-        if (item == net.minecraft.world.item.Items.AIR || player.getInventory().countItem(item) < amount) return false;
+        java.util.function.Predicate<ItemStack> matches = AntazonTags.matcher(payment.resource());
+        if (matches == null || owned(player, data, account, payment) < amount) return false;
         int remaining = amount;
         for (int slot = 0; slot < player.getInventory().getContainerSize() && remaining > 0; slot++) {
             ItemStack stack = player.getInventory().getItem(slot);
-            if (!stack.is(item)) continue;
+            if (!matches.test(stack)) continue;
             int removed = Math.min(remaining, stack.getCount());
             stack.shrink(removed);
             remaining -= removed;
@@ -452,6 +540,8 @@ public final class AntazonService {
     }
 
     public record CrateRef(ServerLevel level, BlockPos position, ChestBlockEntity chest) { }
+
+    private record LocationDelivery(BlockPos position, List<ItemStack> rewards) { }
 
     public record PurchaseResult(boolean success, String status, UUID orderId, int units, String receipt) {
         static PurchaseResult accepted(UUID orderId, int units, String receipt) { return new PurchaseResult(true, "accepted", orderId, units, receipt); }

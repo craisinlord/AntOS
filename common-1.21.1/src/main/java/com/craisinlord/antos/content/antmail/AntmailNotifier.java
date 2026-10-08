@@ -2,6 +2,7 @@ package com.craisinlord.antos.content.antmail;
 
 import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.network.AnternetAccountHandler;
+import com.craisinlord.antos.content.guide.ComputerGuideData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -27,6 +28,14 @@ public final class AntmailNotifier {
             SoundEvent sound = sound(message.notification());
             if (sound != null) player.playNotifySound(sound, SoundSource.PLAYERS, 0.6F, message.corrupted() ? 0.5F : 1.4F);
         }
+    }
+
+    public static void notifyObjectiveCompleted(ServerPlayer player, ComputerGuideData.Task task,
+                                                ComputerGuideData.Objective objective) {
+        if (player == null || task == null || objective == null || !objective.notifyPlayer()) return;
+        player.displayClientMessage(Component.translatable("antos.tasks.objective_complete",
+                Component.translatable(task.titleKey()), Component.translatable(objective.descriptionKey())), true);
+        player.playNotifySound(SoundEvents.NOTE_BLOCK_CHIME.value(), SoundSource.PLAYERS, 0.6F, 1.4F);
     }
 
     private static boolean carriesPhone(ServerPlayer player) {

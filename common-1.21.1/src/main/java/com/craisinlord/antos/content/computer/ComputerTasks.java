@@ -51,6 +51,9 @@ public final class ComputerTasks {
         progress.grant(taskId);
         for (ComputerGuideData.Objective objective : task.objectives()) {
             progress.setObjectiveCount(taskId, objective.id(), objective.count());
+            if (progress.markObjectiveSatisfied(taskId, objective.id())) {
+                com.craisinlord.antos.content.antmail.AntmailNotifier.notifyObjectiveCompleted(player, task, objective);
+            }
         }
         boolean newlyCompleted = progress.markComplete(taskId);
         if (newlyCompleted) {
@@ -457,6 +460,7 @@ public final class ComputerTasks {
                         if (objectiveComplete && progress.markObjectiveSatisfied(task.id(), objective.id())) {
                             changed = true;
                             progressChanged = true;
+                            com.craisinlord.antos.content.antmail.AntmailNotifier.notifyObjectiveCompleted(player, task, objective);
                             if (progress.setObjectiveCount(task.id(), objective.id(), objectiveProgressGoal(player, objective))) {
                                 changed = true;
                                 progressChanged = true;

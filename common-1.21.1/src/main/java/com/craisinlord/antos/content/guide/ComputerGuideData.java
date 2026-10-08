@@ -809,7 +809,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                     row.has("optional") && row.get("optional").getAsBoolean(),
                     !row.has("sticky") || !row.get("sticky").isJsonPrimitive() || row.get("sticky").getAsBoolean(),
                     tagMode,
-                    row.has("consume") && row.get("consume").isJsonPrimitive() && row.get("consume").getAsBoolean()));
+                    row.has("consume") && row.get("consume").isJsonPrimitive() && row.get("consume").getAsBoolean(),
+                    !row.has("notify_player") || !row.get("notify_player").isJsonPrimitive() || row.get("notify_player").getAsBoolean()));
         }
         target.put(id, new Task(id, title, description, program, category, order, availability, requires, objectives, archives, rewards, x, y,
                 object.has("hide_until_dependencies_complete") && object.get("hide_until_dependencies_complete").getAsBoolean(),
@@ -923,7 +924,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                        boolean hideUntilDependenciesComplete, boolean invisibleUntilCompleted, boolean greenTint, String iconItem, String iconEntity, boolean renderMobFromSpawnEgg) { }
     public record TaskCategory(ResourceLocation id, String titleKey, String iconItem, String iconEntity, int sortOrder, ResourceLocation group, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record TaskGroup(ResourceLocation id, String titleKey, String iconItem, String iconEntity, int sortOrder, boolean collapsed, boolean greenTint, boolean renderMobFromSpawnEgg) { }
-    public record Objective(String id, String type, String target, String statType, String descriptionKey, int count, boolean optional, boolean sticky, String tagMode, boolean consume) { }
+    public record Objective(String id, String type, String target, String statType, String descriptionKey, int count, boolean optional, boolean sticky, String tagMode, boolean consume, boolean notifyPlayer) { }
     public record TaskReward(String type, ResourceLocation itemId, int count, int experiencePoints, ResourceLocation target,
                              String sender, String subject, String body, int durationTicks, int amplifier) { }
 

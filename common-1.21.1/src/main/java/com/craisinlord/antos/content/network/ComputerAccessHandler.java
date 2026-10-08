@@ -190,28 +190,32 @@ public final class ComputerAccessHandler {
         }
         // The static catalogue only travels when the client's cached copy is from another reload; every refresh
         // otherwise carries just the per-player fields (stock, limits, prices, ownership, player reviews).
-        String catalogVersion = Long.toString(AntazonData.catalogVersion());
+        long gameTime = player.server.overworld().getGameTime();
+        long day = gameTime / 24000L;
+        String catalogVersion = AntazonData.catalogVersion(day);
         boolean sendCatalog = !catalogVersion.equals(payload.value());
         com.google.gson.JsonArray catalog = new com.google.gson.JsonArray();
         com.google.gson.JsonArray states = new com.google.gson.JsonArray();
         var antazonData = com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server);
         java.util.UUID profile = AntazonService.accountOwner(computer, player);
-        long gameTime = player.server.overworld().getGameTime();
-        long day = gameTime / 24000L;
         ComputerWorkspaceData workspaceData = ComputerWorkspaceData.access(player.server);
         for (AntazonData.Product product : AntazonData.products()) {
-            if (!product.enabled()) continue;
+            if (!product.enabled() || !AntazonData.availableOn(product, day)) continue;
             if (sendCatalog) catalog.add(AntazonData.catalogRow(product.id()));
             com.google.gson.JsonObject row = new com.google.gson.JsonObject();
             row.addProperty("id", product.id().toString());
             AntazonData.Availability availability = product.availability();
             var stock = AntazonService.currentStock(antazonData, product, day);
             row.addProperty("remaining", availability.serverStock() > 0 ? stock.remaining() : -1);
-            row.addProperty("restock_at", availability.serverStock() > 0 && availability.restockMinecraftDays() > 0 ? stock.nextRestockDay() * 24000L : 0L);
+            row.addProperty("restock_in_ms", AntazonService.restockInMillis(product, stock, gameTime));
+            row.addProperty("restock_real", availability.restockRealHours() > 0L);
             row.addProperty("limit_used", availability.playerLimit() > 0 ? AntazonService.limitUsed(antazonData, profile, product, day) : 0);
-            row.addProperty("deal_active", product.deal().active(day));
+            row.addProperty("deal_active", com.craisinlord.antos.content.antazon.AntazonService.activeDeal(product, day).enabled());
             row.addProperty("locked", !AntazonService.unlocked(player, computer, product));
-            var playerState = antazonData.playerState(profile, product.id());
+            row.addProperty("rotates_in_ms", AntazonData.rotatesInMillis(product, gameTime));
+            row.addProperty("rotates_real", product.itemPool() != null && product.itemPool().rotation() != null
+                    && product.itemPool().rotation().everyRealHours() > 0L);
+            var playerState = antazonData.playerState(profile, AntazonData.limitKey(product));
             long cooldownEnds = playerState.lastPurchase() == Long.MIN_VALUE || availability.cooldownMinecraftDays() < 1L
                     ? 0L : playerState.lastPurchase() + availability.cooldownMinecraftDays() * 24000L;
             row.addProperty("cooldown_ends", cooldownEnds);
@@ -388,6 +392,7 @@ public final class ComputerAccessHandler {
         }
         var data = com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server);
         java.util.UUID owner = AntazonService.accountOwner(computer, player);
+        long day = player.server.overworld().getGameTime() / 24000L;
         try {
             if (!payload.value().isBlank()) {
                 java.util.List<com.craisinlord.antos.content.antazon.AntazonServerData.CartLine> lines = new java.util.ArrayList<>();
@@ -396,7 +401,11 @@ public final class ComputerAccessHandler {
                     lines.add(new com.craisinlord.antos.content.antazon.AntazonServerData.CartLine(ResourceLocation.parse(row.get("product").getAsString()),
                             row.get("option").getAsInt(), row.get("units").getAsInt()));
                 }
-                data.setCart(owner, AntazonService.sanitizeCart(lines));
+                data.setCart(owner, AntazonService.sanitizeCart(lines, day));
+            } else {
+                var current = data.cart(owner);
+                var available = AntazonService.sanitizeCart(current, day);
+                if (!available.equals(current)) data.setCart(owner, available);
             }
             sendAntazon(player, payload, true, "", encodeCart(data.cart(owner)).toString());
         } catch (RuntimeException exception) {

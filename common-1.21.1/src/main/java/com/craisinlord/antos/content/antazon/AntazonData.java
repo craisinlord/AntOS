@@ -22,8 +22,10 @@ import java.util.Set;
 public final class AntazonData extends SimplePreparableReloadListener<Map<ResourceLocation, AntazonData.Product>> {
     private static final String DIRECTORY = "antazon/product";
     private static final AntazonData INSTANCE = new AntazonData();
-    private static volatile Map<ResourceLocation, Product> products = Map.of();
-    private static volatile Catalog catalog = new Catalog(0L, List.of(), Map.of());
+    private static volatile Map<ResourceLocation, Product> loaded = Map.of();
+    private static volatile long loadedVersion = 0L;
+    private static volatile Catalog catalog;
+    private static final Map<ResourceLocation, ActiveSet> ACTIVE = new java.util.concurrent.ConcurrentHashMap<>();
 
     private AntazonData() {
     }
@@ -34,23 +36,154 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
 
     /** Every product sorted by id; sorted once per reload rather than per storefront request. */
     public static List<Product> products() {
-        return catalog.sorted();
+        return catalog().sorted();
     }
 
     /** Changes on every reload, so clients can keep the static catalogue until the datapacks change. */
-    public static long catalogVersion() {
-        return catalog.version();
+    public static String catalogVersion(long day) {
+        Catalog current = catalog();
+        long stamp = current.version();
+        for (Product template : current.rotatingTemplates()) stamp = stamp * 31L + rotationPeriod(template, day);
+        return Long.toString(stamp);
     }
 
     /**
      * The player-independent half of a storefront row, built once per reload. Shared: callers must not modify it.
      */
     public static JsonObject catalogRow(ResourceLocation id) {
-        return catalog.rows().get(id);
+        return catalog().rows().get(id);
     }
 
     public static Product product(ResourceLocation id) {
-        return products.get(id);
+        return catalog().products().get(id);
+    }
+
+    public static boolean availableOn(Product product, long day) {
+        PoolEntry entry = product.poolEntry();
+        if (entry == null || product.itemPool().rotation() == null) return true;
+        Product template = loaded.get(entry.template());
+        if (template == null) return false;
+        long period = rotationPeriod(template, day);
+        ActiveSet active = ACTIVE.get(template.id());
+        if (active == null || active.period() != period) {
+            active = new ActiveSet(period, activeIndices(template.id(), template.itemPool().rotation(), entry.poolSize(), period));
+            ACTIVE.put(template.id(), active);
+        }
+        return active.indices().contains(entry.index());
+    }
+
+    public static long rotatesInMillis(Product product, long gameTime) {
+        if (product.poolEntry() == null || product.itemPool().rotation() == null) return 0L;
+        Rotation rotation = product.itemPool().rotation();
+        if (rotation.everyRealHours() > 0L) {
+            long periodMillis = rotation.everyRealHours() * 3_600_000L;
+            long now = System.currentTimeMillis();
+            return (Math.floorDiv(now, periodMillis) + 1L) * periodMillis - now;
+        }
+        long periodTicks = rotation.everyMinecraftDays() * 24000L;
+        return ((Math.floorDiv(gameTime, periodTicks) + 1L) * periodTicks - gameTime) * 50L;
+    }
+
+    public static ResourceLocation limitKey(Product product) {
+        return product.poolEntry() == null ? product.id() : product.poolEntry().template();
+    }
+
+    private static long rotationPeriod(Product template, long day) {
+        Rotation rotation = template.itemPool().rotation();
+        if (rotation.everyRealHours() > 0L) return Math.floorDiv(System.currentTimeMillis(), rotation.everyRealHours() * 3_600_000L);
+        return Math.floorDiv(day, rotation.everyMinecraftDays());
+    }
+
+    private static Set<Integer> activeIndices(ResourceLocation templateId, Rotation rotation, int size, long period) {
+        int picks = Math.min(rotation.picks(), size);
+        Set<Integer> chosen = new HashSet<>();
+        if (picks >= size) {
+            for (int index = 0; index < size; index++) chosen.add(index);
+            return Set.copyOf(chosen);
+        }
+        long position = period * picks;
+        int[] order = null;
+        long orderCycle = Long.MIN_VALUE;
+        for (int guard = 0; chosen.size() < picks && guard < picks * 2 + size; guard++, position++) {
+            long cycle = Math.floorDiv(position, size);
+            int slot = (int) Math.floorMod(position, (long) size);
+            if (!rotation.shuffled()) {
+                chosen.add(slot);
+                continue;
+            }
+            if (cycle != orderCycle) {
+                order = shuffledOrder(templateId, cycle, size);
+                orderCycle = cycle;
+            }
+            chosen.add(order[slot]);
+        }
+        return Set.copyOf(chosen);
+    }
+
+    private static int[] shuffledOrder(ResourceLocation templateId, long cycle, int size) {
+        int[] order = new int[size];
+        for (int index = 0; index < size; index++) order[index] = index;
+        java.util.Random random = new java.util.Random(templateId.toString().hashCode() * 0x9E3779B97F4A7C15L + cycle);
+        for (int index = size - 1; index > 0; index--) {
+            int swap = random.nextInt(index + 1);
+            int value = order[index];
+            order[index] = order[swap];
+            order[swap] = value;
+        }
+        return order;
+    }
+
+    private static Catalog catalog() {
+        Catalog current = catalog;
+        if (current != null) return current;
+        synchronized (AntazonData.class) {
+            if (catalog == null) catalog = buildCatalog(loaded, loadedVersion);
+            return catalog;
+        }
+    }
+
+    private static Catalog buildCatalog(Map<ResourceLocation, Product> source, long version) {
+        Map<ResourceLocation, Product> all = new HashMap<>();
+        List<Product> rotating = new ArrayList<>();
+        for (Product product : source.values()) {
+            if (product.itemPool() == null) {
+                all.put(product.id(), product);
+                continue;
+            }
+            List<ResourceLocation> items = AntazonTags.items(product.itemPool().items(), product.itemPool().tags());
+            if (items.isEmpty()) AntOS.LOGGER.warn("Antazon product {} has an item pool with no items", product.id());
+            if (product.itemPool().rotation() != null && !items.isEmpty()) rotating.add(product);
+            for (int index = 0; index < items.size(); index++) {
+                Product entry = poolProduct(product, items.get(index), index, items.size());
+                if (entry != null) all.put(entry.id(), entry);
+            }
+        }
+        List<Product> sorted = all.values().stream().sorted(java.util.Comparator.comparing(product -> product.id().toString())).toList();
+        Map<ResourceLocation, JsonObject> rows = new HashMap<>();
+        for (Product product : sorted) rows.put(product.id(), catalogRow(product));
+        rotating.sort(java.util.Comparator.comparing(product -> product.id().toString()));
+        AntOS.LOGGER.info("Built Antazon catalog: {} listings from {} product files", sorted.size(), source.size());
+        return new Catalog(version, sorted, Map.copyOf(all), Map.copyOf(rows), List.copyOf(rotating));
+    }
+
+    private static Product poolProduct(Product template, ResourceLocation item, int index, int size) {
+        int fixed = template.rewards().stream().mapToInt(Reward::count).sum();
+        int count = Math.min(template.itemPool().count(), 108 - fixed);
+        if (count < 1) {
+            AntOS.LOGGER.warn("Antazon product {} has no room for its pool item within the 108-item reward limit", template.id());
+            return null;
+        }
+        List<Reward> rewards = new ArrayList<>(template.rewards());
+        rewards.add(new Reward(item, count));
+        ResourceLocation id = ResourceLocation.fromNamespaceAndPath(template.id().getNamespace(),
+                template.id().getPath() + "/" + item.getNamespace() + "/" + item.getPath());
+        PreviewAsset thumbnail = template.thumbnail().item().isBlank() && template.thumbnail().entity().isBlank()
+                ? new PreviewAsset(item.toString(), "") : template.thumbnail();
+        List<PreviewAsset> gallery = template.gallery().isEmpty() ? List.of(new PreviewAsset(item.toString(), "")) : template.gallery();
+        return new Product(id, template.name(), template.description(), template.category(), template.tags(), thumbnail, gallery,
+                template.quantity(), template.payments(), template.unlockMode(), template.unlockTasks(), template.availability(),
+                List.copyOf(rewards), template.reviews(), template.deal(), template.delivery(), template.deliveryLocation(), template.enabled(), template.greenTint(),
+                template.renderMobFromSpawnEgg(), template.hiddenUntilUnlocked(), template.itemPool(), new PoolEntry(template.id(), item, index, size));
     }
 
     @Override
@@ -76,14 +209,15 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
     }
 
     @Override
-    protected void apply(Map<ResourceLocation, Product> loaded, ResourceManager manager, ProfilerFiller profiler) {
-        List<Product> sorted = loaded.values().stream().sorted(java.util.Comparator.comparing(product -> product.id().toString())).toList();
-        Map<ResourceLocation, JsonObject> rows = new HashMap<>();
-        for (Product product : sorted) rows.put(product.id(), catalogRow(product));
+    protected void apply(Map<ResourceLocation, Product> prepared, ResourceManager manager, ProfilerFiller profiler) {
         long version = new java.util.Random().nextLong();
-        products = loaded;
-        catalog = new Catalog(version == 0L ? 1L : version, sorted, Map.copyOf(rows));
-        AntOS.LOGGER.info("Loaded {} Antazon products", loaded.size());
+        synchronized (AntazonData.class) {
+            loaded = prepared;
+            loadedVersion = version == 0L ? 1L : version;
+            catalog = null;
+            ACTIVE.clear();
+        }
+        AntOS.LOGGER.info("Loaded {} Antazon product files", prepared.size());
     }
 
     private static JsonObject catalogRow(Product product) {
@@ -98,10 +232,13 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         Availability availability = product.availability();
         row.addProperty("stock", availability.serverStock());
         row.addProperty("restock_days", availability.restockMinecraftDays());
+        row.addProperty("restock_real_hours", availability.restockRealHours());
         row.addProperty("limit", availability.playerLimit());
         row.addProperty("limit_reset", availability.playerLimitReset());
         row.addProperty("deal_label", product.deal().label());
         row.addProperty("deal_discount", product.deal().discountPercent());
+        row.addProperty("deal_pool", product.deal().pool());
+        row.addProperty("hidden_until_unlocked", product.hiddenUntilUnlocked());
         row.addProperty("unlock_mode", product.unlockMode());
         JsonArray unlockTasks = new JsonArray();
         for (ResourceLocation task : product.unlockTasks()) unlockTasks.add(task.toString());
@@ -113,6 +250,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         JsonArray gallery = new JsonArray();
         for (PreviewAsset asset : product.gallery()) gallery.add(assetJson(asset));
         row.add("gallery", gallery);
+        if (product.poolEntry() != null) row.addProperty("pool_item", product.poolEntry().item().toString());
         row.addProperty("quantity", product.quantity());
         JsonArray rewards = new JsonArray();
         for (Reward reward : product.rewards()) {
@@ -176,6 +314,8 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
             return null;
         }
         List<ResourceLocation> taskIds = resourceIds(object.get("unlock_tasks"), id);
+        boolean hiddenUntilUnlocked = !object.has("hidden_until_unlocked") || !object.get("hidden_until_unlocked").isJsonPrimitive()
+                || object.get("hidden_until_unlocked").getAsBoolean();
         String unlockMode = string(object, "unlock_mode", "all").toLowerCase(Locale.ROOT);
         if (!unlockMode.equals("all") && !unlockMode.equals("any")) {
             AntOS.LOGGER.warn("Ignoring Antazon product {} because unlock_mode must be all or any", id);
@@ -184,21 +324,83 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         Availability availability = parseAvailability(id, object.getAsJsonObject("availability"));
         if (availability == null) return null;
         List<Reward> rewards = parseRewards(id, object.get("rewards"));
-        if (rewards.isEmpty()) {
+        ItemPool itemPool = object.has("item_pool") ? parseItemPool(id, object.get("item_pool")) : null;
+        if (object.has("item_pool") && itemPool == null) return null;
+        if (rewards.isEmpty() && itemPool == null) {
             AntOS.LOGGER.warn("Ignoring Antazon product {} because it has no valid rewards", id);
             return null;
         }
         String delivery = string(object, "delivery", "falling_chest").toLowerCase(Locale.ROOT);
-        if (!delivery.equals("falling_chest")) {
+        if (!delivery.equals("falling_chest") && !delivery.equals("direct") && !delivery.equals("falling_chest_location")) {
             AntOS.LOGGER.warn("Ignoring Antazon product {} because delivery '{}' is unsupported", id, delivery);
             return null;
+        }
+        DeliveryLocation deliveryLocation = null;
+        if (delivery.equals("falling_chest_location")) {
+            JsonObject coordinates = object.has("delivery_location") && object.get("delivery_location").isJsonObject()
+                    ? object.getAsJsonObject("delivery_location") : null;
+            if (coordinates == null || !coordinates.has("x") || !coordinates.has("y") || !coordinates.has("z")) {
+                AntOS.LOGGER.warn("Ignoring Antazon product {} because location delivery requires delivery_location x, y, and z", id);
+                return null;
+            }
+            try {
+                deliveryLocation = new DeliveryLocation(coordinates.get("x").getAsInt(), coordinates.get("y").getAsInt(), coordinates.get("z").getAsInt());
+            } catch (RuntimeException exception) {
+                AntOS.LOGGER.warn("Ignoring Antazon product {} because delivery_location coordinates are invalid", id);
+                return null;
+            }
         }
         boolean enabled = !object.has("enabled") || object.get("enabled").getAsBoolean();
         boolean greenTint = !object.has("green_tint") || !object.get("green_tint").isJsonPrimitive() || object.get("green_tint").getAsBoolean();
         List<Review> reviews = parseReviews(id, object.get("reviews"));
         Deal deal = parseDeal(id, object.getAsJsonObject("deal"));
         boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive() || object.get("render_mob_from_spawn_egg").getAsBoolean();
-        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, deal, delivery, enabled, greenTint, renderMobFromSpawnEgg);
+        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, deal, delivery, deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, itemPool, null);
+    }
+
+    private static ItemPool parseItemPool(ResourceLocation id, JsonElement element) {
+        if (element == null || !element.isJsonObject()) {
+            AntOS.LOGGER.warn("Ignoring Antazon product {} because item_pool is not an object", id);
+            return null;
+        }
+        JsonObject object = element.getAsJsonObject();
+        List<ResourceLocation> items = new ArrayList<>();
+        List<ResourceLocation> tags = new ArrayList<>();
+        try {
+            for (String value : strings(object.get("items"))) items.add(ResourceLocation.parse(value.trim()));
+            String tag = string(object, "tag", "").trim();
+            if (!tag.isBlank()) tags.add(ResourceLocation.parse(tag.startsWith("#") ? tag.substring(1) : tag));
+            for (String value : strings(object.get("tags"))) tags.add(ResourceLocation.parse(value.trim().startsWith("#") ? value.trim().substring(1) : value.trim()));
+        } catch (RuntimeException exception) {
+            AntOS.LOGGER.warn("Ignoring Antazon product {} because item_pool has an invalid item or tag ID", id);
+            return null;
+        }
+        if (items.isEmpty() && tags.isEmpty()) {
+            AntOS.LOGGER.warn("Ignoring Antazon product {} because item_pool has no items or tags", id);
+            return null;
+        }
+        int count = boundedInt(object, "count", 1, 1, 108);
+        String mode = string(object, "mode", "all").toLowerCase(Locale.ROOT);
+        Rotation rotation = null;
+        if (mode.equals("rotate")) {
+            JsonObject rotationJson = object.has("rotation") && object.get("rotation").isJsonObject() ? object.getAsJsonObject("rotation") : new JsonObject();
+            String order = string(rotationJson, "order", "shuffled").toLowerCase(Locale.ROOT);
+            if (!order.equals("shuffled") && !order.equals("sequential")) {
+                AntOS.LOGGER.warn("Ignoring Antazon product {} because item_pool.rotation.order must be shuffled or sequential", id);
+                return null;
+            }
+            if (rotationJson.has("every_minecraft_days") && rotationJson.has("every_real_hours")) {
+                AntOS.LOGGER.warn("Ignoring Antazon product {} because item_pool.rotation sets both every_minecraft_days and every_real_hours", id);
+                return null;
+            }
+            rotation = new Rotation(boundedInt(rotationJson, "picks", 1, 1, 1_000),
+                    boundedLong(rotationJson, "every_minecraft_days", 1L, 1L, 1_000_000L),
+                    boundedLong(rotationJson, "every_real_hours", 0L, 0L, 1_000_000L), order.equals("shuffled"));
+        } else if (!mode.equals("all")) {
+            AntOS.LOGGER.warn("Ignoring Antazon product {} because item_pool.mode must be all or rotate", id);
+            return null;
+        }
+        return new ItemPool(List.copyOf(items), List.copyOf(tags), count, rotation);
     }
 
     private static PreviewAsset parseAsset(JsonObject object) {
@@ -234,6 +436,11 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         if (object == null) object = new JsonObject();
         int stock = boundedInt(object, "server_stock", 0, 0, 1_000_000);
         long restockDays = boundedLong(object, "restock_after_minecraft_days", 0L, 0L, 1_000_000L);
+        long restockRealHours = boundedLong(object, "restock_after_real_hours", 0L, 0L, 1_000_000L);
+        if (restockDays > 0L && restockRealHours > 0L) {
+            AntOS.LOGGER.warn("Ignoring Antazon product {} because it sets both restock_after_minecraft_days and restock_after_real_hours", id);
+            return null;
+        }
         long cooldownDays = boundedLong(object, "cooldown_minecraft_days", 0L, 0L, 1_000_000L);
         int playerLimit = boundedInt(object, "player_limit", 0, 0, 1_000_000);
         String reset = string(object, "player_limit_reset", "none").toLowerCase(Locale.ROOT);
@@ -241,7 +448,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
             AntOS.LOGGER.warn("Ignoring Antazon product {} because player_limit_reset is invalid", id);
             return null;
         }
-        return new Availability(stock, restockDays, cooldownDays, playerLimit, reset);
+        return new Availability(stock, restockDays, restockRealHours, cooldownDays, playerLimit, reset);
     }
 
     private static List<Reward> parseRewards(ResourceLocation productId, JsonElement element) {
@@ -289,16 +496,18 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
     }
 
     private static Deal parseDeal(ResourceLocation productId, JsonObject object) {
-        if (object == null) return new Deal(false, "", 0, 0);
+        if (object == null) return new Deal(false, "", 0, 0, 0, "");
         String label = string(object, "label", "Nest Deal").trim();
         int discount = boundedInt(object, "discount_percent", 0, 0, 90);
         long cycle = boundedLong(object, "cycle_minecraft_days", 1L, 1L, 1_000_000L);
+        long offset = boundedLong(object, "day_offset", 0L, 0L, 1_000_000L);
+        String pool = string(object, "pool", "").trim();
         boolean enabled = object.has("enabled") && object.get("enabled").getAsBoolean();
         if (enabled && (label.isBlank() || discount <= 0)) {
             AntOS.LOGGER.warn("Disabling invalid deal on Antazon product {}", productId);
-            return new Deal(false, "", 0, 0);
+            return new Deal(false, "", 0, 0, 0, "");
         }
-        return new Deal(enabled, label, discount, cycle);
+        return new Deal(enabled, label, discount, cycle, offset, pool);
     }
 
     private static ResourceLocation resourceId(ResourceLocation path) {
@@ -352,10 +561,26 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
 
     public record Product(ResourceLocation id, String name, String description, String category, List<String> tags,
                           PreviewAsset thumbnail, List<PreviewAsset> gallery, int quantity, List<Payment> payments, String unlockMode, List<ResourceLocation> unlockTasks,
-                          Availability availability, List<Reward> rewards, List<Review> reviews, Deal deal, String delivery, boolean enabled, boolean greenTint, boolean renderMobFromSpawnEgg) {
+                          Availability availability, List<Reward> rewards, List<Review> reviews, Deal deal, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint, boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked,
+                          ItemPool itemPool, PoolEntry poolEntry) {
     }
 
-    private record Catalog(long version, List<Product> sorted, Map<ResourceLocation, JsonObject> rows) {
+    public record DeliveryLocation(int x, int y, int z) { }
+
+    public record ItemPool(List<ResourceLocation> items, List<ResourceLocation> tags, int count, Rotation rotation) {
+    }
+
+    public record Rotation(int picks, long everyMinecraftDays, long everyRealHours, boolean shuffled) {
+    }
+
+    public record PoolEntry(ResourceLocation template, ResourceLocation item, int index, int poolSize) {
+    }
+
+    private record ActiveSet(long period, Set<Integer> indices) {
+    }
+
+    private record Catalog(long version, List<Product> sorted, Map<ResourceLocation, Product> products,
+                           Map<ResourceLocation, JsonObject> rows, List<Product> rotatingTemplates) {
     }
 
     public record PreviewAsset(String item, String entity) {
@@ -370,13 +595,16 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
     public record Review(String id, String author, String title, String body, int rating, String badge) {
     }
 
-    public record Deal(boolean enabled, String label, int discountPercent, long cycleMinecraftDays) {
+    public record Deal(boolean enabled, String label, int discountPercent, long cycleMinecraftDays, long dayOffset, String pool) {
         public boolean active(long day) {
-            return enabled && cycleMinecraftDays > 0 && Math.floorMod(day, cycleMinecraftDays) == 0;
+            return enabled && pool.isBlank() && cycleMinecraftDays > 0 && Math.floorMod(day - dayOffset, cycleMinecraftDays) == 0;
         }
     }
 
-    public record Availability(int serverStock, long restockMinecraftDays, long cooldownMinecraftDays,
+    public record Availability(int serverStock, long restockMinecraftDays, long restockRealHours, long cooldownMinecraftDays,
                                int playerLimit, String playerLimitReset) {
+        public boolean restocks() {
+            return restockMinecraftDays > 0L || restockRealHours > 0L;
+        }
     }
 }

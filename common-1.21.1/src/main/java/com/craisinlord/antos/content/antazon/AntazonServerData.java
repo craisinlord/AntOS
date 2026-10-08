@@ -89,7 +89,7 @@ public final class AntazonServerData extends SavedData {
             try {
                 data.orders.add(new Order(UUID.fromString(row.getString("Id")), UUID.fromString(row.getString("Player")),
                         ResourceLocation.parse(row.getString("Product")), row.getString("Option"), row.getInt("Units"),
-                        row.getLong("GameTime"), row.getString("Status")));
+                        row.getLong("GameTime"), row.getString("Status"), row.getInt("PaidAmount"), row.getInt("DealDiscount"), row.getString("DealPool")));
             } catch (RuntimeException ignored) {
             }
         }
@@ -204,6 +204,9 @@ public final class AntazonServerData extends SavedData {
             row.putInt("Units", order.units());
             row.putLong("GameTime", order.gameTime());
             row.putString("Status", order.status());
+            row.putInt("PaidAmount", order.paidAmount());
+            row.putInt("DealDiscount", order.dealDiscount());
+            row.putString("DealPool", order.dealPool());
             orderTags.add(row);
         }
         tag.put("Orders", orderTags);
@@ -358,7 +361,7 @@ public final class AntazonServerData extends SavedData {
         for (int index = 0; index < orders.size(); index++) {
             Order order = orders.get(index);
             if (order.player().equals(playerId)) {
-                orders.set(index, new Order(order.id(), profileId, order.product(), order.option(), order.units(), order.gameTime(), order.status()));
+                orders.set(index, new Order(order.id(), profileId, order.product(), order.option(), order.units(), order.gameTime(), order.status(), order.paidAmount(), order.dealDiscount(), order.dealPool()));
                 changed = true;
             }
         }
@@ -398,6 +401,12 @@ public final class AntazonServerData extends SavedData {
     public synchronized void credit(UUID owner, long amount) {
         if (owner == null || amount < 1L) return;
         wallets.put(owner, saturatedAdd(wallet(owner), amount));
+        setDirty();
+    }
+
+    public synchronized void setWallet(UUID owner, long amount) {
+        if (owner == null) return;
+        wallets.put(owner, Math.max(0L, amount));
         setDirty();
     }
 
@@ -455,6 +464,22 @@ public final class AntazonServerData extends SavedData {
         return orders.stream().filter(order -> order.player().equals(player)).toList();
     }
 
+    public synchronized Map<String, DealMetrics> dealMetrics() {
+        Map<String, DealMetrics> metrics = new LinkedHashMap<>();
+        for (Order order : orders) {
+            if (!order.status().equals("DELIVERED")) continue;
+            String key = order.product().toString() + (order.dealPool().isBlank() ? "" : " [" + order.dealPool() + "]");
+            boolean deal = order.dealDiscount() > 0;
+            DealMetrics previous = metrics.getOrDefault(key, new DealMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+            metrics.put(key, new DealMetrics(previous.orders() + 1, previous.units() + order.units(),
+                    previous.revenue() + order.paidAmount(), previous.dealOrders() + (deal ? 1 : 0),
+                    previous.discountPercentTotal() + order.dealDiscount(), previous.regularOrders() + (deal ? 0 : 1),
+                    previous.dealUnits() + (deal ? order.units() : 0), previous.regularUnits() + (deal ? 0 : order.units()),
+                    previous.dealRevenue() + (deal ? order.paidAmount() : 0), previous.regularRevenue() + (deal ? 0 : order.paidAmount())));
+        }
+        return Map.copyOf(metrics);
+    }
+
     public synchronized List<ResourceLocation> wishlist(UUID player) {
         return List.copyOf(wishlists.getOrDefault(player, Set.of()));
     }
@@ -505,7 +530,10 @@ public final class AntazonServerData extends SavedData {
 
     public record Stock(int remaining, long nextRestockDay) { }
     public record PlayerState(int quantity, long reset, long lastPurchase) { }
-    public record Order(UUID id, UUID player, ResourceLocation product, String option, int units, long gameTime, String status) { }
+    public record Order(UUID id, UUID player, ResourceLocation product, String option, int units, long gameTime, String status,
+                        int paidAmount, int dealDiscount, String dealPool) { }
+    public record DealMetrics(int orders, int units, long revenue, int dealOrders, long discountPercentTotal,
+                              int regularOrders, int dealUnits, int regularUnits, long dealRevenue, long regularRevenue) { }
     public record CartLine(ResourceLocation product, int option, int units) { }
     public record PlayerReview(UUID player, ResourceLocation product, int rating, String title, String body, long gameTime) { }
 }
