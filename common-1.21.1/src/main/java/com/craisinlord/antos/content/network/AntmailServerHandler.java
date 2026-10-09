@@ -85,7 +85,6 @@ public final class AntmailServerHandler {
             return;
         }
         AntmailMailbox mailbox = data.mailboxOrCreate(address);
-        // The client only sends a non-zero version when its cached snapshot answered this same folder/query/filter request.
         if (payload.knownVersion() == data.mailboxVersion(address)) {
             result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), "", "unchanged", "");
             return;
@@ -417,10 +416,6 @@ public final class AntmailServerHandler {
         }
     }
 
-    /**
-     * Encodes a folder snapshot that fits the result packet. Oversized snapshots first drop attachments from older
-     * drafts, then drop list rows from the end, rather than failing to send (which would disconnect the player).
-     */
     private static String encodeSnapshot(AntmailServerData data, AntmailMailbox mailbox, AntmailAddress address, int folder, int page,
                                          String query, boolean unreadOnly, boolean attachmentsOnly) {
         boolean draftAttachments = true;

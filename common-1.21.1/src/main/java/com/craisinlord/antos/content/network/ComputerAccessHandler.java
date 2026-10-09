@@ -198,8 +198,6 @@ public final class ComputerAccessHandler {
             sendAntazon(player, payload, false, "unauthorized", "");
             return;
         }
-        // The static catalogue only travels when the client's cached copy is from another reload; every refresh
-        // otherwise carries just the per-player fields (stock, limits, prices, ownership, player reviews).
         long gameTime = player.server.overworld().getGameTime();
         long day = gameTime / 24000L;
         String catalogVersion = AntazonData.catalogVersion(day);
@@ -881,7 +879,6 @@ public final class ComputerAccessHandler {
             return;
         }
 
-        // Search around the player when they are already in the target dimension, otherwise around world spawn.
         net.minecraft.core.BlockPos origin = player.level() == targetLevel ? player.blockPosition() : targetLevel.getSharedSpawnPos();
         int radius = entry.searchRadius() > 0 ? entry.searchRadius() : 100;
         net.minecraft.core.BlockPos nearest;

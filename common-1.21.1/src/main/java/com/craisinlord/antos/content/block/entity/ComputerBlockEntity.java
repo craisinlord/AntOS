@@ -303,7 +303,6 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         return true;
     }
 
-    /** Archive discoveries from inserted disks remain unlocked after ejecting the disk. */
     public void captureDiskArchiveEntries() {
         for (ResourceLocation diskId : diskIds()) {
             ComputerGuideData.Disk disk = ComputerGuideData.disk(diskId);

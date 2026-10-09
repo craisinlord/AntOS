@@ -32,7 +32,6 @@ public final class ComputerTasks {
     private static final java.util.Set<ResourceLocation> MISSING_ITEM_TAGS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private ComputerTasks() { }
 
-    /** Rolls one task reward pool and delivers its contents to the player. */
     public static boolean giveRewardPool(ServerPlayer player, ResourceLocation poolId) {
         if (player == null || ComputerGuideData.taskRewardPool(poolId) == null) return false;
         List<ItemStack> stacks = new java.util.ArrayList<>();
@@ -121,7 +120,6 @@ public final class ComputerTasks {
 
     public enum LocationResult { DONE, UNAVAILABLE }
 
-    /** Fills a location objective for a player who is standing in its target; see {@link ComputerLocationObjectives}. */
     public static LocationResult completeLocationObjective(ServerPlayer player, ComputerWorkspace computer,
                                                            ResourceLocation taskId, String objectiveId) {
         ComputerGuideData.Task task = task(taskId);
@@ -190,10 +188,6 @@ public final class ComputerTasks {
         return updateAndEncode(player, computer, "");
     }
 
-    /**
-     * Encodes the Tasks snapshot in two halves: static definitions (cached until a data reload) and per-player state.
-     * {@code known} is the client's "definitionsHash\0stateHash"; any half the client already holds is left out.
-     */
     public static String updateAndEncode(ServerPlayer player, ComputerWorkspace computer, String known) {
         ComputerTaskProgress progress = computer.taskProgress();
         evaluateProgress(player, computer, progress, false);
@@ -230,7 +224,6 @@ public final class ComputerTasks {
 
     private static volatile EncodedDefinitions encodedDefinitions;
 
-    /** Definitions only change on a data reload, which swaps the cached sorted lists, so they are encoded once per reload. */
     private static EncodedDefinitions definitions() {
         List<ComputerGuideData.Task> tasks = ComputerGuideData.tasks();
         List<ComputerGuideData.TaskCategory> categories = ComputerGuideData.taskCategories();
@@ -361,7 +354,6 @@ public final class ComputerTasks {
         return row;
     }
 
-    /** Per-player state; task rows follow the definition order so the client can pair them by index. */
     private static String encodeState(ServerPlayer player, ComputerTaskProgress progress) {
         var account = accountForProgress(player);
         ComputerWorkspaceData accountData = ComputerWorkspaceData.access(player.server);
@@ -708,7 +700,6 @@ public final class ComputerTasks {
                 : parts.length == 2 && validPoolChoice(entry.poolId(), parts[1], depth + 1);
     }
 
-    /** Drops an Antazon-style reward crate next to the player, with the usual "incoming" announcement. */
     public static void dropRewardCrate(ServerPlayer player, List<ItemStack> stacks) {
         if (player == null || stacks == null || stacks.isEmpty()) return;
         var level = player.serverLevel();

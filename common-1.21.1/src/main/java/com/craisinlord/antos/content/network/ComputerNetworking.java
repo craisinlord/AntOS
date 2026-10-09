@@ -106,7 +106,6 @@ public final class ComputerNetworking {
         requestTasks("");
     }
 
-    /** {@code known} lists the snapshot hashes the client already holds so the server can skip resending them. */
     public static void requestTasks(String known) {
         send(ComputerAccessPayload.TASK_STATE, known == null ? "" : known);
     }

@@ -31,7 +31,6 @@ public final class AntazonClientState {
     private static final Map<String, List<CheckoutLine>> CHECKOUTS = new ConcurrentHashMap<>();
     private static final Map<String, Notice> NOTICES = new ConcurrentHashMap<>();
     private static final Map<String, Map<String, ProductRow>> PRODUCT_INDEX = new ConcurrentHashMap<>();
-    /** Static product rows from the server, kept until it reports a different catalogue version (a datapack reload). */
     private static volatile Map<String, JsonObject> catalog = Map.of();
     private static volatile String catalogVersion = "";
 
@@ -66,7 +65,6 @@ public final class AntazonClientState {
                     catalog = Map.copyOf(rows);
                     catalogVersion = version;
                 } else if (!version.equals(catalogVersion)) {
-                    // Our catalogue is stale and the server assumed otherwise; drop it and ask for a full copy.
                     catalogVersion = "";
                     com.craisinlord.antos.content.network.ComputerNetworking.requestAntazon();
                     return;
@@ -200,7 +198,6 @@ public final class AntazonClientState {
         com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonOrders();
     }
 
-    /** Combines a cached static catalogue row with the per-player state the server sent for it. */
     private static JsonObject merge(JsonObject base, JsonObject state) {
         JsonObject row = base.deepCopy();
         for (Map.Entry<String, JsonElement> entry : state.entrySet()) {

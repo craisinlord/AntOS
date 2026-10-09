@@ -31,9 +31,7 @@ public final class AntazonServerData extends SavedData {
     private final List<PlayerReview> reviews = new ArrayList<>();
     private final List<Order> orders = new ArrayList<>();
     private final Map<UUID, List<CartLine>> carts = new LinkedHashMap<>();
-    /** Products each profile has received; kept separately so trimming old orders never forgets a purchase. */
     private final Map<UUID, Set<ResourceLocation>> purchased = new LinkedHashMap<>();
-    /** Index over {@link #reviews} by product, so the storefront does not scan every review per product. */
     private final Map<ResourceLocation, List<PlayerReview>> reviewsByProduct = new LinkedHashMap<>();
 
     public static AntazonServerData access(MinecraftServer server) {
@@ -316,7 +314,6 @@ public final class AntazonServerData extends SavedData {
     public synchronized void setShippingCrate(UUID owner, ResourceLocation dimension, net.minecraft.core.BlockPos position) {
         if (owner == null || dimension == null || position == null) return;
         CrateLocation location = new CrateLocation(dimension.toString(), position.asLong());
-        // Crate lookups run on every Antazon request; only an actual move changes saved state.
         if (location.equals(shippingCrates.put(owner, location))) return;
         setDirty();
     }
@@ -489,7 +486,6 @@ public final class AntazonServerData extends SavedData {
         if (order.status().equals("DELIVERED")) purchased.computeIfAbsent(order.player(), ignored -> new LinkedHashSet<>()).add(order.product());
     }
 
-    /** Keeps order and review history bounded in memory, not just in the save file. */
     private void trimHistory() {
         if (orders.size() > MAX_ORDERS) orders.subList(0, orders.size() - MAX_ORDERS).clear();
         while (reviews.size() > MAX_REVIEWS) {

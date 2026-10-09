@@ -20,7 +20,6 @@ public final class AccountWorkspace implements ComputerWorkspace {
     private final ComputerDesktopState desktopState = new ComputerDesktopState();
     private final ComputerTaskProgress taskProgress = new ComputerTaskProgress();
     private boolean authenticated = true;
-    /** Files and desktop are only decoded when a request touches them; most requests only need task progress. */
     private boolean workspaceLoaded;
     private int savedProgressRevision;
 

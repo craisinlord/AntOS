@@ -102,7 +102,6 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return category == null ? ResourceLocation.fromNamespaceAndPath("antos", "item/floppy_disk/floppy_disk") : category.texture();
     }
 
-    /** Current server data-pack mapping, sent to clients for vanilla floppy model overrides. */
     public static Map<ResourceLocation, ResourceLocation> diskCategoryMappings() {
         Map<ResourceLocation, ResourceLocation> result = new HashMap<>();
         disks.values().forEach(disk -> result.put(disk.id(), disk.category()));
@@ -120,7 +119,6 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return wallpapers.get(id);
     }
 
-    /** Sorted views are cached against the map instance they were built from; a reload swaps the map and rebuilds them. */
     private record SortedView<T>(Map<ResourceLocation, T> source, List<T> sorted) { }
     private static volatile SortedView<Task> sortedTasks;
     private static volatile SortedView<TaskCategory> sortedTaskCategories;
@@ -180,9 +178,9 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     public static boolean unlockAllGameEntries() {
+        Boolean synced = serverUnlockAllGameEntries;
         // Games are registered on the client, so a server-side false value must not
         // suppress a local client's choice to expose all installed games.
-        Boolean synced = serverUnlockAllGameEntries;
         return AntOSSettings.unlockAllGameEntries() || Boolean.TRUE.equals(synced);
     }
 
@@ -230,7 +228,6 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 "antos:floppy_disk", "", "", "", "", "", "", 0, "", "", "", "", 0.0F, 1.0F, true, false);
     }
 
-    /** Encodes loaded definitions for connected clients. */
     public static String encodeNetworkSnapshot() {
         return encodeNetworkSnapshot(List.of());
     }
@@ -317,7 +314,6 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         if (value != null && !value.isEmpty()) object.addProperty(key, value);
     }
 
-    /** Applies the server's definitions on the client. */
     public static void applyNetworkSnapshot(String json) {
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();

@@ -89,11 +89,9 @@ public final class AntmailMessage {
     public String senderDisplay() { return senderDisplay; }
     public String senderAvatarItem() { return senderAvatarItem; }
     public String senderAvatarEntity() { return senderAvatarEntity; }
-    /** The sender shown to the reader: the data-defined display override, or the real address. */
     public String displaySender() { return senderDisplay.isBlank() ? sender.fullAddress() : senderDisplay; }
     public boolean deleteAfterRead() { return deleteAfterRead; }
     public String notification() { return notification; }
-    /** True only for mail a player composed and sent; data-defined and system mail is never replyable. */
     public boolean fromPlayer() { return fromPlayer; }
     public void setPresentation(String style, String senderDisplay, boolean deleteAfterRead, String notification) {
         setPresentation(style, senderDisplay, "", "", deleteAfterRead, notification);
@@ -113,7 +111,6 @@ public final class AntmailMessage {
         searchText = null;
     }
 
-    /** Lower-cased text that folder search matches against; cached until the delivery status changes. */
     public String searchText() {
         String text = searchText;
         if (text == null) {
@@ -124,7 +121,6 @@ public final class AntmailMessage {
         return text;
     }
 
-    /** An independent copy, so the sender's Sent folder and the recipient's inbox never share read state. */
     public AntmailMessage copy() {
         return fromTag(toTag(true));
     }

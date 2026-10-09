@@ -13,7 +13,6 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 
-/** Tells online recipients about new mail when they carry an Antroid phone or are signed in at a computer. */
 public final class AntmailNotifier {
     private AntmailNotifier() { }
 

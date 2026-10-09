@@ -20,15 +20,12 @@ public final class ComputerTasksClientState {
     private static final Map<String, Map<String, CategoryInfo>> CATEGORIES = new ConcurrentHashMap<>();
     private static final Map<String, Map<String, GroupInfo>> GROUPS = new ConcurrentHashMap<>();
     private static final Map<String, Map<String, RewardPoolInfo>> REWARD_POOLS = new ConcurrentHashMap<>();
-    /** Static task definitions, kept between refreshes so the server only resends them after a data reload. */
     private static final Map<String, Definitions> DEFINITIONS = new ConcurrentHashMap<>();
     private static final Map<String, String> STATE_HASHES = new ConcurrentHashMap<>();
-    /** Bumped whenever any visible task data changes, so screens can cache derived layout. */
     private static volatile int revision;
     private ComputerTasksClientState() { }
     public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); TEAMS.clear(); INVITES.clear(); TEAM_STATUS.clear(); CATEGORIES.clear(); GROUPS.clear(); REWARD_POOLS.clear(); DEFINITIONS.clear(); STATE_HASHES.clear(); revision++; }
 
-    /** The "definitionsHash\0stateHash" the server can skip resending. */
     public static String requestToken() {
         String key = ComputerWorkspaceClientKey.of();
         Definitions definitions = DEFINITIONS.get(key);
@@ -66,7 +63,6 @@ public final class ComputerTasksClientState {
             }
             Definitions definitions = DEFINITIONS.get(key);
             if (definitions == null || !definitions.hash().equals(definitionsHash)) {
-                // Our cached definitions are stale and the server assumed otherwise; ask again for everything.
                 DEFINITIONS.remove(key);
                 STATE_HASHES.remove(key);
                 ComputerNetworking.requestTasks("");
@@ -231,7 +227,6 @@ public final class ComputerTasksClientState {
         return id == null ? null : definitions.get(id.toString());
     }
     public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); REWARD_POOLS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
-    /** Drops one-shot messages but keeps the last snapshot, so reopening the computer shows tasks immediately while it refreshes. */
     public static void clearTransient() { TEAM_STATUS.remove(ComputerWorkspaceClientKey.of()); }
     private record Definitions(String hash, List<TaskDefinition> tasks, Map<String, CategoryInfo> categories, Map<String, GroupInfo> groups,
                                Map<String, RewardPoolInfo> rewardPools) { }

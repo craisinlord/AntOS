@@ -79,7 +79,6 @@ final class TasksApp extends ComputerApp {
     private String notice = "";
     private long noticeUntil;
     private boolean windowWasOpen;
-    // Everything derived from the task snapshot is rebuilt only when the snapshot (or collapsed groups) change, not every frame.
     private int viewRevision = Integer.MIN_VALUE;
     private String viewKey = "";
     private String viewLanguage = "";
@@ -291,13 +290,11 @@ final class TasksApp extends ComputerApp {
             for (String requiredId : node.task().requires()) {
                 Node parent = nodesById.get(requiredId);
                 if (parent == null) continue;
-                // Skip connectors whose bounding box lies entirely outside the map viewport.
                 if (Math.max(parent.right(), node.right()) < mapX || Math.min(parent.left(), node.left()) > mapRight
                         || Math.max(parent.bottom(), node.bottom()) < mapY || Math.min(parent.top(), node.top()) > mapBottom) continue;
                 renderConnection(g, parent, node, parent.task().complete());
             }
         }
-        // Off-screen nodes are skipped entirely: scissoring hides their pixels but item and mob icons would still render.
         List<Node> onScreen = new ArrayList<>(nodes.size());
         for (Node node : nodes) {
             if (node.right() + 4 < mapX || node.left() - 4 > mapRight || node.bottom() + 14 < mapY || node.top() - 4 > mapBottom) continue;
@@ -943,7 +940,6 @@ final class TasksApp extends ComputerApp {
         return result;
     }
 
-    /** Grid placement only depends on the task list, so it is computed once per category per snapshot. */
     private List<Cell> cells(List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> tasks) {
         List<Cell> cached = layoutCache.get(tasks);
         if (cached != null) return cached;
@@ -970,7 +966,6 @@ final class TasksApp extends ComputerApp {
             result.add(new Cell(task, column, row));
         }
         List<Cell> cells = List.copyOf(result);
-        // Only lists owned by the view cache are stable keys; anything else would just grow the map.
         if (tasks.isEmpty() || viewRowsByCategory.get(tasks.get(0).category()) == tasks) layoutCache.put(tasks, cells);
         return cells;
     }

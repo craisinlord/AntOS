@@ -182,7 +182,6 @@ public final class AntmailMailbox {
         ListTag draftTags = new ListTag();
         for (int index = 0; index < drafts.size(); index++) {
             AntmailDraft draft = drafts.get(index);
-            // The newest draft keeps its attachments even when trimming, since compose restores it.
             boolean full = draftAttachments || index == drafts.size() - 1;
             draftTags.add(full ? draft.toTag() : draft.withoutAttachments().toTag());
         }

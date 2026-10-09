@@ -114,7 +114,6 @@ public sealed interface AntmailAttachment permits AntmailAttachment.TextFile, An
         static Antcoins fromTag(CompoundTag tag) { return new Antcoins(tag.getLong("Amount")); }
     }
 
-    /** A client-side preview backed by one of AntOS's existing render systems. */
     record Render(String kind, String resourceId) implements AntmailAttachment {
         public Render {
             if (!AntmailRenderMarkers.isSupportedKind(kind)) throw new IllegalArgumentException("Unsupported render kind");

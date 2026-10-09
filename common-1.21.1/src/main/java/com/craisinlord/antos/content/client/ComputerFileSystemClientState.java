@@ -26,7 +26,6 @@ public final class ComputerFileSystemClientState {
         } catch (NumberFormatException ignored) {
             return;
         }
-        // Ignore other operations that share this payload envelope.
         if (action != ComputerAccessPayload.FILE_LIST
                 && action != ComputerAccessPayload.FILE_OPEN
                 && action != ComputerAccessPayload.FILE_CREATE

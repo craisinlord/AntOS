@@ -18,11 +18,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Native location task objectives: {@code dimension_entered}, {@code biome_visited} and {@code structure_entered}.
- * Checked once a second per player; each completes while the player is standing in the place and the task is
- * available, including when the task becomes available after they arrived.
- */
 public final class ComputerLocationObjectives {
     public static final Set<String> TYPES = Set.of("dimension_entered", "biome_visited", "structure_entered");
     private static final int CHECK_INTERVAL = 20;
@@ -68,7 +63,6 @@ public final class ComputerLocationObjectives {
     private static volatile List<ComputerGuideData.Task> candidatesSource;
     private static volatile List<Candidate> cachedCandidates = List.of();
 
-    /** Location objectives only change on a data reload, which swaps the cached task list. */
     private static List<Candidate> candidates() {
         List<ComputerGuideData.Task> tasks = ComputerGuideData.tasks();
         if (tasks == candidatesSource) return cachedCandidates;

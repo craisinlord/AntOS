@@ -290,10 +290,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         }
     }
 
-    /**
-     * Lookups shared across one scheduling or random-mail pass: the online player per address is resolved once, and
-     * the task-progress fallback (which deserializes saved workspace progress) is memoized per address and task.
-     */
     private static final class Pass {
         private final MinecraftServer server;
         private final AntmailServerData data;

@@ -474,13 +474,11 @@ public final class ComputerWorkspaceData extends SavedData {
         return snapshot == null ? null : snapshot.copy();
     }
 
-    /** Copies only the task progress section of an account workspace, avoiding a copy of its files and desktop. */
     public synchronized CompoundTag workspaceSection(UUID workspaceId, String key) {
         CompoundTag snapshot = workspaceId == null ? null : workspaceSnapshots.get(workspaceId);
         return snapshot == null ? null : snapshot.getCompound(key).copy();
     }
 
-    /** Replaces one section of an account workspace in place, leaving the rest of the snapshot untouched. */
     public synchronized boolean saveWorkspaceSection(UUID workspaceId, String key, CompoundTag section) {
         if (workspaceId == null || section == null || !isAccountWorkspace(workspaceId)) return false;
         CompoundTag snapshot = workspaceSnapshots.computeIfAbsent(workspaceId, ignored -> new CompoundTag());
@@ -553,7 +551,6 @@ public final class ComputerWorkspaceData extends SavedData {
         return result;
     }
 
-    /** Starts a new workspace and makes it the owner's active recovery point. */
     public synchronized UUID createWorkspace(UUID owner, ComputerTaskProgress progress) {
         if (owner == null || progress == null) return null;
         UUID workspaceId = UUID.randomUUID();

@@ -10,7 +10,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 
-/** Sends data-pack disk texture mappings to clients, including clients joining after a reload. */
 public final class FloppyTextureSync {
     private static BiConsumer<ServerPlayer, FloppyTextureSyncPayload> sender = (player, payload) -> {};
     private static MinecraftServer trackedServer;

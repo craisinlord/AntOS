@@ -24,7 +24,6 @@ public final class ComputerTaskProgress {
     private final Set<ObjectiveKey> satisfiedObjectives = new LinkedHashSet<>();
     private final Set<ObjectiveKey> consumedObjectives = new LinkedHashSet<>();
     private final Set<ItemObjectiveKey> consumedObjectiveItems = new LinkedHashSet<>();
-    /** Bumped on every mutation so holders can skip re-saving unchanged progress. */
     private int revision;
 
     public int revision() {
@@ -66,7 +65,6 @@ public final class ComputerTaskProgress {
                 || !consumedObjectiveItems.isEmpty();
     }
 
-    /** Combines a recovered/profile snapshot without regressing any local progress. */
     public boolean mergeFrom(ComputerTaskProgress other) {
         if (other == null) return false;
         boolean changed = touched(granted.addAll(other.granted));
@@ -153,7 +151,6 @@ public final class ComputerTaskProgress {
                 && consumedObjectiveItems.add(new ItemObjectiveKey(taskId, objectiveId, itemId)));
     }
 
-    /** Clears task grants and completion state while preserving Archive unlocks. */
     public boolean clearTaskProgress() {
         boolean changed = !granted.isEmpty() || !completed.isEmpty() || !objectiveCounts.isEmpty() || !objectiveItemCounts.isEmpty()
                 || !satisfiedObjectives.isEmpty() || !consumedObjectives.isEmpty() || !consumedObjectiveItems.isEmpty();

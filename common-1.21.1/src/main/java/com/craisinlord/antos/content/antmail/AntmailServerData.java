@@ -24,7 +24,6 @@ public final class AntmailServerData extends SavedData {
     private final Map<AntmailAddress, AntmailProfile> profiles = new LinkedHashMap<>();
     private final Map<UUID, UUID> linkedAccounts = new LinkedHashMap<>();
     private final List<ScheduledMail> scheduled = new ArrayList<>();
-    /** Index over {@link #scheduled} so trigger checks do not scan the whole schedule. */
     private final Map<AntmailAddress, Set<ResourceLocation>> scheduledIds = new LinkedHashMap<>();
     private final Map<AntmailAddress, Set<ResourceLocation>> poolSeen = new LinkedHashMap<>();
     private final Map<AntmailAddress, Set<ResourceLocation>> readDefinitions = new LinkedHashMap<>();
@@ -222,10 +221,6 @@ public final class AntmailServerData extends SavedData {
         return account == null ? null : AntmailAddress.ofUsername(account.username());
     }
 
-    /**
-     * The address scripted mail is delivered to for this player: the active Anternet session, else the
-     * account this player last signed into, else their Face ID account. Works while the player has no session.
-     */
     public synchronized AntmailAddress deliveryAddressFor(ServerPlayer player) {
         var account = deliveryAccount(player);
         return account == null ? null : AntmailAddress.ofUsername(account.username());
@@ -247,7 +242,6 @@ public final class AntmailServerData extends SavedData {
         setDirty();
     }
 
-    /** Every online player keyed by delivery address, first player per address; built once per scheduling pass. */
     public Map<AntmailAddress, ServerPlayer> onlinePlayersByAddress(MinecraftServer server) {
         Map<AntmailAddress, ServerPlayer> players = new java.util.HashMap<>();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -257,7 +251,6 @@ public final class AntmailServerData extends SavedData {
         return players;
     }
 
-    /** Online players whose delivery address is {@code address}. */
     public List<ServerPlayer> onlinePlayersFor(MinecraftServer server, AntmailAddress address) {
         List<ServerPlayer> players = new ArrayList<>();
         if (address == null) return players;
@@ -337,7 +330,6 @@ public final class AntmailServerData extends SavedData {
         if (addId(completedTasks, address, id)) setDirty();
     }
 
-    /** Claims a one-shot package for this address; false if it was already claimed. */
     public synchronized boolean claimPackage(AntmailAddress address, ResourceLocation id) {
         if (!addId(packageClaims, address, id)) return false;
         setDirty();
@@ -355,7 +347,6 @@ public final class AntmailServerData extends SavedData {
         return List.copyOf(pendingIds);
     }
 
-    /** Removes read delete_after_read messages, for clients that closed before cleaning them up. */
     public synchronized void purgeReadSelfDeleting(AntmailAddress address) {
         AntmailMailbox mailbox = mailboxes.get(address);
         if (mailbox == null) return;
@@ -385,7 +376,6 @@ public final class AntmailServerData extends SavedData {
     }
 
     public synchronized AntmailMailbox mailboxOrCreate(AntmailAddress address) {
-        // Only a brand-new mailbox changes saved state; read paths call this on every poll.
         boolean created = !mailboxes.contains(address);
         AntmailMailbox mailbox = mailboxes.getOrCreate(address);
         if (created) setDirty();
@@ -463,7 +453,6 @@ public final class AntmailServerData extends SavedData {
         AntmailMailbox destination = mailboxes.getOrCreate(message.recipient());
         if (destination.inboxSize() >= AntmailValidation.MAX_MAILBOX_MESSAGES) return failedAndRecorded(message, AntmailDeliveryResult.Status.MAILBOX_FULL, "mailbox_full");
         message.setDeliveryStatus("DELIVERED");
-        // The recipient gets its own copy so reading or editing it never shows through in the sender's Sent folder.
         AntmailMessage incoming = message.copy();
         destination.addIncoming(incoming);
         mailboxes.getOrCreate(message.sender()).addSent(message);

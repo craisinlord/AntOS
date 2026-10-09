@@ -34,12 +34,10 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         return INSTANCE;
     }
 
-    /** Every product sorted by id; sorted once per reload rather than per storefront request. */
     public static List<Product> products() {
         return catalog().sorted();
     }
 
-    /** Changes on every reload, so clients can keep the static catalogue until the datapacks change. */
     public static String catalogVersion(long day) {
         Catalog current = catalog();
         long stamp = current.version();
@@ -47,9 +45,6 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         return Long.toString(stamp);
     }
 
-    /**
-     * The player-independent half of a storefront row, built once per reload. Shared: callers must not modify it.
-     */
     public static JsonObject catalogRow(ResourceLocation id) {
         return catalog().rows().get(id);
     }

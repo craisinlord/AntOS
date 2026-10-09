@@ -7,10 +7,6 @@ import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.FormattedCharSequence;
 
-/**
- * Animated presentation for {@code "style": "corrupted"} mail and the {@code [glitch]}/{@code [redact]} markup.
- * Wrapping is done on the clean text and characters are swapped per frame afterwards, so lines never reflow.
- */
 public final class AntmailGlitchText {
     public static final int CORRUPT_RED = 0xFFFF3B3B;
     public static final int CORRUPT_DIM = 0xFF9A1414;
@@ -39,7 +35,6 @@ public final class AntmailGlitchText {
         return root;
     }
 
-    /** Applies this frame's character substitution and redaction to one wrapped line. */
     public static FormattedCharSequence animate(FormattedCharSequence line, int lineIndex, long openedAtMillis) {
         long now = System.currentTimeMillis();
         long bucket = now / 120L;
@@ -62,14 +57,12 @@ public final class AntmailGlitchText {
         };
     }
 
-    /** Horizontal jitter for a corrupted line this frame: usually 0, occasionally one pixel either way. */
     public static int jitter(int lineIndex) {
         long bucket = System.currentTimeMillis() / 90L;
         int roll = hash(lineIndex, bucket) % 100;
         return roll < 6 ? -1 : roll < 12 ? 1 : 0;
     }
 
-    /** Single-line glitch for subjects and senders; {@code percent} of characters flicker. */
     public static String flicker(String text, int percent, int salt) {
         if (text == null || text.isEmpty()) return "";
         long bucket = System.currentTimeMillis() / 150L;
@@ -80,7 +73,6 @@ public final class AntmailGlitchText {
         return builder.toString();
     }
 
-    /** Sender label for corrupted rows: mostly stable, with short bursts of heavy garbling. */
     public static String garbledSender(String sender, int salt) {
         long second = System.currentTimeMillis() / 1000L;
         boolean burst = hash(salt, second) % 100 < 25;

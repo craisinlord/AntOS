@@ -127,9 +127,7 @@ public final class ComputerScreen extends Screen {
     Window activeWindow;
     private final Set<String> archiveRenderLog = new HashSet<>();
     boolean archiveGreenTint = true;
-    /** Verbose per-icon preview logging; off by default because building its arguments runs on every frame. */
     private static final boolean LOG_ARCHIVE_PREVIEWS = Boolean.getBoolean("antos.logArchivePreviews");
-    // Icon caches outlive a single screen so reopening the computer does not rebuild preview entities; they are tied to the client level.
     private static final Map<String, LivingEntity> archiveEntityPreviews = new HashMap<>();
     private static final Set<String> unavailableArchiveEntities = new HashSet<>();
     private static final Map<String, ItemStack> archiveItemStacks = new HashMap<>();
@@ -1144,7 +1142,6 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderArchiveItem(GuiGraphics g, ItemStack stack, int x, int y, int size) {
-        // Only the tint needs queued fills drawn first; renderItem flushes its own batch.
         if (archiveGreenTint) {
             g.flush();
             g.setColor(0.0F, 1.0F, 0.0F, 1.0F);

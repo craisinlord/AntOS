@@ -16,7 +16,6 @@ public final class AntmailClientState {
     private static volatile AntmailAnternetResultPayload result;
     private static volatile AntmailAnternetResultPayload mailbox;
     private static volatile long version;
-    /** The current mailbox payload decoded once on arrival, so render code never re-inflates it per frame. */
     private static volatile Snapshot snapshot;
     private static volatile boolean refreshRequested;
     private static final Map<java.util.UUID, AntmailMessage> DETAILS = new ConcurrentHashMap<>();
@@ -67,13 +66,10 @@ public final class AntmailClientState {
             snapshot = null;
             version = 0L;
         } else if (!"result_too_large".equals(payload.detail()) && !"invalid_action".equals(payload.detail())) {
-            // Mutation acknowledgements carry no snapshot; keep showing the cached one and fetch a fresh one.
-            // The cached version is left alone so the next poll cannot be answered with "unchanged".
             refreshRequested = true;
         }
     }
 
-    /** True once after an acknowledgement that changed server state the cached snapshot does not show yet. */
     public static boolean consumeRefreshRequest() {
         boolean requested = refreshRequested;
         refreshRequested = false;
@@ -85,7 +81,6 @@ public final class AntmailClientState {
         return folder + "|" + unreadOnly + "|" + attachmentsOnly + "|" + normalized;
     }
 
-    /** The decoded snapshot for {@code payload}, or null when it is not the cached mailbox payload. */
     public static Snapshot snapshot(AntmailAnternetResultPayload payload) {
         Snapshot current = snapshot;
         return current != null && current.payload() == payload ? current : null;

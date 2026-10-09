@@ -35,7 +35,6 @@ public final class ComputerAccessClientState {
                 ComputerArchiveUnlockClientState.update(envelope[2]);
             }
         }
-        // Ignore operation responses; they do not update login state.
         if (result.data().isBlank()) RESULTS.put(ComputerWorkspaceClientKey.of(), result);
         ComputerFileSystemClientState.update(result);
     }

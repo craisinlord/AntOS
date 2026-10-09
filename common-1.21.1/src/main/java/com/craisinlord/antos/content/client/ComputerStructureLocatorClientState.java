@@ -19,7 +19,6 @@ public final class ComputerStructureLocatorClientState {
         searching(dimensionId, false);
     }
 
-    /** {@code customLocator} entries report a location rather than a structure start. */
     public static void searching(String dimensionId, boolean customLocator) {
         CUSTOM_LOCATOR.put(ComputerWorkspaceClientKey.of(), customLocator);
         String dimension = dimensionId == null || dimensionId.isBlank() ? "TARGET DIMENSION" : dimensionId.toUpperCase(java.util.Locale.ROOT);

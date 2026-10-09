@@ -51,10 +51,6 @@ public final class AntazonService {
         return result;
     }
 
-    /**
-     * Charges for and records one purchase, adding its reward stacks to {@code deliveries} instead of launching them,
-     * so checkout can resolve the crate once and send every line in a single drop.
-     */
     private static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer, CrateRef deliveryCrate,
                                            ResourceLocation productId, String optionId, String variantId, int units, List<ItemStack> deliveries,
                                            List<ItemStack> directDeliveries, List<LocationDelivery> locationDeliveries) {
@@ -132,7 +128,6 @@ public final class AntazonService {
                 }
             }
             if (payment == null) return PurchaseResult.failed(optionIndex < 0 ? "payment_unavailable" : "insufficient_payment");
-            // Unlimited products have no stock to track, so they never touch the stock table.
             if (availability.serverStock() > 0) data.setStock(limitKey, new AntazonServerData.Stock(current.remaining() - requiredUnits, current.nextRestockDay()));
             data.setPlayerState(profile, limitKey, new AntazonServerData.PlayerState(playerQuantity + requiredUnits, reset, gameTime));
             UUID orderId = UUID.randomUUID();
@@ -147,7 +142,6 @@ public final class AntazonService {
         }
     }
 
-    /** Merges like stacks and drops them on the crate, splitting into several crates only past the per-drop stack cap. */
     private static void launchDelivery(ServerPlayer player, CrateRef crate, List<ItemStack> deliveries) {
         if (crate == null || deliveries.isEmpty()) return;
         List<ItemStack> merged = new ArrayList<>();

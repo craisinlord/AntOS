@@ -1641,8 +1641,6 @@ final class AntmailApp extends ComputerApp {
         String query = mode.equals("drafts") ? "" : state.search;
         boolean unreadOnly = !mode.equals("drafts") && state.unreadOnly;
         boolean attachmentsOnly = !mode.equals("drafts") && state.attachmentsOnly;
-        // Reuse the cached version (letting the server answer "unchanged") only when the cached snapshot answered this
-        // exact folder/search/filter request; anything else needs a fresh snapshot.
         boolean sameRequest = AntmailClientState.snapshotKey().equals(AntmailClientState.requestKey(folder, query, unreadOnly, attachmentsOnly));
         long knownVersion = force || !sameRequest ? 0L : AntmailClientState.getVersion();
         AntmailNetworking.requestState(folder, state.page, knownVersion, query, unreadOnly, attachmentsOnly);
