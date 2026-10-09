@@ -65,6 +65,8 @@ final class TasksApp extends ComputerApp {
     private final List<ArchiveButton> archiveButtons = new ArrayList<>();
     private final List<ClaimButton> claimButtons = new ArrayList<>();
     private final List<ItemButton> itemButtons = new ArrayList<>();
+    private final List<PoolChoiceButton> poolChoiceButtons = new ArrayList<>();
+    private final Map<String, Map<Integer, String>> poolSelections = new HashMap<>();
     private boolean teamInviteFocused;
     private String teamInviteUsername = "";
     private boolean teamDisbandConfirm;
@@ -135,6 +137,7 @@ final class TasksApp extends ComputerApp {
         archiveButtons.clear();
         claimButtons.clear();
         itemButtons.clear();
+        poolChoiceButtons.clear();
         ensureView();
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> allRows = viewAllRows;
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> visibleRows = viewVisibleRows;
@@ -549,9 +552,33 @@ final class TasksApp extends ComputerApp {
         line += 4;
         if (task.hasRewards()) {
             line = screen.renderTaskSectionLabel(g, "REWARD", x, line, w) + 3;
-            for (var reward : task.rewards()) {
+            for (int rewardIndex = 0; rewardIndex < task.rewards().size(); rewardIndex++) {
+                var reward = task.rewards().get(rewardIndex);
                 String rewardText = rewardText(reward);
-                if (!reward.item().isBlank()) {
+                if (reward.type().equals("item_pool")) {
+                    List<PoolOutcome> outcomes = poolOutcomes(reward.pool(), "", 1, 0);
+                    String selectedPath = poolSelections.getOrDefault(task.id(), Map.of()).get(rewardIndex);
+                    if (reward.mode().equals("random")) {
+                        if (!outcomes.isEmpty()) {
+                            PoolOutcome preview = outcomes.get((int) ((System.currentTimeMillis() / 350L) % outcomes.size()));
+                            screen.renderArchiveAsset(g, preview.item(), "", "", "", x + 9, line + 4, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
+                        }
+                        line = screen.wrap(g, rewardText, x + 20, line, w - 22, GREEN) + 2;
+                    } else {
+                        line = screen.wrap(g, rewardText, x + 2, line, w - 4, GREEN) + 2;
+                        for (PoolOutcome outcome : outcomes) {
+                            boolean selected = outcome.path().equals(selectedPath);
+                            int rowTop = line;
+                            if (screen.hovered(x + 1, rowTop, w - 2, 17)) screen.drawHover(g, x + 1, rowTop, w - 2, 17);
+                            if (selected) screen.box(g, x + 1, rowTop, x + w - 1, rowTop + 17, 0x5533AA55);
+                            screen.renderArchiveAsset(g, outcome.item(), "", "", "", x + 9, rowTop + 2, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
+                            String label = outcome.count() + "x " + itemName(outcome.item()) + (selected ? "  [SELECTED]" : "");
+                            line = screen.wrap(g, label, x + 20, rowTop + 2, w - 22, selected ? PALE_GREEN : GREEN) + 2;
+                            if (rowTop >= y + 19 && rowTop + 17 <= y + h - 17)
+                                poolChoiceButtons.add(new PoolChoiceButton(task.id(), rewardIndex, outcome.path(), x + 1, rowTop, x + w - 1, rowTop + 17));
+                        }
+                    }
+                } else if (!reward.item().isBlank()) {
                     if (screen.hovered(x + 2, line, 16, 17)) screen.drawHover(g, x + 2, line, 16, 17);
                     screen.renderArchiveAsset(g, reward.item(), "", "", "", x + 9, line + 4, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
                     int rowY = line;
@@ -561,13 +588,19 @@ final class TasksApp extends ComputerApp {
                     if (recipeItem.equals(reward.item())) line = screen.renderTaskItemRecipe(g, reward.item(), x + 20, line - 1, w - 22) + 2;
                 } else line = screen.wrap(g, rewardText, x + 2, line, w - 4, GREEN) + 2;
             }
-            String rewardStatus = task.claimed() ? "REWARD CLAIMED" : task.claimable() ? "READY TO CLAIM" : "";
+            boolean missingChoice = false;
+            for (int rewardIndex = 0; rewardIndex < task.rewards().size(); rewardIndex++) {
+                var reward = task.rewards().get(rewardIndex);
+                if (reward.type().equals("item_pool") && reward.mode().equals("choice")
+                        && !poolSelections.getOrDefault(task.id(), Map.of()).containsKey(rewardIndex)) missingChoice = true;
+            }
+            String rewardStatus = task.claimed() ? "REWARD CLAIMED" : task.claimable() ? missingChoice ? "CHOOSE A POOL REWARD" : "READY TO CLAIM" : "";
             if (!rewardStatus.isBlank()) line = screen.wrap(g, rewardStatus, x, line, w, task.claimed() ? PALE_GREEN : GREEN) + 3;
             if (task.claimable()) {
                 int buttonY = line - 1;
                 if (buttonY >= y + 19 && buttonY + 16 <= y + h - 17) {
-                    claimButtons.add(new ClaimButton(task.id(), x + 1, buttonY, Math.min(x + w - 1, x + 101), buttonY + 15));
-                    drawTeamButton(g, x + 1, buttonY, Math.min(w - 2, 100), "CLAIM REWARD", false);
+                    if (!missingChoice) claimButtons.add(new ClaimButton(task.id(), x + 1, buttonY, Math.min(x + w - 1, x + 101), buttonY + 15));
+                    drawTeamButton(g, x + 1, buttonY, Math.min(w - 2, 100), missingChoice ? "SELECT REWARD" : "CLAIM REWARD", false);
                 }
                 line += 18;
             }
@@ -614,6 +647,8 @@ final class TasksApp extends ComputerApp {
             }
             case "experience" -> reward.experience() + " experience points";
             case "experience_levels" -> reward.count() + " experience levels";
+            case "antcoins" -> reward.antcoins() + " AntCoins";
+            case "item_pool" -> reward.mode().equals("choice") ? "Choose one reward:" : "Random reward pool";
             case "archive" -> {
                 try {
                     var entry = ComputerGuideData.entry(ResourceLocation.parse(reward.target()));
@@ -625,6 +660,29 @@ final class TasksApp extends ComputerApp {
             case "advancement" -> "Advancement: " + reward.target();
             default -> reward.type() + (reward.target().isBlank() ? "" : ": " + reward.target());
         };
+    }
+
+    private List<PoolOutcome> poolOutcomes(String poolId, String prefix, int multiplier, int depth) {
+        if (poolId == null || poolId.isBlank() || depth > 8) return List.of();
+        var pool = com.craisinlord.antos.content.client.ComputerTasksClientState.rewardPool(poolId);
+        if (pool == null) return List.of();
+        List<PoolOutcome> result = new ArrayList<>();
+        for (int index = 0; index < pool.entries().size() && result.size() < 64; index++) {
+            var entry = pool.entries().get(index);
+            String path = prefix.isBlank() ? Integer.toString(index) : prefix + "." + index;
+            int count = (int) Math.min(108L, (long) multiplier * entry.count());
+            if (!entry.item().isBlank()) result.add(new PoolOutcome(path, entry.item(), count));
+            else result.addAll(poolOutcomes(entry.pool(), path, count, depth + 1).stream().limit(64 - result.size()).toList());
+        }
+        return List.copyOf(result);
+    }
+
+    private String itemName(String itemId) {
+        try {
+            var item = BuiltInRegistries.ITEM.getOptional(ResourceLocation.parse(itemId)).orElse(null);
+            if (item != null) return Component.translatable(item.getDescriptionId()).getString();
+        } catch (RuntimeException ignored) { }
+        return itemId;
     }
 
     private List<SidebarRow> visibleSidebarRows() {
@@ -1047,6 +1105,8 @@ final class TasksApp extends ComputerApp {
     private record ClaimButton(String taskId, int left, int top, int right, int bottom) { }
 
     private record ItemButton(String itemId, int left, int top, int right, int bottom) { }
+    private record PoolChoiceButton(String taskId, int rewardIndex, String path, int left, int top, int right, int bottom) { }
+    private record PoolOutcome(String path, String item, int count) { }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
         int contentX = x + 8;
@@ -1190,11 +1250,21 @@ final class TasksApp extends ComputerApp {
                 detailScroll = 0;
                 return true;
             }
+            for (PoolChoiceButton choiceButton : poolChoiceButtons) {
+                if (!screen.inside(choiceButton.left(), choiceButton.top(), choiceButton.right() - choiceButton.left(),
+                        choiceButton.bottom() - choiceButton.top(), mouseX, mouseY)) continue;
+                poolSelections.computeIfAbsent(choiceButton.taskId(), ignored -> new HashMap<>())
+                        .put(choiceButton.rewardIndex(), choiceButton.path());
+                return true;
+            }
             for (ClaimButton claimButton : claimButtons) {
                 if (!screen.inside(claimButton.left(), claimButton.top(), claimButton.right() - claimButton.left(),
                         claimButton.bottom() - claimButton.top(), mouseX, mouseY)) continue;
                 ResourceLocation taskId = ResourceLocation.tryParse(claimButton.taskId());
-                if (taskId != null) ComputerNetworking.claimTaskReward(taskId);
+                if (taskId != null) {
+                    ComputerNetworking.claimTaskReward(taskId, poolSelections.getOrDefault(claimButton.taskId(), Map.of()));
+                    ComputerNetworking.requestAntazonWallet();
+                }
                 return true;
             }
             for (ArchiveButton archiveButton : archiveButtons) {

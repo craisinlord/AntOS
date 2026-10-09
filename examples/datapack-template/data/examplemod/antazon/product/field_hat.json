@@ -1,0 +1,14 @@
+{
+  "name": "Field Hat: {item}",
+  "description": "Choose the color of your field hat.",
+  "category": "cosmetics",
+  "quantity": 1,
+  "payments": [
+    { "type": "antcoins", "resource": "antcoins", "amount": 40 }
+  ],
+  "delivery": "direct",
+  "variants": {
+    "tag": "examplemod:shop_variants",
+    "mode": "choose"
+  }
+}

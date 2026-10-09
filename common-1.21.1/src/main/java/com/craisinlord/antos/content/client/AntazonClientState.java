@@ -112,8 +112,11 @@ public final class AntazonClientState {
                 if (envelope.length > 2 && !envelope[2].isBlank()) {
                     for (JsonElement element : JsonParser.parseString(envelope[2]).getAsJsonArray()) {
                         JsonObject row = element.getAsJsonObject();
-                        rows.add(new SellRow(row.get("item").getAsString(), row.get("count").getAsInt(), row.get("value").getAsLong(),
-                                row.get("sellable").getAsBoolean(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true)));
+                        rows.add(new SellRow(row.get("item").getAsString(), row.get("count").getAsInt(), integer(row, "accepted_count", row.get("count").getAsInt()),
+                                integer(row, "returned_count", 0), row.get("value").getAsLong(),
+                                row.get("sellable").getAsBoolean(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
+                                integer(row, "limit", 0), string(row, "limit_reset", "none"), integer(row, "remaining", Integer.MAX_VALUE), bool(row, "over_limit", false),
+                                bool(row, "locked", false), string(row, "unlock_mode", "all"), strings(row.getAsJsonArray("unlock_tasks"))));
                     }
                 }
                 SELL_ROWS.put(key, List.copyOf(rows));
@@ -123,7 +126,9 @@ public final class AntazonClientState {
                 List<PriceRow> prices = new ArrayList<>();
                 if (envelope.length > 2 && !envelope[2].isBlank()) for (JsonElement element : JsonParser.parseString(envelope[2]).getAsJsonArray()) {
                     JsonObject row = element.getAsJsonObject();
-                    prices.add(new PriceRow(row.get("item").getAsString(), row.get("value").getAsInt(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true)));
+                    prices.add(new PriceRow(row.get("item").getAsString(), row.get("value").getAsInt(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
+                            integer(row, "limit", 0), integer(row, "used", 0), integer(row, "remaining", Integer.MAX_VALUE), string(row, "limit_reset", "none"),
+                            bool(row, "locked", false), string(row, "unlock_mode", "all"), strings(row.getAsJsonArray("unlock_tasks"))));
                 }
                 PRICES.put(key, List.copyOf(prices));
             } else if (data.startsWith(ComputerAccessPayload.ANTAZON_ONBOARDING + "\0")
@@ -158,7 +163,7 @@ public final class AntazonClientState {
                     List<CheckoutLine> lines = new ArrayList<>();
                     for (JsonElement element : response.getAsJsonArray("results")) {
                         JsonObject row = element.getAsJsonObject();
-                        lines.add(new CheckoutLine(row.get("product").getAsString(), row.get("option").getAsInt(), row.get("units").getAsInt(),
+                        lines.add(new CheckoutLine(row.get("product").getAsString(), row.get("option").getAsInt(), row.get("units").getAsInt(), string(row, "variant", ""),
                                 row.get("status").getAsString(), row.get("receipt").getAsString()));
                     }
                     CHECKOUTS.put(key, List.copyOf(lines));
@@ -179,6 +184,10 @@ public final class AntazonClientState {
                 STATUS.put(key, status);
                 SELL_FEEDBACK.put(key, status);
                 if (envelope.length > 2 && !envelope[2].isBlank()) SELL_AMOUNT.put(key, Long.parseLong(envelope[2]));
+                if (result.result() == ComputerAccessResultPayload.SUCCESS) {
+                    com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonSellState();
+                    com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonPrices();
+                }
             }
         } catch (RuntimeException exception) {
             NOTICES.put(key, new Notice("error", "invalid_response", "", 0, "", false, System.currentTimeMillis()));
@@ -234,6 +243,7 @@ public final class AntazonClientState {
             rewards.add(new RewardRow(reward.get("item").getAsString(), reward.get("count").getAsInt()));
         }
         String poolItem = poolItemName(string(row, "pool_item", ""));
+        List<String> variants = row.has("variants") ? strings(row.getAsJsonArray("variants")) : List.of();
         return new ProductRow(row.get("id").getAsString(), withPoolItem(row.get("name").getAsString(), poolItem),
                 withPoolItem(row.get("description").getAsString(), poolItem),
                 row.get("category").getAsString(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
@@ -244,7 +254,7 @@ public final class AntazonClientState {
                 string(row, "unlock_mode", "all"), bool(row, "hidden_until_unlocked", false), strings(row.getAsJsonArray("tags")), thumbnail, List.copyOf(gallery),
                 row.get("quantity").getAsInt(), row.has("cooldown_ends") ? row.get("cooldown_ends").getAsLong() : 0L,
                 List.copyOf(payments), List.copyOf(rewards), List.copyOf(reviews), bool(row, "purchased", false), bool(row, "reviewed", false),
-                deadline(row, "rotates_in_ms"), bool(row, "rotates_real", false));
+                deadline(row, "rotates_in_ms"), bool(row, "rotates_real", false), string(row, "variant_mode", ""), variants);
     }
 
     private static long deadline(JsonObject row, String key) {
@@ -256,7 +266,7 @@ public final class AntazonClientState {
         List<CartLine> lines = new ArrayList<>();
         for (JsonElement element : array) {
             JsonObject row = element.getAsJsonObject();
-            lines.add(new CartLine(row.get("product").getAsString(), row.get("option").getAsInt(), row.get("units").getAsInt()));
+            lines.add(new CartLine(row.get("product").getAsString(), row.get("option").getAsInt(), row.get("units").getAsInt(), string(row, "variant", "")));
         }
         return List.copyOf(lines);
     }
@@ -268,6 +278,7 @@ public final class AntazonClientState {
             row.addProperty("product", line.product());
             row.addProperty("option", line.option());
             row.addProperty("units", line.units());
+            row.addProperty("variant", line.variant());
             array.add(row);
         }
         return array.toString();
@@ -282,6 +293,11 @@ public final class AntazonClientState {
 
     private static boolean bool(JsonObject object, String key, boolean fallback) {
         return object.has(key) && object.get(key).isJsonPrimitive() ? object.get(key).getAsBoolean() : fallback;
+    }
+
+    private static int integer(JsonObject object, String key, int fallback) {
+        try { return object.has(key) ? object.get(key).getAsInt() : fallback; }
+        catch (RuntimeException exception) { return fallback; }
     }
 
     private static String withPoolItem(String text, String poolItem) {
@@ -352,7 +368,7 @@ public final class AntazonClientState {
                              int limit, int limitUsed, String limitReset, boolean dealActive, String dealLabel, int dealDiscount,
                              boolean locked, List<String> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, List<String> tags, PreviewAsset thumbnail,
                              List<PreviewAsset> gallery, int quantity, long cooldownEnds, List<PaymentRow> payments, List<RewardRow> rewards,
-                             List<ReviewRow> reviews, boolean purchased, boolean reviewed, long rotatesAt, boolean rotatesReal) {
+                             List<ReviewRow> reviews, boolean purchased, boolean reviewed, long rotatesAt, boolean rotatesReal, String variantMode, List<String> variants) {
         public double rating() {
             return reviews.isEmpty() ? 0.0D : reviews.stream().mapToInt(ReviewRow::rating).average().orElse(0.0D);
         }
@@ -363,9 +379,13 @@ public final class AntazonClientState {
     public record RewardRow(String item, int count) { }
     public record ReviewRow(String author, String title, String body, int rating, String badge) { }
     public record OrderRow(String product, String option, int units, long gameTime, String status) { }
-    public record SellRow(String item, int count, long value, boolean sellable, boolean greenTint, boolean renderMobFromSpawnEgg) { }
-    public record PriceRow(String item, int value, boolean greenTint, boolean renderMobFromSpawnEgg) { }
-    public record CartLine(String product, int option, int units) { }
-    public record CheckoutLine(String product, int option, int units, String status, String receipt) { }
+    public record SellRow(String item, int count, int acceptedCount, int returnedCount, long value, boolean sellable, boolean greenTint, boolean renderMobFromSpawnEgg,
+                          int limit, String limitReset, int remaining, boolean overLimit, boolean locked, String unlockMode, List<String> unlockTasks) { }
+    public record PriceRow(String item, int value, boolean greenTint, boolean renderMobFromSpawnEgg,
+                           int limit, int used, int remaining, String limitReset, boolean locked, String unlockMode, List<String> unlockTasks) { }
+    public record CartLine(String product, int option, int units, String variant) {
+        public CartLine(String product, int option, int units) { this(product, option, units, ""); }
+    }
+    public record CheckoutLine(String product, int option, int units, String variant, String status, String receipt) { }
     public record Notice(String kind, String code, String product, int units, String receipt, boolean success, long createdAt) { }
 }

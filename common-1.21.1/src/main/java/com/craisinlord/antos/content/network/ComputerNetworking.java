@@ -111,8 +111,13 @@ public final class ComputerNetworking {
         send(ComputerAccessPayload.TASK_STATE, known == null ? "" : known);
     }
 
-    public static void claimTaskReward(ResourceLocation taskId) {
-        send(ComputerAccessPayload.TASK_CLAIM_REWARD, taskId.toString());
+    public static void claimTaskReward(ResourceLocation taskId, java.util.Map<Integer, String> choices) {
+        com.google.gson.JsonObject request = new com.google.gson.JsonObject();
+        request.addProperty("task", taskId.toString());
+        com.google.gson.JsonObject selected = new com.google.gson.JsonObject();
+        choices.forEach((index, path) -> selected.addProperty(Integer.toString(index), path));
+        request.add("choices", selected);
+        send(ComputerAccessPayload.TASK_CLAIM_REWARD, request.toString());
     }
 
     public static void createTeam() { send(ComputerAccessPayload.TEAM_CREATE, ""); }
@@ -175,7 +180,11 @@ public final class ComputerNetworking {
     }
 
     public static void purchaseAntazon(ResourceLocation productId, String optionId, int units) {
-        send(ComputerAccessPayload.ANTAZON_PURCHASE, productId + "\0" + optionId + "\0" + units);
+        purchaseAntazon(productId, optionId, "", units);
+    }
+
+    public static void purchaseAntazon(ResourceLocation productId, String optionId, String variantId, int units) {
+        send(ComputerAccessPayload.ANTAZON_PURCHASE, productId + "\0" + optionId + "\0" + variantId + "\0" + units);
     }
 
     public static void toggleAntazonWishlist(ResourceLocation productId) {

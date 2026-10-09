@@ -64,16 +64,22 @@ public final class ComputerTasks {
         return progress.isComplete(taskId);
     }
 
-    public static boolean claimTaskRewards(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId) {
+    public static boolean claimTaskRewards(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId, Map<Integer, String> choices) {
         if (player == null || computer == null || taskId == null) return false;
         var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
         if (account == null) return false;
         ComputerGuideData.Task task = task(taskId);
         if (task == null || !hasClaimableRewards(task) || !isTaskComplete(player, computer, taskId)) return false;
+        Map<Integer, String> selectedChoices = choices == null ? Map.of() : choices;
+        for (int index = 0; index < task.rewards().size(); index++) {
+            ComputerGuideData.TaskReward reward = task.rewards().get(index);
+            if (reward.type().equals("item_pool") && reward.mode().equals("choice")
+                    && !validPoolChoice(reward.poolId(), selectedChoices.get(index), 0)) return false;
+        }
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
         if (data.hasClaimedTaskReward(account.accountId(), taskId)) return false;
         if (!data.markTaskRewardClaimed(account.accountId(), taskId)) return false;
-        deliverRewards(player, computer, task);
+        deliverRewards(player, computer, task, selectedChoices);
         computer.saveWorkspaceProgress();
         return true;
     }
@@ -206,7 +212,8 @@ public final class ComputerTasks {
     }
 
     private record EncodedDefinitions(List<ComputerGuideData.Task> tasks, List<ComputerGuideData.TaskCategory> categories,
-                                      List<ComputerGuideData.TaskGroup> groups, String json, String hash) { }
+                                      List<ComputerGuideData.TaskGroup> groups, Map<ResourceLocation, ComputerGuideData.RewardPool> pools,
+                                      String json, String hash) { }
 
     private static volatile EncodedDefinitions encodedDefinitions;
 
@@ -215,8 +222,9 @@ public final class ComputerTasks {
         List<ComputerGuideData.Task> tasks = ComputerGuideData.tasks();
         List<ComputerGuideData.TaskCategory> categories = ComputerGuideData.taskCategories();
         List<ComputerGuideData.TaskGroup> groups = ComputerGuideData.taskGroups();
+        Map<ResourceLocation, ComputerGuideData.RewardPool> pools = ComputerGuideData.taskRewardPools();
         EncodedDefinitions cached = encodedDefinitions;
-        if (cached != null && cached.tasks() == tasks && cached.categories() == categories && cached.groups() == groups) return cached;
+        if (cached != null && cached.tasks() == tasks && cached.categories() == categories && cached.groups() == groups && cached.pools() == pools) return cached;
         JsonObject root = new JsonObject(); JsonArray rows = new JsonArray();
         for (ComputerGuideData.Task task : tasks) {
             JsonObject row = new JsonObject(); row.addProperty("id", task.id().toString());
@@ -249,6 +257,9 @@ public final class ComputerTasks {
                 rewardRow.addProperty("experience", reward.experiencePoints());
                 rewardRow.addProperty("target", reward.target() == null ? "" : reward.target().toString());
                 rewardRow.addProperty("subject", reward.subject());
+                rewardRow.addProperty("pool", reward.poolId() == null ? "" : reward.poolId().toString());
+                rewardRow.addProperty("mode", reward.mode());
+                rewardRow.addProperty("antcoins", reward.antcoins());
                 rewards.add(rewardRow);
             }
             row.add("rewards", rewards);
@@ -269,6 +280,23 @@ public final class ComputerTasks {
             rows.add(row);
         }
         root.add("tasks", rows);
+        JsonArray poolRows = new JsonArray();
+        pools.values().stream().sorted(java.util.Comparator.comparing(pool -> pool.id().toString())).forEach(pool -> {
+            JsonObject poolRow = new JsonObject();
+            poolRow.addProperty("id", pool.id().toString());
+            JsonArray entryRows = new JsonArray();
+            for (ComputerGuideData.RewardPoolEntry entry : pool.entries()) {
+                JsonObject entryRow = new JsonObject();
+                entryRow.addProperty("item", entry.itemId() == null ? "" : entry.itemId().toString());
+                entryRow.addProperty("pool", entry.poolId() == null ? "" : entry.poolId().toString());
+                entryRow.addProperty("weight", entry.weight());
+                entryRow.addProperty("count", entry.count());
+                entryRows.add(entryRow);
+            }
+            poolRow.add("entries", entryRows);
+            poolRows.add(poolRow);
+        });
+        root.add("reward_pools", poolRows);
         JsonArray categoryRows = new JsonArray();
         for (ComputerGuideData.TaskCategory category : categories) {
             JsonObject categoryRow = new JsonObject();
@@ -298,7 +326,7 @@ public final class ComputerTasks {
         }
         root.add("groups", groupRows);
         String json = root.toString();
-        EncodedDefinitions result = new EncodedDefinitions(tasks, categories, groups, json, hash(json));
+        EncodedDefinitions result = new EncodedDefinitions(tasks, categories, groups, pools, json, hash(json));
         encodedDefinitions = result;
         return result;
     }
@@ -493,10 +521,11 @@ public final class ComputerTasks {
         }
     }
 
-    private static void deliverRewards(ServerPlayer player, ComputerWorkspace computer, ComputerGuideData.Task task) {
+    private static void deliverRewards(ServerPlayer player, ComputerWorkspace computer, ComputerGuideData.Task task, Map<Integer, String> choices) {
         if (task.rewards().isEmpty()) return;
         List<ItemStack> stacks = new java.util.ArrayList<>();
-        for (ComputerGuideData.TaskReward reward : task.rewards()) {
+        for (int rewardIndex = 0; rewardIndex < task.rewards().size(); rewardIndex++) {
+            ComputerGuideData.TaskReward reward = task.rewards().get(rewardIndex);
             switch (reward.type()) {
                 case "item" -> {
                     Item item = BuiltInRegistries.ITEM.get(reward.itemId());
@@ -510,6 +539,20 @@ public final class ComputerTasks {
                 }
                 case "experience" -> player.giveExperiencePoints(reward.experiencePoints());
                 case "experience_levels" -> player.giveExperienceLevels(reward.count());
+                case "antcoins" -> {
+                    var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+                    if (account != null) com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server)
+                            .credit(account.accountId(), reward.antcoins());
+                }
+                case "item_pool" -> {
+                    String selected = choices.get(rewardIndex);
+                    if (reward.mode().equals("choice") && selected == null) continue;
+                    List<ItemStack> poolStacks = new java.util.ArrayList<>();
+                    int capacity = Math.max(0, 108 - totalRewardItems(stacks));
+                    if (reward.mode().equals("random")) rollRewardPool(reward.poolId(), player, 1, poolStacks, capacity);
+                    else addChosenPoolOutcome(reward.poolId(), selected, 1, poolStacks, capacity);
+                    stacks.addAll(poolStacks);
+                }
                 case "advancement" -> {
                     var advancement = player.serverLevel().getServer().getAdvancements().get(reward.target());
                     if (advancement == null) {
@@ -534,6 +577,66 @@ public final class ComputerTasks {
         }
         if (stacks.isEmpty()) return;
         dropRewardCrate(player, stacks);
+    }
+
+    private static void rollRewardPool(ResourceLocation poolId, ServerPlayer player, int multiplier, List<ItemStack> output, int itemLimit) {
+        if (poolId == null || multiplier < 1 || totalRewardItems(output) >= itemLimit) return;
+        ComputerGuideData.RewardPool pool = ComputerGuideData.taskRewardPool(poolId);
+        if (pool == null || pool.entries().isEmpty()) return;
+        int totalWeight = pool.entries().stream().mapToInt(ComputerGuideData.RewardPoolEntry::weight).sum();
+        int choice = player.getRandom().nextInt(totalWeight);
+        for (ComputerGuideData.RewardPoolEntry entry : pool.entries()) {
+            choice -= entry.weight();
+            if (choice < 0) {
+                int count = (int) Math.min(108L, (long) entry.count() * multiplier);
+                if (entry.itemId() != null) addRewardItem(entry.itemId(), count, output, itemLimit);
+                else for (int draw = 0; draw < count && totalRewardItems(output) < itemLimit; draw++) rollRewardPool(entry.poolId(), player, 1, output, itemLimit);
+                return;
+            }
+        }
+    }
+
+    private static void addChosenPoolOutcome(ResourceLocation poolId, String path, int multiplier, List<ItemStack> output, int itemLimit) {
+        if (poolId == null || path == null || path.isBlank() || totalRewardItems(output) >= itemLimit) return;
+        ComputerGuideData.RewardPool pool = ComputerGuideData.taskRewardPool(poolId);
+        if (pool == null) return;
+        String[] parts = path.split("\\.", 2);
+        int index;
+        try { index = Integer.parseInt(parts[0]); } catch (RuntimeException ignored) { return; }
+        if (index < 0 || index >= pool.entries().size()) return;
+        ComputerGuideData.RewardPoolEntry entry = pool.entries().get(index);
+        int count = (int) Math.min(108L, (long) entry.count() * multiplier);
+        if (entry.itemId() != null) {
+            if (parts.length == 1) addRewardItem(entry.itemId(), count, output, itemLimit);
+        } else if (parts.length == 2) addChosenPoolOutcome(entry.poolId(), parts[1], count, output, itemLimit);
+    }
+
+    private static void addRewardItem(ResourceLocation itemId, int count, List<ItemStack> output, int itemLimit) {
+        Item item = BuiltInRegistries.ITEM.getOptional(itemId).orElse(null);
+        if (item == null || item == net.minecraft.world.item.Items.AIR) return;
+        int remaining = Math.min(Math.min(108, count), Math.max(0, itemLimit - totalRewardItems(output)));
+        while (remaining > 0 && totalRewardItems(output) < itemLimit) {
+            int amount = Math.min(item.getDefaultMaxStackSize(), remaining);
+            output.add(new ItemStack(item, amount));
+            remaining -= amount;
+        }
+    }
+
+    private static int totalRewardItems(List<ItemStack> stacks) {
+        return stacks.stream().mapToInt(ItemStack::getCount).sum();
+    }
+
+    private static boolean validPoolChoice(ResourceLocation poolId, String path, int depth) {
+        if (poolId == null || path == null || path.isBlank() || depth > 8) return false;
+        ComputerGuideData.RewardPool pool = ComputerGuideData.taskRewardPool(poolId);
+        if (pool == null) return false;
+        String[] parts = path.split("\\.", 2);
+        int index;
+        try { index = Integer.parseInt(parts[0]); } catch (RuntimeException ignored) { return false; }
+        if (index < 0 || index >= pool.entries().size()) return false;
+        ComputerGuideData.RewardPoolEntry entry = pool.entries().get(index);
+        return entry.itemId() != null ? parts.length == 1
+                : parts.length == 2 && validPoolChoice(entry.poolId(), parts[1], depth + 1);
     }
 
     /** Drops an Antazon-style reward crate next to the player, with the usual "incoming" announcement. */

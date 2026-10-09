@@ -19,13 +19,14 @@ public final class ComputerTasksClientState {
     private static final Map<String, String> TEAM_STATUS = new ConcurrentHashMap<>();
     private static final Map<String, Map<String, CategoryInfo>> CATEGORIES = new ConcurrentHashMap<>();
     private static final Map<String, Map<String, GroupInfo>> GROUPS = new ConcurrentHashMap<>();
+    private static final Map<String, Map<String, RewardPoolInfo>> REWARD_POOLS = new ConcurrentHashMap<>();
     /** Static task definitions, kept between refreshes so the server only resends them after a data reload. */
     private static final Map<String, Definitions> DEFINITIONS = new ConcurrentHashMap<>();
     private static final Map<String, String> STATE_HASHES = new ConcurrentHashMap<>();
     /** Bumped whenever any visible task data changes, so screens can cache derived layout. */
     private static volatile int revision;
     private ComputerTasksClientState() { }
-    public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); TEAMS.clear(); INVITES.clear(); TEAM_STATUS.clear(); CATEGORIES.clear(); GROUPS.clear(); DEFINITIONS.clear(); STATE_HASHES.clear(); revision++; }
+    public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); TEAMS.clear(); INVITES.clear(); TEAM_STATUS.clear(); CATEGORIES.clear(); GROUPS.clear(); REWARD_POOLS.clear(); DEFINITIONS.clear(); STATE_HASHES.clear(); revision++; }
 
     /** The "definitionsHash\0stateHash" the server can skip resending. */
     public static String requestToken() {
@@ -76,6 +77,7 @@ public final class ComputerTasksClientState {
             STATE_HASHES.put(key, root.has("state_hash") ? root.get("state_hash").getAsString() : "");
             CATEGORIES.put(key, definitions.categories());
             GROUPS.put(key, definitions.groups());
+            REWARD_POOLS.put(key, definitions.rewardPools());
             ERRORS.remove(key);
             RECEIVED.add(key);
             revision++;
@@ -98,7 +100,8 @@ public final class ComputerTasksClientState {
                 var reward = rewardElement.getAsJsonObject();
                 rewards.add(new TaskReward(reward.get("type").getAsString(), reward.get("item").getAsString(),
                         reward.get("count").getAsInt(), reward.get("experience").getAsInt(), reward.get("target").getAsString(),
-                        reward.get("subject").getAsString()));
+                        reward.get("subject").getAsString(), reward.has("pool") ? reward.get("pool").getAsString() : "",
+                        reward.has("mode") ? reward.get("mode").getAsString() : "", reward.has("antcoins") ? reward.get("antcoins").getAsLong() : 0L));
             }
             tasks.add(new TaskDefinition(row.get("id").getAsString(), row.get("title").getAsString(),
                     row.get("description").getAsString(), row.get("category").getAsString(),
@@ -130,8 +133,19 @@ public final class ComputerTasksClientState {
                     !group.has("green_tint") || !group.get("green_tint").isJsonPrimitive() || group.get("green_tint").getAsBoolean(),
                     !group.has("render_mob_from_spawn_egg") || !group.get("render_mob_from_spawn_egg").isJsonPrimitive() || group.get("render_mob_from_spawn_egg").getAsBoolean()));
         }
+        java.util.LinkedHashMap<String, RewardPoolInfo> rewardPools = new java.util.LinkedHashMap<>();
+        if (root.has("reward_pools") && root.get("reward_pools").isJsonArray()) for (var poolElement : root.getAsJsonArray("reward_pools")) {
+            var pool = poolElement.getAsJsonObject();
+            java.util.ArrayList<RewardPoolEntryInfo> entries = new java.util.ArrayList<>();
+            if (pool.has("entries") && pool.get("entries").isJsonArray()) for (var entryElement : pool.getAsJsonArray("entries")) {
+                var entry = entryElement.getAsJsonObject();
+                entries.add(new RewardPoolEntryInfo(entry.get("item").getAsString(), entry.get("pool").getAsString(),
+                        entry.get("weight").getAsInt(), entry.get("count").getAsInt()));
+            }
+            rewardPools.put(pool.get("id").getAsString(), new RewardPoolInfo(pool.get("id").getAsString(), List.copyOf(entries)));
+        }
         return new Definitions(hash, List.copyOf(tasks), java.util.Collections.unmodifiableMap(categories),
-                java.util.Collections.unmodifiableMap(groups));
+                java.util.Collections.unmodifiableMap(groups), java.util.Collections.unmodifiableMap(rewardPools));
     }
 
     private static void applyState(String key, Definitions definitions, JsonObject root) {
@@ -196,6 +210,7 @@ public final class ComputerTasksClientState {
     public static String teamStatus() { return TEAM_STATUS.getOrDefault(ComputerWorkspaceClientKey.of(), ""); }
     public static Map<String, CategoryInfo> categories() { return CATEGORIES.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()); }
     public static Map<String, GroupInfo> groups() { return GROUPS.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()); }
+    public static RewardPoolInfo rewardPool(String id) { return REWARD_POOLS.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()).get(id); }
     public static CategoryInfo category(String category) {
         Map<String, CategoryInfo> definitions = categories();
         CategoryInfo direct = definitions.get(category);
@@ -203,10 +218,11 @@ public final class ComputerTasksClientState {
         var id = net.minecraft.resources.ResourceLocation.tryParse(category);
         return id == null ? null : definitions.get(id.toString());
     }
-    public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
+    public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); REWARD_POOLS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
     /** Drops one-shot messages but keeps the last snapshot, so reopening the computer shows tasks immediately while it refreshes. */
     public static void clearTransient() { TEAM_STATUS.remove(ComputerWorkspaceClientKey.of()); }
-    private record Definitions(String hash, List<TaskDefinition> tasks, Map<String, CategoryInfo> categories, Map<String, GroupInfo> groups) { }
+    private record Definitions(String hash, List<TaskDefinition> tasks, Map<String, CategoryInfo> categories, Map<String, GroupInfo> groups,
+                               Map<String, RewardPoolInfo> rewardPools) { }
     private record TaskDefinition(String id, String title, String description, String category, int x, int y, List<String> requires,
                                   List<String> archiveEntries, int total, boolean hasRewards, String iconItem, String iconEntity,
                                   boolean greenTint, boolean renderMobFromSpawnEgg, List<ObjectiveDefinition> objectives, List<TaskReward> rewards) { }
@@ -218,7 +234,9 @@ public final class ComputerTasksClientState {
                           int done, int total, boolean hasRewards, boolean claimable, boolean claimed, String iconItem, String iconEntity,
                           boolean greenTint, boolean renderMobFromSpawnEgg, List<TaskObjective> objectives, List<TaskReward> rewards) { }
     public record TaskObjective(String description, int progress, int count, boolean optional, String item, int displayGoal, boolean complete) { }
-    public record TaskReward(String type, String item, int count, int experience, String target, String subject) { }
+    public record TaskReward(String type, String item, int count, int experience, String target, String subject, String pool, String mode, long antcoins) { }
+    public record RewardPoolInfo(String id, List<RewardPoolEntryInfo> entries) { }
+    public record RewardPoolEntryInfo(String item, String pool, int weight, int count) { }
     public record TeamInfo(String id, boolean owner, String ownerName, List<String> members) { }
     public record TeamInvite(String id, String ownerName, String inviterName) { }
 }

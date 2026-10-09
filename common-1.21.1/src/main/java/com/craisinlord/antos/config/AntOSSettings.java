@@ -113,6 +113,22 @@ public final class AntOSSettings {
         return config.unlockAllGameEntries;
     }
 
+    public static synchronized boolean sendAntazonUnlockEmail() {
+        return config.sendAntazonUnlockEmail;
+    }
+
+    public static synchronized boolean hasAntazonUnlockEmail(UUID accountId, String listingId) {
+        return config.antazonUnlockEmailsSent != null
+                && config.antazonUnlockEmailsSent.contains(accountId + ":" + listingId);
+    }
+
+    public static synchronized void markAntazonUnlockEmailsSent(UUID accountId, Set<String> listingIds) {
+        if (accountId == null || listingIds == null || listingIds.isEmpty()) return;
+        if (config.antazonUnlockEmailsSent == null) config.antazonUnlockEmailsSent = new HashSet<>();
+        for (String listingId : listingIds) config.antazonUnlockEmailsSent.add(accountId + ":" + listingId);
+        save();
+    }
+
     public static boolean inventoryComputerButtonEnabled() {
         return config.inventoryComputerButton;
     }
@@ -138,6 +154,8 @@ public final class AntOSSettings {
     private static final class Config {
         private boolean unlockAllArchiveEntries;
         private boolean unlockAllGameEntries;
+        private boolean sendAntazonUnlockEmail = true;
+        private Set<String> antazonUnlockEmailsSent = new HashSet<>();
         private boolean inventoryComputerButton;
         private DesktopApps desktopApps = new DesktopApps();
         private String lastAnternetUsername = "";
@@ -149,6 +167,7 @@ public final class AntOSSettings {
             if (desktopApps == null) desktopApps = new DesktopApps();
             if (completedComputerTours == null) completedComputerTours = new HashSet<>();
             if (taskGroupCollapsed == null) taskGroupCollapsed = new HashMap<>();
+            if (antazonUnlockEmailsSent == null) antazonUnlockEmailsSent = new HashSet<>();
             return this;
         }
     }

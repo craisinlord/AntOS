@@ -255,15 +255,15 @@ public final class ComputerAccessHandler {
             sendAntazon(player, payload, false, "unauthorized", "");
             return;
         }
-        String[] request = payload.value().split("\u0000", 3);
-        if (request.length != 3) {
+        String[] request = payload.value().split("\u0000", 4);
+        if (request.length != 4) {
             sendAntazon(player, payload, false, "invalid_request", "");
             return;
         }
         try {
             ResourceLocation productId = ResourceLocation.parse(request[0]);
-            int units = Integer.parseInt(request[2]);
-            AntazonService.PurchaseResult result = AntazonService.purchase(player, computer, productId, request[1], units);
+            int units = Integer.parseInt(request[3]);
+            AntazonService.PurchaseResult result = AntazonService.purchase(player, computer, productId, request[1], request[2], units);
             sendAntazon(player, payload, result.success(), result.status(), request[0] + "\0" + units + "\0" + result.receipt());
         } catch (RuntimeException exception) {
             sendAntazon(player, payload, false, "invalid_request", request[0] + "\0" + request[2] + "\0");
@@ -301,16 +301,28 @@ public final class ComputerAccessHandler {
         com.google.gson.JsonArray rows = new com.google.gson.JsonArray();
         String status = crate == null ? (computer.isRemoteWorkspace() ? "crate_unavailable" : "chest_required") : "";
         if (crate != null) {
-            var manifest = AntazonService.manifest(computer, crate);
+            long day = player.server.overworld().getGameTime() / 24000L;
+            var manifest = AntazonService.manifest(player, computer, crate, AntazonService.accountOwner(computer, player), day);
             status = manifest.status();
             for (var entry : manifest.entries()) {
                 com.google.gson.JsonObject row = new com.google.gson.JsonObject();
                 row.addProperty("item", entry.item().toString());
                 row.addProperty("count", entry.count());
+                row.addProperty("accepted_count", entry.acceptedCount());
+                row.addProperty("returned_count", entry.returnedCount());
                 row.addProperty("value", entry.value());
                 row.addProperty("sellable", entry.sellable());
                 row.addProperty("green_tint", entry.greenTint());
                 row.addProperty("render_mob_from_spawn_egg", entry.renderMobFromSpawnEgg());
+                row.addProperty("limit", entry.limit());
+                row.addProperty("limit_reset", entry.limitReset());
+                row.addProperty("remaining", entry.remaining());
+                row.addProperty("over_limit", entry.overLimit());
+                row.addProperty("locked", entry.locked());
+                row.addProperty("unlock_mode", entry.unlockMode());
+                com.google.gson.JsonArray unlockTasks = new com.google.gson.JsonArray();
+                for (var task : entry.unlockTasks()) unlockTasks.add(task.toString());
+                row.add("unlock_tasks", unlockTasks);
                 rows.add(row);
             }
         }
@@ -320,12 +332,22 @@ public final class ComputerAccessHandler {
     private static void antazonPrices(ServerPlayer player, ComputerWorkspace computer, ComputerAccessPayload payload) {
         if (!computer.canUseFileSystem(player)) { sendAntazon(player, payload, false, "unauthorized", ""); return; }
         com.google.gson.JsonArray rows = new com.google.gson.JsonArray();
-        for (var rule : com.craisinlord.antos.content.antazon.AntazonService.priceList()) {
+        for (var rule : com.craisinlord.antos.content.antazon.AntazonService.visibleSellRules(player, computer)) {
             com.google.gson.JsonObject row = new com.google.gson.JsonObject();
             row.addProperty("item", rule.item().toString());
             row.addProperty("value", rule.value());
             row.addProperty("green_tint", rule.greenTint());
             row.addProperty("render_mob_from_spawn_egg", rule.renderMobFromSpawnEgg());
+            var allowance = com.craisinlord.antos.content.antazon.AntazonService.sellAllowance(player, computer, rule);
+            row.addProperty("limit", allowance.limit());
+            row.addProperty("used", allowance.used());
+            row.addProperty("remaining", allowance.remaining());
+            row.addProperty("limit_reset", allowance.reset());
+            row.addProperty("locked", allowance.locked());
+            row.addProperty("unlock_mode", rule.unlockMode());
+            com.google.gson.JsonArray unlockTasks = new com.google.gson.JsonArray();
+            for (var task : rule.unlockTasks()) unlockTasks.add(task.toString());
+            row.add("unlock_tasks", unlockTasks);
             rows.add(row);
         }
         sendAntazon(player, payload, true, "", rows.toString());
@@ -399,7 +421,7 @@ public final class ComputerAccessHandler {
                 for (var element : com.google.gson.JsonParser.parseString(payload.value()).getAsJsonArray()) {
                     var row = element.getAsJsonObject();
                     lines.add(new com.craisinlord.antos.content.antazon.AntazonServerData.CartLine(ResourceLocation.parse(row.get("product").getAsString()),
-                            row.get("option").getAsInt(), row.get("units").getAsInt()));
+                            row.get("option").getAsInt(), row.get("units").getAsInt(), row.has("variant") ? row.get("variant").getAsString() : ""));
                 }
                 data.setCart(owner, AntazonService.sanitizeCart(lines, day));
             } else {
@@ -426,6 +448,7 @@ public final class ComputerAccessHandler {
             row.addProperty("product", line.line().product().toString());
             row.addProperty("option", line.line().option());
             row.addProperty("units", line.line().units());
+            row.addProperty("variant", line.line().variant());
             row.addProperty("status", line.status());
             row.addProperty("receipt", line.receipt());
             lines.add(row);
@@ -442,6 +465,7 @@ public final class ComputerAccessHandler {
             row.addProperty("product", line.product().toString());
             row.addProperty("option", line.option());
             row.addProperty("units", line.units());
+            row.addProperty("variant", line.variant());
             array.add(row);
         }
         return array;
@@ -507,8 +531,18 @@ public final class ComputerAccessHandler {
             return;
         }
         try {
-            ResourceLocation taskId = ResourceLocation.parse(payload.value());
-            boolean claimed = com.craisinlord.antos.content.computer.ComputerTasks.claimTaskRewards(player, computer, taskId);
+            var request = com.google.gson.JsonParser.parseString(payload.value()).getAsJsonObject();
+            ResourceLocation taskId = ResourceLocation.parse(request.get("task").getAsString());
+            java.util.Map<Integer, String> choices = new java.util.HashMap<>();
+            if (request.has("choices") && request.get("choices").isJsonObject()) {
+                var selected = request.getAsJsonObject("choices");
+                for (var entry : selected.entrySet()) {
+                    int index = Integer.parseInt(entry.getKey());
+                    if (index < 0 || index >= 27 || !entry.getValue().isJsonPrimitive()) throw new IllegalArgumentException("Invalid choice");
+                    choices.put(index, entry.getValue().getAsString());
+                }
+            }
+            boolean claimed = com.craisinlord.antos.content.computer.ComputerTasks.claimTaskRewards(player, computer, taskId, choices);
             teamOperationResult(player, payload.action(), claimed, claimed ? "REWARD CLAIMED" : "REWARD NOT AVAILABLE");
             refreshTaskState(player, computer);
             if (claimed) sendArchive(player, computer);

@@ -26,6 +26,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     private static final int MAX_TASK_OBJECTIVES = 64;
     private static final String TASK_CATEGORY_DIRECTORY = "computer/task/category";
     private static final String TASK_GROUP_DIRECTORY = "computer/task/group";
+    private static final String TASK_REWARD_POOL_DIRECTORY = "computer/task/reward_pool";
     private static final ComputerGuideData INSTANCE = new ComputerGuideData();
     private static final ResourceLocation INTRODUCTION = ResourceLocation.fromNamespaceAndPath("antos", "introduction");
     private static volatile Map<ResourceLocation, Entry> entries = Map.of();
@@ -36,6 +37,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     private static volatile Map<ResourceLocation, DiskCategory> categories = Map.of();
     private static volatile Map<ResourceLocation, Wallpaper> wallpapers = Map.of();
     private static volatile Map<ResourceLocation, Task> tasks = Map.of();
+    private static volatile Map<ResourceLocation, RewardPool> taskRewardPools = Map.of();
     private static volatile Map<ResourceLocation, TaskCategory> taskCategories = Map.of();
     private static volatile Map<ResourceLocation, TaskGroup> taskGroups = Map.of();
     private static volatile Boolean serverUnlockAllArchiveEntries;
@@ -138,6 +140,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public static Task task(ResourceLocation id) {
         return id == null ? null : tasks.get(id);
     }
+
+    public static Map<ResourceLocation, RewardPool> taskRewardPools() { return taskRewardPools; }
+
+    public static RewardPool taskRewardPool(ResourceLocation id) { return id == null ? null : taskRewardPools.get(id); }
 
     public static List<TaskCategory> taskCategories() {
         Map<ResourceLocation, TaskCategory> current = taskCategories;
@@ -377,6 +383,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         Map<ResourceLocation, DiskCategory> loadedCategories = new HashMap<>();
         Map<ResourceLocation, Wallpaper> loadedWallpapers = new HashMap<>();
         Map<ResourceLocation, Task> loadedTasks = new HashMap<>();
+        Map<ResourceLocation, RewardPool> loadedRewardPools = new HashMap<>();
         Map<ResourceLocation, TaskCategory> loadedTaskCategories = new HashMap<>();
         Map<ResourceLocation, TaskGroup> loadedTaskGroups = new HashMap<>();
         for (Map.Entry<ResourceLocation, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources("computer/entry", path -> path.getPath().endsWith(".json")).entrySet()) {
@@ -425,8 +432,15 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             try { parseTaskGroup(id, JsonParser.parseReader(resource.getValue().openAsReader()), loadedTaskGroups); }
             catch (Exception exception) { AntOS.LOGGER.error("Failed to load computer task group {}", resource.getKey(), exception); }
         }
+        for (Map.Entry<ResourceLocation, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources(TASK_REWARD_POOL_DIRECTORY, path -> path.getPath().endsWith(".json")).entrySet()) {
+            ResourceLocation id = resourceId(resource.getKey(), TASK_REWARD_POOL_DIRECTORY);
+            try { parseRewardPool(id, JsonParser.parseReader(resource.getValue().openAsReader()), loadedRewardPools); }
+            catch (Exception exception) { AntOS.LOGGER.error("Failed to load computer task reward pool {}", resource.getKey(), exception); }
+        }
+        validateRewardPools(loadedRewardPools);
         for (Map.Entry<ResourceLocation, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources("computer/task", path -> path.getPath().endsWith(".json")).entrySet().stream()
-                .filter(resource -> !resource.getKey().getPath().startsWith(TASK_CATEGORY_DIRECTORY + "/") && !resource.getKey().getPath().startsWith(TASK_GROUP_DIRECTORY + "/"))
+                .filter(resource -> !resource.getKey().getPath().startsWith(TASK_CATEGORY_DIRECTORY + "/") && !resource.getKey().getPath().startsWith(TASK_GROUP_DIRECTORY + "/")
+                        && !resource.getKey().getPath().startsWith(TASK_REWARD_POOL_DIRECTORY + "/"))
                 .sorted(Map.Entry.comparingByKey()).toList()) {
             if (loadedTasks.size() >= MAX_TASK_DEFINITIONS) {
                 AntOS.LOGGER.warn("AntOS task limit reached ({}); additional task definitions are skipped", MAX_TASK_DEFINITIONS);
@@ -436,7 +450,17 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             try { parseTask(id, JsonParser.parseReader(resource.getValue().openAsReader()), loadedTasks); }
             catch (Exception exception) { AntOS.LOGGER.error("Failed to load computer task {}", resource.getKey(), exception); }
         }
-        return new LoadedData(Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks),
+        loadedTasks.replaceAll((id, task) -> {
+            List<TaskReward> validRewards = task.rewards().stream().filter(reward -> {
+                boolean valid = !reward.type().equals("item_pool") || loadedRewardPools.containsKey(reward.poolId());
+                if (!valid) AntOS.LOGGER.warn("Task {} refers to missing or invalid reward pool {}", id, reward.poolId());
+                return valid;
+            }).toList();
+            return new Task(task.id(), task.titleKey(), task.descriptionKey(), task.program(), task.category(), task.sortOrder(), task.availability(),
+                    task.requires(), task.objectives(), task.archiveEntries(), validRewards, task.x(), task.y(), task.hideUntilDependenciesComplete(),
+                    task.invisibleUntilCompleted(), task.greenTint(), task.iconItem(), task.iconEntity(), task.renderMobFromSpawnEgg());
+        });
+        return new LoadedData(Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks), Map.copyOf(loadedRewardPools),
                 Map.copyOf(loadedTaskCategories), Map.copyOf(loadedTaskGroups));
     }
 
@@ -448,6 +472,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         diskTextureRevision++;
         wallpapers = data.wallpapers();
         tasks = data.tasks();
+        taskRewardPools = data.rewardPools();
         taskCategories = data.taskCategories();
         taskGroups = data.taskGroups();
         validateLoadedData(data, resourceManager);
@@ -720,29 +745,39 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                             continue;
                         }
                         rewardUnits += count;
-                        rewards.add(new TaskReward("item", itemId, count, 0, null, "", "", "", 0, 0));
+                        rewards.add(new TaskReward("item", itemId, count, 0, null, "", "", "", 0, 0, null, "", 0L));
                     }
                     case "experience" -> {
                         int points = Math.max(0, Math.min(1_000_000, row.get("points").getAsInt()));
-                        if (points > 0) rewards.add(new TaskReward("experience", null, 0, points, null, "", "", "", 0, 0));
+                        if (points > 0) rewards.add(new TaskReward("experience", null, 0, points, null, "", "", "", 0, 0, null, "", 0L));
                     }
                     case "experience_levels" -> {
                         int levels = Math.max(0, Math.min(1000, row.get("levels").getAsInt()));
-                        if (levels > 0) rewards.add(new TaskReward("experience_levels", null, levels, 0, null, "", "", "", 0, 0));
+                        if (levels > 0) rewards.add(new TaskReward("experience_levels", null, levels, 0, null, "", "", "", 0, 0, null, "", 0L));
+                    }
+                    case "antcoins" -> {
+                        long amount = Math.max(0L, Math.min(1_000_000_000L, row.get("amount").getAsLong()));
+                        if (amount > 0L) rewards.add(new TaskReward("antcoins", null, 0, 0, null, "", "", "", 0, 0, null, "", amount));
+                    }
+                    case "item_pool" -> {
+                        ResourceLocation poolId = ResourceLocation.parse(string(row, "pool", ""));
+                        String mode = string(row, "mode", "random").toLowerCase(java.util.Locale.ROOT);
+                        if (!mode.equals("random") && !mode.equals("choice")) throw new IllegalArgumentException("Invalid pool mode");
+                        rewards.add(new TaskReward("item_pool", null, 0, 0, null, "", "", "", 0, 0, poolId, mode, 0L));
                     }
                     case "archive" -> {
                         ResourceLocation entryId = ResourceLocation.parse(string(row, "entry", ""));
-                        rewards.add(new TaskReward("archive", null, 0, 0, entryId, "", "", "", 0, 0));
+                        rewards.add(new TaskReward("archive", null, 0, 0, entryId, "", "", "", 0, 0, null, "", 0L));
                     }
                     case "advancement" -> {
                         ResourceLocation advancementId = ResourceLocation.parse(string(row, "advancement", ""));
-                        rewards.add(new TaskReward("advancement", null, 0, 0, advancementId, "", "", "", 0, 0));
+                        rewards.add(new TaskReward("advancement", null, 0, 0, advancementId, "", "", "", 0, 0, null, "", 0L));
                     }
                     case "effect" -> {
                         ResourceLocation effectId = ResourceLocation.parse(string(row, "effect", ""));
                         int duration = Math.max(1, Math.min(72_000, row.has("duration_ticks") ? row.get("duration_ticks").getAsInt() : 1200));
                         int amplifier = Math.max(0, Math.min(255, row.has("amplifier") ? row.get("amplifier").getAsInt() : 0));
-                        rewards.add(new TaskReward("effect", null, 0, 0, effectId, "", "", "", duration, amplifier));
+                        rewards.add(new TaskReward("effect", null, 0, 0, effectId, "", "", "", duration, amplifier, null, "", 0L));
                     }
                     case "mail" -> {
                         String sender = AntmailAddress.ofUsername(string(row, "sender", "")).username();
@@ -753,7 +788,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                             AntOS.LOGGER.warn("Ignoring invalid mail reward for task {} (subject/body length or empty subject)", id);
                             continue;
                         }
-                        rewards.add(new TaskReward("mail", null, 0, 0, null, sender, subject, body, 0, 0));
+                        rewards.add(new TaskReward("mail", null, 0, 0, null, sender, subject, body, 0, 0, null, "", 0L));
                     }
                     default -> AntOS.LOGGER.warn("Ignoring unsupported {} reward for task {}", rewardType, id);
                 }
@@ -857,6 +892,78 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         catch (RuntimeException ignored) { return -1; }
     }
 
+    private static void parseRewardPool(ResourceLocation id, JsonElement element, Map<ResourceLocation, RewardPool> target) {
+        if (!element.isJsonObject()) return;
+        JsonElement entriesElement = element.getAsJsonObject().get("entries");
+        if (entriesElement == null || !entriesElement.isJsonArray() || entriesElement.getAsJsonArray().size() > 64) {
+            AntOS.LOGGER.warn("Ignoring task reward pool {} with missing or oversized entries", id);
+            return;
+        }
+        List<RewardPoolEntry> entries = new ArrayList<>();
+        for (JsonElement value : entriesElement.getAsJsonArray()) {
+            if (!value.isJsonObject()) continue;
+            JsonObject row = value.getAsJsonObject();
+            try {
+                boolean hasItem = row.has("item");
+                boolean hasPool = row.has("pool");
+                if (hasItem == hasPool) continue;
+                ResourceLocation itemId = hasItem ? ResourceLocation.parse(string(row, "item", "")) : null;
+                ResourceLocation poolId = hasPool ? ResourceLocation.parse(string(row, "pool", "")) : null;
+                int weight = row.has("weight") ? row.get("weight").getAsInt() : 1;
+                int count = row.has("count") ? row.get("count").getAsInt() : 1;
+                if (weight < 1 || weight > 1_000_000 || count < 1 || count > 108) continue;
+                if (itemId != null && net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemId).isEmpty()) continue;
+                entries.add(new RewardPoolEntry(itemId, poolId, weight, count));
+            } catch (RuntimeException ignored) { }
+        }
+        if (entries.isEmpty()) {
+            AntOS.LOGGER.warn("Ignoring empty task reward pool {}", id);
+            return;
+        }
+        target.put(id, new RewardPool(id, List.copyOf(entries)));
+    }
+
+    private static void validateRewardPools(Map<ResourceLocation, RewardPool> pools) {
+        java.util.Set<ResourceLocation> invalid = new java.util.LinkedHashSet<>();
+        java.util.Set<ResourceLocation> complete = new java.util.HashSet<>();
+        List<ResourceLocation> active = new ArrayList<>();
+        for (ResourceLocation id : pools.keySet()) validateRewardPool(id, pools, complete, active, invalid);
+        boolean changed;
+        do {
+            changed = false;
+            for (RewardPool pool : pools.values()) if (!invalid.contains(pool.id())) {
+                if (pool.entries().stream().anyMatch(entry -> entry.poolId() != null && !pools.containsKey(entry.poolId()))) {
+                    invalid.add(pool.id());
+                    changed = true;
+                }
+            }
+        } while (changed);
+        for (ResourceLocation id : invalid) {
+            if (pools.remove(id) != null) AntOS.LOGGER.warn("Ignoring task reward pool {} because it contains a cycle or missing pool reference", id);
+        }
+    }
+
+    private static void validateRewardPool(ResourceLocation id, Map<ResourceLocation, RewardPool> pools,
+                                           java.util.Set<ResourceLocation> complete, List<ResourceLocation> active,
+                                           java.util.Set<ResourceLocation> invalid) {
+        if (active.size() >= 8) { invalid.add(id); return; }
+        if (complete.contains(id)) return;
+        int cycleStart = active.indexOf(id);
+        if (cycleStart >= 0) {
+            invalid.addAll(active.subList(cycleStart, active.size()));
+            return;
+        }
+        RewardPool pool = pools.get(id);
+        if (pool == null) return;
+        active.add(id);
+        for (RewardPoolEntry entry : pool.entries()) if (entry.poolId() != null) {
+            if (!pools.containsKey(entry.poolId())) invalid.add(id);
+            else validateRewardPool(entry.poolId(), pools, complete, active, invalid);
+        }
+        active.remove(active.size() - 1);
+        complete.add(id);
+    }
+
     private static void parseTask(JsonObject object, Map<ResourceLocation, Task> target) {
         try { parseTask(ResourceLocation.parse(string(object, "id", "")), object, target); }
         catch (RuntimeException exception) { AntOS.LOGGER.warn("Ignoring malformed AntOS task in network snapshot", exception); }
@@ -926,9 +1033,12 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public record TaskGroup(ResourceLocation id, String titleKey, String iconItem, String iconEntity, int sortOrder, boolean collapsed, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record Objective(String id, String type, String target, String statType, String descriptionKey, int count, boolean optional, boolean sticky, String tagMode, boolean consume, boolean notifyPlayer) { }
     public record TaskReward(String type, ResourceLocation itemId, int count, int experiencePoints, ResourceLocation target,
-                             String sender, String subject, String body, int durationTicks, int amplifier) { }
+                             String sender, String subject, String body, int durationTicks, int amplifier,
+                             ResourceLocation poolId, String mode, long antcoins) { }
+    public record RewardPool(ResourceLocation id, List<RewardPoolEntry> entries) { }
+    public record RewardPoolEntry(ResourceLocation itemId, ResourceLocation poolId, int weight, int count) { }
 
-    record LoadedData(Map<ResourceLocation, Entry> entries, Map<ResourceLocation, Disk> disks, Map<ResourceLocation, DiskCategory> categories, Map<ResourceLocation, Wallpaper> wallpapers, Map<ResourceLocation, Task> tasks,
+    record LoadedData(Map<ResourceLocation, Entry> entries, Map<ResourceLocation, Disk> disks, Map<ResourceLocation, DiskCategory> categories, Map<ResourceLocation, Wallpaper> wallpapers, Map<ResourceLocation, Task> tasks, Map<ResourceLocation, RewardPool> rewardPools,
                       Map<ResourceLocation, TaskCategory> taskCategories, Map<ResourceLocation, TaskGroup> taskGroups) {
     }
 }

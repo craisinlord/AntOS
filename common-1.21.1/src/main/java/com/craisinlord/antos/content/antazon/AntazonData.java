@@ -146,6 +146,16 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         Map<ResourceLocation, Product> all = new HashMap<>();
         List<Product> rotating = new ArrayList<>();
         for (Product product : source.values()) {
+            if (product.variants() != null) {
+                List<ResourceLocation> variants = AntazonTags.items(List.of(), List.of(product.variants().tag()));
+                if (variants.isEmpty()) {
+                    AntOS.LOGGER.warn("Antazon product {} has an empty variant tag", product.id());
+                    continue;
+                }
+                Product configured = new Product(product.id(), product.name(), product.description(), product.category(), product.tags(), product.thumbnail(), product.gallery(), product.quantity(), product.payments(), product.unlockMode(), product.unlockTasks(), product.availability(), product.rewards(), product.reviews(), product.deal(), product.delivery(), product.deliveryLocation(), product.enabled(), product.greenTint(), product.renderMobFromSpawnEgg(), product.hiddenUntilUnlocked(), product.notifyOnUnlock(), product.itemPool(), product.poolEntry(), product.variants(), variants);
+                all.put(configured.id(), configured);
+                continue;
+            }
             if (product.itemPool() == null) {
                 all.put(product.id(), product);
                 continue;
@@ -183,7 +193,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         return new Product(id, template.name(), template.description(), template.category(), template.tags(), thumbnail, gallery,
                 template.quantity(), template.payments(), template.unlockMode(), template.unlockTasks(), template.availability(),
                 List.copyOf(rewards), template.reviews(), template.deal(), template.delivery(), template.deliveryLocation(), template.enabled(), template.greenTint(),
-                template.renderMobFromSpawnEgg(), template.hiddenUntilUnlocked(), template.itemPool(), new PoolEntry(template.id(), item, index, size));
+                template.renderMobFromSpawnEgg(), template.hiddenUntilUnlocked(), template.notifyOnUnlock(), template.itemPool(), new PoolEntry(template.id(), item, index, size), null, List.of());
     }
 
     @Override
@@ -251,6 +261,12 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         for (PreviewAsset asset : product.gallery()) gallery.add(assetJson(asset));
         row.add("gallery", gallery);
         if (product.poolEntry() != null) row.addProperty("pool_item", product.poolEntry().item().toString());
+        if (product.variants() != null) {
+            row.addProperty("variant_mode", product.variants().mode());
+            JsonArray variants = new JsonArray();
+            for (ResourceLocation variant : product.variantItems()) variants.add(variant.toString());
+            row.add("variants", variants);
+        }
         row.addProperty("quantity", product.quantity());
         JsonArray rewards = new JsonArray();
         for (Reward reward : product.rewards()) {
@@ -316,6 +332,8 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         List<ResourceLocation> taskIds = resourceIds(object.get("unlock_tasks"), id);
         boolean hiddenUntilUnlocked = !object.has("hidden_until_unlocked") || !object.get("hidden_until_unlocked").isJsonPrimitive()
                 || object.get("hidden_until_unlocked").getAsBoolean();
+        boolean notifyOnUnlock = !object.has("notify_on_unlock") || !object.get("notify_on_unlock").isJsonPrimitive()
+                || object.get("notify_on_unlock").getAsBoolean();
         String unlockMode = string(object, "unlock_mode", "all").toLowerCase(Locale.ROOT);
         if (!unlockMode.equals("all") && !unlockMode.equals("any")) {
             AntOS.LOGGER.warn("Ignoring Antazon product {} because unlock_mode must be all or any", id);
@@ -326,7 +344,10 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         List<Reward> rewards = parseRewards(id, object.get("rewards"));
         ItemPool itemPool = object.has("item_pool") ? parseItemPool(id, object.get("item_pool")) : null;
         if (object.has("item_pool") && itemPool == null) return null;
-        if (rewards.isEmpty() && itemPool == null) {
+        VariantPool variants = object.has("variants") ? parseVariants(id, object.get("variants")) : null;
+        if (object.has("variants") && variants == null) return null;
+        if (itemPool != null && variants != null) return null;
+        if (rewards.isEmpty() && itemPool == null && variants == null) {
             AntOS.LOGGER.warn("Ignoring Antazon product {} because it has no valid rewards", id);
             return null;
         }
@@ -355,7 +376,23 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         List<Review> reviews = parseReviews(id, object.get("reviews"));
         Deal deal = parseDeal(id, object.getAsJsonObject("deal"));
         boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive() || object.get("render_mob_from_spawn_egg").getAsBoolean();
-        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, deal, delivery, deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, itemPool, null);
+        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, deal, delivery, deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, notifyOnUnlock, itemPool, null, variants, List.of());
+    }
+
+    private static VariantPool parseVariants(ResourceLocation id, JsonElement element) {
+        if (element == null || !element.isJsonObject()) return null;
+        JsonObject object = element.getAsJsonObject();
+        String tagValue = string(object, "tag", "").trim();
+        String mode = string(object, "mode", "choose").trim().toLowerCase(Locale.ROOT);
+        if (tagValue.startsWith("#")) tagValue = tagValue.substring(1);
+        try {
+            ResourceLocation tag = ResourceLocation.parse(tagValue);
+            if (!mode.equals("all") && !mode.equals("random") && !mode.equals("choose")) throw new IllegalArgumentException();
+            return new VariantPool(tag, mode);
+        } catch (RuntimeException exception) {
+            AntOS.LOGGER.warn("Ignoring Antazon product {} because variants requires a valid tag and mode all, random, or choose", id);
+            return null;
+        }
     }
 
     private static ItemPool parseItemPool(ResourceLocation id, JsonElement element) {
@@ -561,8 +598,8 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
 
     public record Product(ResourceLocation id, String name, String description, String category, List<String> tags,
                           PreviewAsset thumbnail, List<PreviewAsset> gallery, int quantity, List<Payment> payments, String unlockMode, List<ResourceLocation> unlockTasks,
-                          Availability availability, List<Reward> rewards, List<Review> reviews, Deal deal, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint, boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked,
-                          ItemPool itemPool, PoolEntry poolEntry) {
+                          Availability availability, List<Reward> rewards, List<Review> reviews, Deal deal, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint, boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked, boolean notifyOnUnlock,
+                          ItemPool itemPool, PoolEntry poolEntry, VariantPool variants, List<ResourceLocation> variantItems) {
     }
 
     public record DeliveryLocation(int x, int y, int z) { }
@@ -575,6 +612,8 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
 
     public record PoolEntry(ResourceLocation template, ResourceLocation item, int index, int poolSize) {
     }
+
+    public record VariantPool(ResourceLocation tag, String mode) { }
 
     private record ActiveSet(long period, Set<Integer> indices) {
     }

@@ -50,6 +50,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
 
     public static void registerListeners() {
         com.craisinlord.antos.content.computer.ComputerTaskCompletionEvents.register(AntmailEventData::onTaskComplete);
+        com.craisinlord.antos.content.antazon.AntazonUnlockMail.registerListener();
     }
 
     // ---------------------------------------------------------------- triggers

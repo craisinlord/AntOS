@@ -23,6 +23,7 @@ public final class AntazonServerData extends SavedData {
     private final Map<ResourceLocation, Stock> stock = new LinkedHashMap<>();
     private final Map<UUID, Long> wallets = new LinkedHashMap<>();
     private final Map<UUID, Map<ResourceLocation, PlayerState>> players = new LinkedHashMap<>();
+    private final Map<UUID, Map<String, SellLimitState>> sellLimits = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> wishlists = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> reviewed = new LinkedHashMap<>();
     private final Set<String> onboardingComputers = new LinkedHashSet<>();
@@ -82,6 +83,16 @@ public final class AntazonServerData extends SavedData {
                 data.players.put(player, states);
             } catch (RuntimeException ignored) {
             }
+        }
+        ListTag sellLimitTags = tag.getList("SellLimits", 10);
+        for (int index = 0; index < sellLimitTags.size(); index++) {
+            CompoundTag row = sellLimitTags.getCompound(index);
+            try {
+                UUID owner = UUID.fromString(row.getString("Owner"));
+                String key = row.getString("Key");
+                if (!key.isBlank()) data.sellLimits.computeIfAbsent(owner, ignored -> new LinkedHashMap<>())
+                        .put(key, new SellLimitState(Math.max(0, row.getInt("Quantity")), row.getLong("Reset")));
+            } catch (RuntimeException ignored) { }
         }
         ListTag orderTags = tag.getList("Orders", 10);
         for (int index = 0; index < orderTags.size(); index++) {
@@ -150,7 +161,7 @@ public final class AntazonServerData extends SavedData {
                 for (int lineIndex = 0; lineIndex < lineTags.size(); lineIndex++) {
                     CompoundTag line = lineTags.getCompound(lineIndex);
                     ResourceLocation product = parse(line.getString("Product"));
-                    if (product != null) lines.add(new CartLine(product, Math.max(0, line.getInt("Option")), Math.max(1, Math.min(64, line.getInt("Units")))));
+                    if (product != null) lines.add(new CartLine(product, Math.max(0, line.getInt("Option")), Math.max(1, Math.min(64, line.getInt("Units"))), line.getString("Variant")));
                 }
                 if (!lines.isEmpty()) data.carts.put(owner, lines);
             } catch (RuntimeException ignored) { }
@@ -194,6 +205,18 @@ public final class AntazonServerData extends SavedData {
             playerTags.add(playerTag);
         }
         tag.put("Players", playerTags);
+        ListTag sellLimitTags = new ListTag();
+        for (Map.Entry<UUID, Map<String, SellLimitState>> ownerEntry : sellLimits.entrySet()) {
+            for (Map.Entry<String, SellLimitState> stateEntry : ownerEntry.getValue().entrySet()) {
+                CompoundTag row = new CompoundTag();
+                row.putString("Owner", ownerEntry.getKey().toString());
+                row.putString("Key", stateEntry.getKey());
+                row.putInt("Quantity", stateEntry.getValue().quantity());
+                row.putLong("Reset", stateEntry.getValue().reset());
+                sellLimitTags.add(row);
+            }
+        }
+        tag.put("SellLimits", sellLimitTags);
         ListTag orderTags = new ListTag();
         for (Order order : orders) {
             CompoundTag row = new CompoundTag();
@@ -265,6 +288,7 @@ public final class AntazonServerData extends SavedData {
                 lineTag.putString("Product", line.product().toString());
                 lineTag.putInt("Option", line.option());
                 lineTag.putInt("Units", line.units());
+                lineTag.putString("Variant", line.variant());
                 lines.add(lineTag);
             }
             row.put("Lines", lines);
@@ -348,6 +372,19 @@ public final class AntazonServerData extends SavedData {
             }
             changed = true;
         }
+        Map<String, SellLimitState> oldSellLimits = sellLimits.remove(playerId);
+        if (oldSellLimits != null) {
+            Map<String, SellLimitState> profileLimits = sellLimits.computeIfAbsent(profileId, ignored -> new LinkedHashMap<>());
+            for (Map.Entry<String, SellLimitState> entry : oldSellLimits.entrySet()) {
+                SellLimitState current = profileLimits.get(entry.getKey());
+                SellLimitState old = entry.getValue();
+                if (current == null) profileLimits.put(entry.getKey(), old);
+                else if (current.reset() == old.reset()) profileLimits.put(entry.getKey(), new SellLimitState(
+                        (int) Math.min(Integer.MAX_VALUE, (long) current.quantity() + old.quantity()), current.reset()));
+                else profileLimits.put(entry.getKey(), current.reset() > old.reset() ? current : old);
+            }
+            changed = true;
+        }
         Set<ResourceLocation> oldWishlist = wishlists.remove(playerId);
         if (oldWishlist != null) {
             wishlists.computeIfAbsent(profileId, ignored -> new LinkedHashSet<>()).addAll(oldWishlist);
@@ -428,6 +465,16 @@ public final class AntazonServerData extends SavedData {
 
     public synchronized void setPlayerState(UUID player, ResourceLocation productId, PlayerState state) {
         players.computeIfAbsent(player, ignored -> new LinkedHashMap<>()).put(productId, state);
+        setDirty();
+    }
+
+    public synchronized SellLimitState sellLimitState(UUID owner, String key) {
+        return sellLimits.getOrDefault(owner, Map.of()).getOrDefault(key, new SellLimitState(0, Long.MIN_VALUE));
+    }
+
+    public synchronized void setSellLimitState(UUID owner, String key, SellLimitState state) {
+        if (owner == null || key == null || key.isBlank() || state == null) return;
+        sellLimits.computeIfAbsent(owner, ignored -> new LinkedHashMap<>()).put(key, state);
         setDirty();
     }
 
@@ -530,10 +577,13 @@ public final class AntazonServerData extends SavedData {
 
     public record Stock(int remaining, long nextRestockDay) { }
     public record PlayerState(int quantity, long reset, long lastPurchase) { }
+    public record SellLimitState(int quantity, long reset) { }
     public record Order(UUID id, UUID player, ResourceLocation product, String option, int units, long gameTime, String status,
                         int paidAmount, int dealDiscount, String dealPool) { }
     public record DealMetrics(int orders, int units, long revenue, int dealOrders, long discountPercentTotal,
                               int regularOrders, int dealUnits, int regularUnits, long dealRevenue, long regularRevenue) { }
-    public record CartLine(ResourceLocation product, int option, int units) { }
+    public record CartLine(ResourceLocation product, int option, int units, String variant) {
+        public CartLine(ResourceLocation product, int option, int units) { this(product, option, units, ""); }
+    }
     public record PlayerReview(UUID player, ResourceLocation product, int rating, String title, String body, long gameTime) { }
 }

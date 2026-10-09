@@ -358,6 +358,18 @@ public final class ComputerScreen extends Screen {
         session.mouseY = mouseY;
         session.archiveMouseX = mouseX;
         session.archiveMouseY = mouseY;
+        g.drawManaged(() -> renderDesktopSurface(g, l, t, mouseX, mouseY));
+        if (activeWindow != null && !activeWindow.minimized && session.windows.remove(activeWindow)) {
+            session.windows.add(activeWindow);
+        }
+        int layer = 1;
+        for (Window window : session.windows) {
+            if (!window.minimized) renderWindow(g, window, l, t, mouseX, mouseY, layer++);
+        }
+        if (!session.onboardingCompleted) renderOnboarding(g, l, t, mouseX, mouseY);
+    }
+
+    private void renderDesktopSurface(GuiGraphics g, int l, int t, int mouseX, int mouseY) {
         renderWallpaper(g, l, t);
         g.fill(l + 9, t + 9, l + WIDTH - 9, t + 30, BLACK);
         g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 18, t + 15, GREEN, false);
@@ -379,15 +391,6 @@ public final class ComputerScreen extends Screen {
             if (app.equals("ANTAZON") && session.antazon.hasUnseenDeals()) drawNotificationBadge(g, x + 35, y + 6);
             g.drawString(font, Component.literal(app), x, y + 35, GREEN, false);
         }
-        g.flush();
-        if (activeWindow != null && !activeWindow.minimized && session.windows.remove(activeWindow)) {
-            session.windows.add(activeWindow);
-        }
-        int layer = 1;
-        for (Window window : session.windows) {
-            if (!window.minimized) renderWindow(g, window, l, t, mouseX, mouseY, layer++);
-        }
-        if (!session.onboardingCompleted) renderOnboarding(g, l, t, mouseX, mouseY);
     }
 
     private void renderOnboarding(GuiGraphics g, int l, int t, int mouseX, int mouseY) {
