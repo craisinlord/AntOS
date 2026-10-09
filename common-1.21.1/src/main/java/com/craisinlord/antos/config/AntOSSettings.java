@@ -113,6 +113,10 @@ public final class AntOSSettings {
         return config.unlockAllGameEntries;
     }
 
+    public static synchronized long blockleDailyAntcoinReward() {
+        return Math.max(0L, config.blockleDailyAntcoinReward);
+    }
+
     public static synchronized boolean sendAntazonUnlockEmail() {
         return config.sendAntazonUnlockEmail;
     }
@@ -154,6 +158,7 @@ public final class AntOSSettings {
     private static final class Config {
         private boolean unlockAllArchiveEntries;
         private boolean unlockAllGameEntries;
+        private long blockleDailyAntcoinReward = 10L;
         private boolean sendAntazonUnlockEmail = true;
         private Set<String> antazonUnlockEmailsSent = new HashSet<>();
         private boolean inventoryComputerButton;

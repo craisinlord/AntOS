@@ -26,6 +26,7 @@ On first launch AntOS creates `config/antos.json`. Restart the game or server af
 {
   "unlockAllArchiveEntries": false,
   "unlockAllGameEntries": false,
+  "blockleDailyAntcoinReward": 10,
   "desktopApps": {
     "archive": true,
     "files": true,
@@ -43,6 +44,8 @@ On first launch AntOS creates `config/antos.json`. Restart the game or server af
 ```
 
 Set either `unlockAllArchiveEntries` or `unlockAllGameEntries` to `true` to unlock all loaded entries or registered games without their disks. Antazon and Tasks are disabled by default; set `desktopApps.antazon` and/or `desktopApps.tasks` to `true` to enable them. Disable other individual desktop apps by setting their values to `false`.
+
+When Antazon is enabled, solving Blockle awards `blockleDailyAntcoinReward` AntCoins once per profile per Minecraft day. The default is `10`; set it to `0` to disable the reward. A short popup appears after an award. When Antazon is disabled, Blockle does not award or display AntCoins.
 
 ## For modpack developers
 
@@ -137,7 +140,7 @@ Objective progress is sticky by default: AntOS saves the highest observed progre
 
 Set `consume: true` on an `item` or `item_tag` objective to remove the required items when satisfied; it defaults to `false`. Exact-item and `any` objectives consume their full requirement together. An `all` tag consumes each member's requirement as that member is satisfied, so the full tag does not need to be held at once. `advancement` checks an advancement ID; `mail_read` targets a data-driven Antmail message ID; and `archive_viewed` targets an Archive entry ID. For `stat`, add `stat_type` such as `item_crafted`, `block_mined`, or `entity_killed`; statistics are lifetime player totals.
 
-For an objective chain, add `requires: ["namespace:task_id"]`. Optional `position: {"x": 0, "y": 0}` places a node on the map; `hide_until_dependencies_complete` and `invisible_until_completed` control task visibility. Set optional `green_tint` to `false` to show the task icon and its detail-panel item icons in their normal colors; it defaults to `true`. Set optional `render_mob_from_spawn_egg` to `false` to show spawn eggs as their item icons in the task map and detail panel; it defaults to `true`. Set optional `icon` to an item ID, or `icon_entity` to an entity ID, to choose the task's map icon. Without one, AntOS uses the first `item` objective, then the first kill statistic's creature, then the first item reward, then paper. Category names use `task.category.<namespace>.<path>` translations.
+For an objective chain, add `requires: ["namespace:task_id"]`. Optional `position: {"x": 0, "y": 0}` places a node on the map; provide both coordinates to set a position. Each coordinate is clamped to −128 through 128. Tasks without both coordinates are placed automatically. `hide_until_dependencies_complete` and `invisible_until_completed` control task visibility. Set optional `green_tint` to `false` to show the task icon and its detail-panel item icons in their normal colors; it defaults to `true`. Set optional `render_mob_from_spawn_egg` to `false` to show spawn eggs as their item icons in the task map and detail panel; it defaults to `true`. Set optional `icon` to an item ID, or `icon_entity` to an entity ID, to choose the task's map icon. Without one, AntOS uses the first `item` objective, then the first kill statistic's creature, then the first item reward, then paper. Category names use `task.category.<namespace>.<path>` translations.
 
 Optional category files at `data/<namespace>/computer/task/category/<path>.json` set a category's title, sidebar icon, order, group, and icon tint. Category icons are green tinted by default; set `green_tint` to `false` to show the icon in its normal colors. Set `render_mob_from_spawn_egg` to `false` to keep a spawn egg as the category icon; it defaults to `true`. The file's namespace and path must match the `category` value on its tasks:
 
@@ -155,7 +158,7 @@ Use `icon_entity` instead of `icon` for a creature. Categories are ordered by `s
 
 For structure visits, use a vanilla advancement with the `minecraft:location` trigger and a `structures` location predicate, then reference its ID in an `advancement` objective. The template includes a stronghold example. A locator result alone does not count as visiting the structure.
 
-Completing a task makes its rewards claimable in the Tasks app; rewards are not delivered automatically. Each Anternet profile can claim a task's rewards once. Supported reward types are `item`, `item_pool`, `antcoins`, `experience`, `experience_levels`, `advancement`, `effect`, `archive`, and `mail`. Item rewards appear as dropped items near the player, and mail rewards are delivered to the claiming profile's Antmail address. Archive rewards unlock when the task completes. AntCoin rewards credit the claiming profile's Antazon wallet:
+Completing a task makes its rewards claimable in the Tasks app; rewards are not delivered automatically. Each Anternet profile can claim a task's rewards once. Supported reward types are `item`, `item_pool`, `choice`, `antcoins`, `experience`, `experience_levels`, `advancement`, `effect`, `archive`, and `mail`. Item rewards appear as dropped items near the player, and mail rewards are delivered to the claiming profile's Antmail address. Archive rewards unlock when the task completes. AntCoin rewards credit the claiming profile's Antazon wallet:
 
 ```json
 { "type": "antcoins", "amount": 100 }
@@ -177,6 +180,36 @@ Reference a pool from a task reward with `mode: "random"` or `mode: "choice"`; i
 ```json
 { "type": "item_pool", "pool": "examplemod:field_supplies", "mode": "choice" }
 ```
+
+Use a task reward with `type: "choice"` when players should choose between reward packages. Each option has an `id`, a translatable `title`, and a `rewards` list. The player selects one package in the Tasks app before claiming; only that option's rewards are granted. Options can combine fixed items, AntCoins, experience, effects, advancements, Antmail, and random item pools. A choice option cannot contain another `choice`, an Archive unlock, or an item pool with `mode: "choice"`; use one clear selection screen per task claim. This is separate from `item_pool` with `mode: "choice"`, which continues to let players choose one item outcome from that pool.
+
+```json
+{
+  "type": "choice",
+  "options": [
+    {
+      "id": "coins",
+      "title": "task.examplemod.field_basics.reward.coins",
+      "rewards": [{ "type": "antcoins", "amount": 100 }]
+    },
+    {
+      "id": "supplies",
+      "title": "task.examplemod.field_basics.reward.supplies",
+      "rewards": [{ "type": "item_pool", "pool": "examplemod:field_supplies", "mode": "random" }]
+    },
+    {
+      "id": "tools",
+      "title": "task.examplemod.field_basics.reward.tools",
+      "rewards": [
+        { "type": "item", "item": "minecraft:iron_pickaxe", "count": 1 },
+        { "type": "item", "item": "minecraft:bread", "count": 8 }
+      ]
+    }
+  ]
+}
+```
+
+Choice rewards support two to six options, each with one to eight rewards. Option IDs must be unique within that choice. The interface shows each title and reward summary, and the server validates the selected option when the claim is submitted.
 
 The Tasks app shows each category as a dependency map. Drag empty map space to pan; use the mouse wheel to scroll vertically, Shift+wheel to scroll sideways, and Ctrl+wheel or the `-` and `+` buttons to zoom. **CENTER** frames the category, and **?** opens the control guide. Use **FIND** or Ctrl+F to search task titles and descriptions; selecting a result opens and centers that task. Hover over a task node to see its title. Locked tasks use a lock icon, while a `!` badge marks rewards ready to claim.
 

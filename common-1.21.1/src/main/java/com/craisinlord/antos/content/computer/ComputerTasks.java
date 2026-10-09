@@ -31,6 +31,15 @@ public final class ComputerTasks {
     private static final java.util.Set<ResourceLocation> OVERSIZED_ITEM_TAGS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final java.util.Set<ResourceLocation> MISSING_ITEM_TAGS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private ComputerTasks() { }
+
+    /** Rolls one task reward pool and delivers its contents to the player. */
+    public static boolean giveRewardPool(ServerPlayer player, ResourceLocation poolId) {
+        if (player == null || ComputerGuideData.taskRewardPool(poolId) == null) return false;
+        List<ItemStack> stacks = new java.util.ArrayList<>();
+        rollRewardPool(poolId, player, 1, stacks, 108);
+        if (!stacks.isEmpty()) dropRewardCrate(player, stacks);
+        return true;
+    }
     public static boolean grantTask(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId) {
         ComputerGuideData.Task task = task(taskId);
         if (task == null) return false;
@@ -75,6 +84,10 @@ public final class ComputerTasks {
             ComputerGuideData.TaskReward reward = task.rewards().get(index);
             if (reward.type().equals("item_pool") && reward.mode().equals("choice")
                     && !validPoolChoice(reward.poolId(), selectedChoices.get(index), 0)) return false;
+            if (reward.type().equals("choice")) {
+                int optionIndex = selectedChoiceIndex(selectedChoices.get(index));
+                if (optionIndex < 0 || optionIndex >= reward.options().size()) return false;
+            }
         }
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
         if (data.hasClaimedTaskReward(account.accountId(), taskId)) return false;
@@ -230,7 +243,7 @@ public final class ComputerTasks {
             JsonObject row = new JsonObject(); row.addProperty("id", task.id().toString());
             row.addProperty("title", task.titleKey()); row.addProperty("description", task.descriptionKey());
             row.addProperty("program", task.program()); row.addProperty("category", task.category());
-            row.addProperty("x", task.x()); row.addProperty("y", task.y());
+            row.addProperty("has_position", task.hasPosition()); row.addProperty("x", task.x()); row.addProperty("y", task.y());
             row.addProperty("has_rewards", !task.rewards().isEmpty());
             String iconItem = task.iconItem();
             String iconEntity = iconItem.isBlank() ? task.iconEntity() : "";
@@ -250,17 +263,7 @@ public final class ComputerTasks {
             row.addProperty("render_mob_from_spawn_egg", task.renderMobFromSpawnEgg());
             JsonArray rewards = new JsonArray();
             for (ComputerGuideData.TaskReward reward : task.rewards()) {
-                JsonObject rewardRow = new JsonObject();
-                rewardRow.addProperty("type", reward.type());
-                rewardRow.addProperty("item", reward.itemId() == null ? "" : reward.itemId().toString());
-                rewardRow.addProperty("count", reward.count());
-                rewardRow.addProperty("experience", reward.experiencePoints());
-                rewardRow.addProperty("target", reward.target() == null ? "" : reward.target().toString());
-                rewardRow.addProperty("subject", reward.subject());
-                rewardRow.addProperty("pool", reward.poolId() == null ? "" : reward.poolId().toString());
-                rewardRow.addProperty("mode", reward.mode());
-                rewardRow.addProperty("antcoins", reward.antcoins());
-                rewards.add(rewardRow);
+                rewards.add(encodeTaskReward(reward));
             }
             row.add("rewards", rewards);
             JsonArray prerequisites = new JsonArray(); task.requires().forEach(id -> prerequisites.add(id.toString())); row.add("requires", prerequisites);
@@ -329,6 +332,33 @@ public final class ComputerTasks {
         EncodedDefinitions result = new EncodedDefinitions(tasks, categories, groups, pools, json, hash(json));
         encodedDefinitions = result;
         return result;
+    }
+
+    private static JsonObject encodeTaskReward(ComputerGuideData.TaskReward reward) {
+        JsonObject row = new JsonObject();
+        row.addProperty("type", reward.type());
+        row.addProperty("item", reward.itemId() == null ? "" : reward.itemId().toString());
+        row.addProperty("count", reward.count());
+        row.addProperty("experience", reward.experiencePoints());
+        row.addProperty("target", reward.target() == null ? "" : reward.target().toString());
+        row.addProperty("subject", reward.subject());
+        row.addProperty("pool", reward.poolId() == null ? "" : reward.poolId().toString());
+        row.addProperty("mode", reward.mode());
+        row.addProperty("antcoins", reward.antcoins());
+        if (!reward.options().isEmpty()) {
+            JsonArray options = new JsonArray();
+            for (ComputerGuideData.RewardOption option : reward.options()) {
+                JsonObject optionRow = new JsonObject();
+                optionRow.addProperty("id", option.id());
+                optionRow.addProperty("title", option.title());
+                JsonArray optionRewards = new JsonArray();
+                for (ComputerGuideData.TaskReward optionReward : option.rewards()) optionRewards.add(encodeTaskReward(optionReward));
+                optionRow.add("rewards", optionRewards);
+                options.add(optionRow);
+            }
+            row.add("options", options);
+        }
+        return row;
     }
 
     /** Per-player state; task rows follow the definition order so the client can pair them by index. */
@@ -553,6 +583,11 @@ public final class ComputerTasks {
                     else addChosenPoolOutcome(reward.poolId(), selected, 1, poolStacks, capacity);
                     stacks.addAll(poolStacks);
                 }
+                case "choice" -> {
+                    int optionIndex = selectedChoiceIndex(choices.get(rewardIndex));
+                    if (optionIndex >= 0 && optionIndex < reward.options().size())
+                        deliverChoiceOption(player, task, reward.options().get(optionIndex), stacks);
+                }
                 case "advancement" -> {
                     var advancement = player.serverLevel().getServer().getAdvancements().get(reward.target());
                     if (advancement == null) {
@@ -577,6 +612,40 @@ public final class ComputerTasks {
         }
         if (stacks.isEmpty()) return;
         dropRewardCrate(player, stacks);
+    }
+
+    private static int selectedChoiceIndex(String selection) {
+        if (selection == null || !selection.startsWith("option:")) return -1;
+        try { return Integer.parseInt(selection.substring("option:".length())); } catch (RuntimeException ignored) { return -1; }
+    }
+
+    private static void deliverChoiceOption(ServerPlayer player, ComputerGuideData.Task task,
+                                            ComputerGuideData.RewardOption option, List<ItemStack> stacks) {
+        for (ComputerGuideData.TaskReward reward : option.rewards()) {
+            switch (reward.type()) {
+                case "item" -> addRewardItem(reward.itemId(), reward.count(), stacks, 108);
+                case "antcoins" -> {
+                    var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+                    if (account != null) com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server)
+                            .credit(account.accountId(), reward.antcoins());
+                }
+                case "item_pool" -> rollRewardPool(reward.poolId(), player, 1, stacks,
+                        Math.max(0, 108 - totalRewardItems(stacks)));
+                case "experience" -> player.giveExperiencePoints(reward.experiencePoints());
+                case "experience_levels" -> player.giveExperienceLevels(reward.count());
+                case "advancement" -> {
+                    var advancement = player.serverLevel().getServer().getAdvancements().get(reward.target());
+                    if (advancement != null) advancement.value().criteria().keySet().forEach(criterion -> player.getAdvancements().award(advancement, criterion));
+                    else AntOS.LOGGER.warn("Task {} choice {} rewards missing advancement {}", task.id(), option.id(), reward.target());
+                }
+                case "effect" -> {
+                    var effect = BuiltInRegistries.MOB_EFFECT.getHolder(reward.target()).orElse(null);
+                    if (effect != null) player.addEffect(new MobEffectInstance(effect, reward.durationTicks(), reward.amplifier()));
+                    else AntOS.LOGGER.warn("Task {} choice {} rewards missing status effect {}", task.id(), option.id(), reward.target());
+                }
+                case "mail" -> deliverMailReward(player, task, reward);
+            }
+        }
     }
 
     private static void rollRewardPool(ResourceLocation poolId, ServerPlayer player, int multiplier, List<ItemStack> output, int itemLimit) {

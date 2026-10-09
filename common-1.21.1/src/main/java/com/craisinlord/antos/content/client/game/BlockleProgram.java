@@ -5,6 +5,7 @@ import com.craisinlord.antos.content.network.ComputerNetworking;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +23,8 @@ public final class BlockleProgram {
     private boolean pending;
     private boolean received;
     private long lastResponseRevision = -1L;
+    private String rewardPopup = "";
+    private long rewardPopupUntil;
 
     public void setInstalled(boolean installed) {
         this.installed = installed;
@@ -87,12 +90,29 @@ public final class BlockleProgram {
 
     public void render(GuiGraphics graphics, Font font, int x, int y, int width, int height) {
         BlockleRenderer.render(graphics, font, x, y, width, height, guesses, colors, input, status, phase, answerId);
+        if (!rewardPopup.isEmpty() && System.currentTimeMillis() < rewardPopupUntil) {
+            int popupWidth = Math.min(width - 8, font.width(rewardPopup) + 20);
+            int popupX = x + (width - popupWidth) / 2;
+            int popupY = y + 42;
+            graphics.fill(popupX, popupY, popupX + popupWidth, popupY + 24, 0xEE17351C);
+            graphics.renderOutline(popupX, popupY, popupWidth, 24, 0xFF65FF65);
+            graphics.drawCenteredString(font, Component.literal(rewardPopup), x + width / 2, popupY + 8, 0xFFFFFFFF);
+        } else if (System.currentTimeMillis() >= rewardPopupUntil) {
+            rewardPopup = "";
+        }
     }
 
     private void parse(String encoded) {
         String[] values = encoded.split("\\|");
         if (values.length == 0) return;
         try { day = Long.parseLong(values[0]); } catch (NumberFormatException ignored) { return; }
+        for (int index = 1; index + 1 < values.length; index++) {
+            if (values[index].equals("REWARD")) {
+                rewardPopup = "Great job! You earned " + values[index + 1] + " AntCoins";
+                rewardPopupUntil = System.currentTimeMillis() + 3500L;
+                break;
+            }
+        }
         guesses.clear();
         colors.clear();
         phase = "PLAYING";
@@ -126,6 +146,8 @@ public final class BlockleProgram {
         phase = "PLAYING";
         answer = "";
         answerId = null;
+        rewardPopup = "";
+        rewardPopupUntil = 0L;
         day = -1L;
         pending = false;
         received = false;

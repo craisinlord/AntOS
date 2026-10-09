@@ -44,6 +44,7 @@ public final class AntOSNeoForge {
 
     private void registerCommands(RegisterCommandsEvent event) {
         TaskDebugCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.antmail.AntmailDebugCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntazonCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntcoinCommands.register(event.getDispatcher());
     }

@@ -97,15 +97,11 @@ public final class ComputerTasksClientState {
             }
             java.util.ArrayList<TaskReward> rewards = new java.util.ArrayList<>();
             if (row.has("rewards") && row.get("rewards").isJsonArray()) for (var rewardElement : row.getAsJsonArray("rewards")) {
-                var reward = rewardElement.getAsJsonObject();
-                rewards.add(new TaskReward(reward.get("type").getAsString(), reward.get("item").getAsString(),
-                        reward.get("count").getAsInt(), reward.get("experience").getAsInt(), reward.get("target").getAsString(),
-                        reward.get("subject").getAsString(), reward.has("pool") ? reward.get("pool").getAsString() : "",
-                        reward.has("mode") ? reward.get("mode").getAsString() : "", reward.has("antcoins") ? reward.get("antcoins").getAsLong() : 0L));
+                rewards.add(parseTaskReward(rewardElement.getAsJsonObject()));
             }
             tasks.add(new TaskDefinition(row.get("id").getAsString(), row.get("title").getAsString(),
                     row.get("description").getAsString(), row.get("category").getAsString(),
-                    row.get("x").getAsInt(), row.get("y").getAsInt(),
+                    row.has("has_position") && row.get("has_position").getAsBoolean(), row.get("x").getAsInt(), row.get("y").getAsInt(),
                     row.getAsJsonArray("requires").asList().stream().map(value -> value.getAsString()).toList(),
                     row.getAsJsonArray("archive_entries").asList().stream().map(value -> value.getAsString()).toList(),
                     row.get("total").getAsInt(), row.has("has_rewards") && row.get("has_rewards").getAsBoolean(),
@@ -146,6 +142,22 @@ public final class ComputerTasksClientState {
         }
         return new Definitions(hash, List.copyOf(tasks), java.util.Collections.unmodifiableMap(categories),
                 java.util.Collections.unmodifiableMap(groups), java.util.Collections.unmodifiableMap(rewardPools));
+    }
+
+    private static TaskReward parseTaskReward(JsonObject reward) {
+        java.util.ArrayList<RewardOption> options = new java.util.ArrayList<>();
+        if (reward.has("options") && reward.get("options").isJsonArray()) for (var optionElement : reward.getAsJsonArray("options")) {
+            var option = optionElement.getAsJsonObject();
+            java.util.ArrayList<TaskReward> optionRewards = new java.util.ArrayList<>();
+            if (option.has("rewards") && option.get("rewards").isJsonArray()) for (var rewardElement : option.getAsJsonArray("rewards"))
+                optionRewards.add(parseTaskReward(rewardElement.getAsJsonObject()));
+            options.add(new RewardOption(option.get("id").getAsString(), option.get("title").getAsString(), List.copyOf(optionRewards)));
+        }
+        return new TaskReward(reward.get("type").getAsString(), reward.get("item").getAsString(),
+                reward.get("count").getAsInt(), reward.get("experience").getAsInt(), reward.get("target").getAsString(),
+                reward.get("subject").getAsString(), reward.has("pool") ? reward.get("pool").getAsString() : "",
+                reward.has("mode") ? reward.get("mode").getAsString() : "", reward.has("antcoins") ? reward.get("antcoins").getAsLong() : 0L,
+                List.copyOf(options));
     }
 
     private static void applyState(String key, Definitions definitions, JsonObject root) {
@@ -193,7 +205,7 @@ public final class ComputerTasksClientState {
             }
             rows.add(new TaskRow(definition.id(), definition.title(), definition.description(), row.get("available").getAsBoolean(),
                     row.get("complete").getAsBoolean(), row.get("visible").getAsBoolean(), definition.category(),
-                    definition.x(), definition.y(), definition.requires(), definition.archiveEntries(),
+                    definition.hasPosition(), definition.x(), definition.y(), definition.requires(), definition.archiveEntries(),
                     row.get("done").getAsInt(), definition.total(), definition.hasRewards(),
                     row.get("claimable").getAsBoolean(), row.get("claimed").getAsBoolean(),
                     definition.iconItem(), definition.iconEntity(), definition.greenTint(), definition.renderMobFromSpawnEgg(),
@@ -223,18 +235,20 @@ public final class ComputerTasksClientState {
     public static void clearTransient() { TEAM_STATUS.remove(ComputerWorkspaceClientKey.of()); }
     private record Definitions(String hash, List<TaskDefinition> tasks, Map<String, CategoryInfo> categories, Map<String, GroupInfo> groups,
                                Map<String, RewardPoolInfo> rewardPools) { }
-    private record TaskDefinition(String id, String title, String description, String category, int x, int y, List<String> requires,
+    private record TaskDefinition(String id, String title, String description, String category, boolean hasPosition, int x, int y, List<String> requires,
                                   List<String> archiveEntries, int total, boolean hasRewards, String iconItem, String iconEntity,
                                   boolean greenTint, boolean renderMobFromSpawnEgg, List<ObjectiveDefinition> objectives, List<TaskReward> rewards) { }
     private record ObjectiveDefinition(String description, int count, boolean optional, String item) { }
     public record CategoryInfo(String id, String title, String iconItem, String iconEntity, int sortOrder, String group, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record GroupInfo(String id, String title, String iconItem, String iconEntity, int sortOrder, boolean collapsed, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record TaskRow(String id, String title, String description, boolean available, boolean complete, boolean visible,
-                          String category, int x, int y, List<String> requires, List<String> archiveEntries,
+                          String category, boolean hasPosition, int x, int y, List<String> requires, List<String> archiveEntries,
                           int done, int total, boolean hasRewards, boolean claimable, boolean claimed, String iconItem, String iconEntity,
                           boolean greenTint, boolean renderMobFromSpawnEgg, List<TaskObjective> objectives, List<TaskReward> rewards) { }
     public record TaskObjective(String description, int progress, int count, boolean optional, String item, int displayGoal, boolean complete) { }
-    public record TaskReward(String type, String item, int count, int experience, String target, String subject, String pool, String mode, long antcoins) { }
+    public record TaskReward(String type, String item, int count, int experience, String target, String subject, String pool, String mode, long antcoins,
+                             List<RewardOption> options) { }
+    public record RewardOption(String id, String title, List<TaskReward> rewards) { }
     public record RewardPoolInfo(String id, List<RewardPoolEntryInfo> entries) { }
     public record RewardPoolEntryInfo(String item, String pool, int weight, int count) { }
     public record TeamInfo(String id, boolean owner, String ownerName, List<String> members) { }

@@ -451,13 +451,22 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             catch (Exception exception) { AntOS.LOGGER.error("Failed to load computer task {}", resource.getKey(), exception); }
         }
         loadedTasks.replaceAll((id, task) -> {
-            List<TaskReward> validRewards = task.rewards().stream().filter(reward -> {
-                boolean valid = !reward.type().equals("item_pool") || loadedRewardPools.containsKey(reward.poolId());
-                if (!valid) AntOS.LOGGER.warn("Task {} refers to missing or invalid reward pool {}", id, reward.poolId());
-                return valid;
-            }).toList();
+            List<TaskReward> validRewards = new ArrayList<>();
+            for (TaskReward reward : task.rewards()) {
+                if (reward.type().equals("item_pool")) {
+                    if (loadedRewardPools.containsKey(reward.poolId())) validRewards.add(reward);
+                    else AntOS.LOGGER.warn("Task {} refers to missing or invalid reward pool {}", id, reward.poolId());
+                } else if (reward.type().equals("choice")) {
+                    List<RewardOption> validOptions = reward.options().stream().filter(option -> option.rewards().stream()
+                            .allMatch(optionReward -> !optionReward.type().equals("item_pool") || loadedRewardPools.containsKey(optionReward.poolId()))).toList();
+                    if (validOptions.size() >= 2) validRewards.add(new TaskReward(reward.type(), reward.itemId(), reward.count(), reward.experiencePoints(),
+                            reward.target(), reward.sender(), reward.subject(), reward.body(), reward.durationTicks(), reward.amplifier(), reward.poolId(),
+                            reward.mode(), reward.antcoins(), validOptions));
+                    else AntOS.LOGGER.warn("Task {} has a reward choice with fewer than two valid options", id);
+                } else validRewards.add(reward);
+            }
             return new Task(task.id(), task.titleKey(), task.descriptionKey(), task.program(), task.category(), task.sortOrder(), task.availability(),
-                    task.requires(), task.objectives(), task.archiveEntries(), validRewards, task.x(), task.y(), task.hideUntilDependenciesComplete(),
+                    task.requires(), task.objectives(), task.archiveEntries(), validRewards, task.hasPosition(), task.x(), task.y(), task.hideUntilDependenciesComplete(),
                     task.invisibleUntilCompleted(), task.greenTint(), task.iconItem(), task.iconEntity(), task.renderMobFromSpawnEgg());
         });
         return new LoadedData(Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks), Map.copyOf(loadedRewardPools),
@@ -506,7 +515,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         }
         Map<String, ResourceLocation> positionedTasks = new HashMap<>();
         for (Task task : data.tasks().values()) {
-            if (task.x() >= 0 && task.y() >= 0) {
+            if (task.hasPosition()) {
                 String positionKey = task.category() + ":" + task.x() + "," + task.y();
                 ResourceLocation previous = positionedTasks.putIfAbsent(positionKey, task.id());
                 if (previous != null) AntOS.LOGGER.warn("AntOS tasks {} and {} share map position ({}, {}) in category {}",
@@ -718,11 +727,18 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         String availability = string(object, "availability", "disk");
         if (!availability.equals("disk") && !availability.equals("automatic")) { AntOS.LOGGER.warn("Ignoring task {} with invalid availability", id); return; }
         int order = object.has("sort_order") ? Math.max(-100000, Math.min(100000, object.get("sort_order").getAsInt())) : 0;
-        int x = -1, y = -1;
+        int x = 0, y = 0;
+        boolean hasPosition = false;
         JsonElement positionElement = object.get("position");
         if (positionElement != null && positionElement.isJsonObject()) {
             JsonObject position = positionElement.getAsJsonObject();
-            x = boundedPosition(position, "x"); y = boundedPosition(position, "y");
+            Integer parsedX = boundedPosition(position, "x");
+            Integer parsedY = boundedPosition(position, "y");
+            if (parsedX != null && parsedY != null) {
+                x = parsedX;
+                y = parsedY;
+                hasPosition = true;
+            }
         }
         List<ResourceLocation> requires = resourceIds(object.get("requires"));
         List<ResourceLocation> archives = resourceIds(object.get("archive_entries"));
@@ -764,6 +780,37 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                         String mode = string(row, "mode", "random").toLowerCase(java.util.Locale.ROOT);
                         if (!mode.equals("random") && !mode.equals("choice")) throw new IllegalArgumentException("Invalid pool mode");
                         rewards.add(new TaskReward("item_pool", null, 0, 0, null, "", "", "", 0, 0, poolId, mode, 0L));
+                    }
+                    case "choice" -> {
+                        JsonElement optionsElement = row.get("options");
+                        if (optionsElement == null || !optionsElement.isJsonArray() || optionsElement.getAsJsonArray().size() < 2
+                                || optionsElement.getAsJsonArray().size() > 6) throw new IllegalArgumentException("Invalid choice options");
+                        List<RewardOption> options = new ArrayList<>();
+                        java.util.Set<String> optionIds = new java.util.HashSet<>();
+                        for (JsonElement optionElement : optionsElement.getAsJsonArray()) {
+                            if (!optionElement.isJsonObject()) continue;
+                            JsonObject option = optionElement.getAsJsonObject();
+                            String optionId = string(option, "id", "");
+                            String optionTitle = string(option, "title", optionId);
+                            JsonElement optionRewardsElement = option.get("rewards");
+                            if (optionId.isBlank() || optionId.length() > 64 || optionTitle.isBlank() || optionTitle.length() > 128
+                                    || !optionIds.add(optionId) || optionRewardsElement == null || !optionRewardsElement.isJsonArray()
+                                    || optionRewardsElement.getAsJsonArray().isEmpty() || optionRewardsElement.getAsJsonArray().size() > 8) continue;
+                            List<TaskReward> optionRewards = new ArrayList<>();
+                            int optionItemCount = 0;
+                            boolean validOption = true;
+                            for (JsonElement optionRewardElement : optionRewardsElement.getAsJsonArray()) {
+                                if (!optionRewardElement.isJsonObject()) { validOption = false; break; }
+                                TaskReward optionReward = parseChoiceOptionReward(optionRewardElement.getAsJsonObject(), id);
+                                if (optionReward == null) { validOption = false; break; }
+                                if (optionReward.type().equals("item")) optionItemCount += optionReward.count();
+                                if (optionItemCount > 108) { validOption = false; break; }
+                                optionRewards.add(optionReward);
+                            }
+                            if (validOption && !optionRewards.isEmpty()) options.add(new RewardOption(optionId, optionTitle, List.copyOf(optionRewards)));
+                        }
+                        if (options.size() < 2) throw new IllegalArgumentException("Choice needs at least two valid options");
+                        rewards.add(new TaskReward("choice", null, 0, 0, null, "", "", "", 0, 0, null, "", 0L, List.copyOf(options)));
                     }
                     case "archive" -> {
                         ResourceLocation entryId = ResourceLocation.parse(string(row, "entry", ""));
@@ -847,10 +894,64 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                     row.has("consume") && row.get("consume").isJsonPrimitive() && row.get("consume").getAsBoolean(),
                     !row.has("notify_player") || !row.get("notify_player").isJsonPrimitive() || row.get("notify_player").getAsBoolean()));
         }
-        target.put(id, new Task(id, title, description, program, category, order, availability, requires, objectives, archives, rewards, x, y,
+        target.put(id, new Task(id, title, description, program, category, order, availability, requires, objectives, archives, rewards, hasPosition, x, y,
                 object.has("hide_until_dependencies_complete") && object.get("hide_until_dependencies_complete").getAsBoolean(),
                 object.has("invisible_until_completed") && object.get("invisible_until_completed").getAsBoolean(), greenTint,
                 string(object, "icon", ""), string(object, "icon_entity", ""), renderMobFromSpawnEgg));
+    }
+
+    private static TaskReward parseChoiceOptionReward(JsonObject row, ResourceLocation taskId) {
+        String type = string(row, "type", "");
+        try {
+            return switch (type) {
+                case "item" -> {
+                    ResourceLocation itemId = ResourceLocation.parse(string(row, "item", ""));
+                    int count = row.has("count") ? row.get("count").getAsInt() : 1;
+                    if (count < 1 || count > 108 || net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(itemId).isEmpty()) yield null;
+                    yield new TaskReward("item", itemId, count, 0, null, "", "", "", 0, 0, null, "", 0L);
+                }
+                case "antcoins" -> {
+                    long amount = row.get("amount").getAsLong();
+                    if (amount < 1L || amount > 1_000_000_000L) yield null;
+                    yield new TaskReward("antcoins", null, 0, 0, null, "", "", "", 0, 0, null, "", amount);
+                }
+                case "item_pool" -> {
+                    ResourceLocation poolId = ResourceLocation.parse(string(row, "pool", ""));
+                    String mode = string(row, "mode", "random").toLowerCase(java.util.Locale.ROOT);
+                    if (!mode.equals("random")) yield null;
+                    yield new TaskReward("item_pool", null, 0, 0, null, "", "", "", 0, 0, poolId, mode, 0L);
+                }
+                case "experience" -> {
+                    int points = Math.max(0, Math.min(1_000_000, row.get("points").getAsInt()));
+                    if (points < 1) yield null;
+                    yield new TaskReward("experience", null, 0, points, null, "", "", "", 0, 0, null, "", 0L);
+                }
+                case "experience_levels" -> {
+                    int levels = Math.max(0, Math.min(1000, row.get("levels").getAsInt()));
+                    if (levels < 1) yield null;
+                    yield new TaskReward("experience_levels", null, levels, 0, null, "", "", "", 0, 0, null, "", 0L);
+                }
+                case "advancement" -> new TaskReward("advancement", null, 0, 0,
+                        ResourceLocation.parse(string(row, "advancement", "")), "", "", "", 0, 0, null, "", 0L);
+                case "effect" -> {
+                    ResourceLocation effectId = ResourceLocation.parse(string(row, "effect", ""));
+                    int duration = Math.max(1, Math.min(72_000, row.has("duration_ticks") ? row.get("duration_ticks").getAsInt() : 1200));
+                    int amplifier = Math.max(0, Math.min(255, row.has("amplifier") ? row.get("amplifier").getAsInt() : 0));
+                    yield new TaskReward("effect", null, 0, 0, effectId, "", "", "", duration, amplifier, null, "", 0L);
+                }
+                case "mail" -> {
+                    String sender = AntmailAddress.ofUsername(string(row, "sender", "")).username();
+                    String subject = string(row, "subject", "");
+                    String body = string(row, "body", "");
+                    if (subject.isBlank() || subject.length() > AntmailValidation.MAX_SUBJECT_LENGTH || body.length() > AntmailValidation.MAX_BODY_LENGTH) yield null;
+                    yield new TaskReward("mail", null, 0, 0, null, sender, subject, body, 0, 0, null, "", 0L);
+                }
+                default -> null;
+            };
+        } catch (RuntimeException exception) {
+            AntOS.LOGGER.warn("Ignoring malformed reward option entry for task {}", taskId);
+            return null;
+        }
     }
 
     private static void parseTaskCategory(ResourceLocation id, JsonElement element, Map<ResourceLocation, TaskCategory> target) {
@@ -886,10 +987,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         catch (RuntimeException ignored) { return 0; }
     }
 
-    private static int boundedPosition(JsonObject position, String key) {
-        if (!position.has(key)) return -1;
-        try { return Math.max(0, Math.min(128, position.get(key).getAsInt())); }
-        catch (RuntimeException ignored) { return -1; }
+    private static Integer boundedPosition(JsonObject position, String key) {
+        if (!position.has(key)) return null;
+        try { return Math.max(-128, Math.min(128, position.get(key).getAsInt())); }
+        catch (RuntimeException ignored) { return null; }
     }
 
     private static void parseRewardPool(ResourceLocation id, JsonElement element, Map<ResourceLocation, RewardPool> target) {
@@ -1027,14 +1128,21 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     public record Task(ResourceLocation id, String titleKey, String descriptionKey, String program, String category, int sortOrder, String availability,
-                       List<ResourceLocation> requires, List<Objective> objectives, List<ResourceLocation> archiveEntries, List<TaskReward> rewards, int x, int y,
+                       List<ResourceLocation> requires, List<Objective> objectives, List<ResourceLocation> archiveEntries, List<TaskReward> rewards, boolean hasPosition, int x, int y,
                        boolean hideUntilDependenciesComplete, boolean invisibleUntilCompleted, boolean greenTint, String iconItem, String iconEntity, boolean renderMobFromSpawnEgg) { }
     public record TaskCategory(ResourceLocation id, String titleKey, String iconItem, String iconEntity, int sortOrder, ResourceLocation group, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record TaskGroup(ResourceLocation id, String titleKey, String iconItem, String iconEntity, int sortOrder, boolean collapsed, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record Objective(String id, String type, String target, String statType, String descriptionKey, int count, boolean optional, boolean sticky, String tagMode, boolean consume, boolean notifyPlayer) { }
     public record TaskReward(String type, ResourceLocation itemId, int count, int experiencePoints, ResourceLocation target,
                              String sender, String subject, String body, int durationTicks, int amplifier,
-                             ResourceLocation poolId, String mode, long antcoins) { }
+                             ResourceLocation poolId, String mode, long antcoins, List<RewardOption> options) {
+        public TaskReward(String type, ResourceLocation itemId, int count, int experiencePoints, ResourceLocation target,
+                          String sender, String subject, String body, int durationTicks, int amplifier,
+                          ResourceLocation poolId, String mode, long antcoins) {
+            this(type, itemId, count, experiencePoints, target, sender, subject, body, durationTicks, amplifier, poolId, mode, antcoins, List.of());
+        }
+    }
+    public record RewardOption(String id, String title, List<TaskReward> rewards) { }
     public record RewardPool(ResourceLocation id, List<RewardPoolEntry> entries) { }
     public record RewardPoolEntry(ResourceLocation itemId, ResourceLocation poolId, int weight, int count) { }
 

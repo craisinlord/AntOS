@@ -43,6 +43,7 @@ public final class AntOSFabric implements ModInitializer {
         AntmailEventData.registerListeners();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             TaskDebugCommands.register(dispatcher);
+            com.craisinlord.antos.content.antmail.AntmailDebugCommands.register(dispatcher);
             com.craisinlord.antos.content.antazon.AntazonCommands.register(dispatcher);
             com.craisinlord.antos.content.antazon.AntcoinCommands.register(dispatcher);
         });

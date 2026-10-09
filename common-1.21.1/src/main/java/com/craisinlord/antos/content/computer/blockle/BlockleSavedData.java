@@ -10,10 +10,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public final class BlockleSavedData extends SavedData {
     private static final String ID = "antos_blockle";
     private final Map<String, State> games = new HashMap<>();
+    private final Map<UUID, Long> rewardDays = new HashMap<>();
 
     public static State get(MinecraftServer server, String key) {
         BlockleSavedData data = server.overworld().getDataStorage().computeIfAbsent(
@@ -26,6 +28,15 @@ public final class BlockleSavedData extends SavedData {
                 new SavedData.Factory<>(BlockleSavedData::new, BlockleSavedData::load, null), ID).setDirty();
     }
 
+    public static boolean claimReward(MinecraftServer server, UUID profile, long day) {
+        BlockleSavedData data = server.overworld().getDataStorage().computeIfAbsent(
+                new SavedData.Factory<>(BlockleSavedData::new, BlockleSavedData::load, null), ID);
+        if (profile == null || data.rewardDays.getOrDefault(profile, Long.MIN_VALUE) == day) return false;
+        data.rewardDays.put(profile, day);
+        data.setDirty();
+        return true;
+    }
+
     private static BlockleSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
         BlockleSavedData data = new BlockleSavedData();
         for (net.minecraft.nbt.Tag raw : tag.getList("Games", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
@@ -34,6 +45,12 @@ public final class BlockleSavedData extends SavedData {
             state.day = row.getLong("Day");
             for (net.minecraft.nbt.Tag guess : row.getList("Guesses", net.minecraft.nbt.Tag.TAG_STRING)) state.guesses.add(guess.getAsString());
             data.games.put(row.getString("Computer"), state);
+        }
+        for (net.minecraft.nbt.Tag raw : tag.getList("RewardDays", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            CompoundTag row = (CompoundTag) raw;
+            try {
+                data.rewardDays.put(UUID.fromString(row.getString("Profile")), row.getLong("Day"));
+            } catch (IllegalArgumentException ignored) { }
         }
         return data;
     }
@@ -51,6 +68,14 @@ public final class BlockleSavedData extends SavedData {
             rows.add(row);
         });
         tag.put("Games", rows);
+        ListTag rewardRows = new ListTag();
+        rewardDays.forEach((profile, day) -> {
+            CompoundTag row = new CompoundTag();
+            row.putString("Profile", profile.toString());
+            row.putLong("Day", day);
+            rewardRows.add(row);
+        });
+        tag.put("RewardDays", rewardRows);
         return tag;
     }
 

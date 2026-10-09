@@ -12,6 +12,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -32,6 +33,12 @@ public final class TaskDebugCommands {
                                 .then(taskArgument("task").executes(TaskDebugCommands::complete)))
                         .then(Commands.literal("grant")
                                 .then(taskArgument("task").executes(TaskDebugCommands::grant)))
+                        .then(Commands.literal("rewardpool")
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .then(Commands.argument("pool", ResourceLocationArgument.id()).suggests((context, builder) ->
+                                                SharedSuggestionProvider.suggest(ComputerGuideData.taskRewardPools().keySet().stream()
+                                                        .map(ResourceLocation::toString), builder))
+                                                .executes(TaskDebugCommands::giveRewardPool))))
                         .then(Commands.literal("setprogress")
                                 .then(taskArgument("task")
                                         .then(Commands.argument("objective", StringArgumentType.word())
@@ -78,6 +85,16 @@ public final class TaskDebugCommands {
         boolean changed = ComputerTasks.grantTask(player, computer, taskId);
         context.getSource().sendSuccess(() -> Component.literal((changed ? "Granted task: " : "Task was already granted: ") + taskId), false);
         return changed ? 1 : 0;
+    }
+
+    private static int giveRewardPool(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = EntityArgument.getPlayer(context, "player");
+        ResourceLocation poolId = ResourceLocationArgument.getId(context, "pool");
+        if (!ComputerTasks.giveRewardPool(player, poolId)) {
+            throw new SimpleCommandExceptionType(Component.literal("That task reward pool is not loaded.")).create();
+        }
+        context.getSource().sendSuccess(() -> Component.literal("Granted one roll from reward pool " + poolId + " to " + player.getGameProfile().getName()), true);
+        return 1;
     }
 
     private static int setProgress(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {

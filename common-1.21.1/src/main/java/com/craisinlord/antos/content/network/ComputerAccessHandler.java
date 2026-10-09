@@ -16,6 +16,8 @@ import com.craisinlord.antos.content.computer.blockle.BlockleGame;
 import com.craisinlord.antos.content.computer.blockle.BlockleSavedData;
 import com.craisinlord.antos.content.antazon.AntazonData;
 import com.craisinlord.antos.content.antazon.AntazonService;
+import com.craisinlord.antos.content.antazon.AntazonServerData;
+import com.craisinlord.antos.config.AntOSSettings;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -180,6 +182,14 @@ public final class ComputerAccessHandler {
         }
         if (solved || state.guesses.size() >= 6) encoded.append('|').append(solved ? "SOLVED" : "FAILED").append('|').append(answer.word()).append('|').append(answer.itemId());
         else encoded.append('|').append("PLAYING");
+        if (submit && solved && AntOSSettings.appEnabled("ANTAZON")) {
+            long reward = AntOSSettings.blockleDailyAntcoinReward();
+            java.util.UUID profile = AntazonService.accountOwner(computer, player);
+            if (reward > 0L && BlockleSavedData.claimReward(player.server, profile, day)) {
+                AntazonServerData.access(player.server).credit(profile, reward);
+                encoded.append("|REWARD|").append(reward);
+            }
+        }
         sendBlockle(player, payload, true, "", encoded.toString());
     }
 

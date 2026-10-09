@@ -48,6 +48,39 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         return key == null ? null : definitions.get(key);
     }
 
+    public static List<ResourceLocation> definitionIds() {
+        return definitions.keySet().stream().sorted(Comparator.comparing(ResourceLocation::toString)).toList();
+    }
+
+    /** Fires the configured event path, preserving each matching definition's normal conditions and delay. */
+    public static int triggerEvent(ServerPlayer player, String type, String value) {
+        if (player == null || type == null || value == null) return 0;
+        AntmailServerData data = AntmailServerData.access(player.server);
+        AntmailAddress address = data.deliveryAddressFor(player);
+        if (address == null) return 0;
+        List<ResourceLocation> matches = triggers.matching(type, value);
+        fireMatching(player.server, data, address, type, value);
+        return matches.size();
+    }
+
+    /** Delivers a specific definition immediately, bypassing its trigger conditions, delay, and delivery window. */
+    public static AntmailDeliveryResult.Status sendDefinition(ServerPlayer player, ResourceLocation id) {
+        if (player == null || id == null) return AntmailDeliveryResult.Status.FAILED;
+        Definition definition = definitions.get(id);
+        if (definition == null) return AntmailDeliveryResult.Status.FAILED;
+        AntmailServerData data = AntmailServerData.access(player.server);
+        AntmailAddress address = data.deliveryAddressFor(player);
+        if (address == null) return AntmailDeliveryResult.Status.ADDRESS_NOT_FOUND;
+        if (definition.once() && data.isClaimed(address, id)) return AntmailDeliveryResult.Status.FAILED;
+        AntmailDeliveryResult.Status status = deliver(player.server, data, address, id, definition);
+        if (status == AntmailDeliveryResult.Status.DELIVERED || status == AntmailDeliveryResult.Status.QUEUED) {
+            if (definition.once()) data.claimTrigger(address, id);
+            if (definition.delivery() != null && !definition.delivery().onRead()
+                    && data.claimPackage(address, id)) AntmailPackages.drop(player, definition.delivery());
+        }
+        return status;
+    }
+
     public static void registerListeners() {
         com.craisinlord.antos.content.computer.ComputerTaskCompletionEvents.register(AntmailEventData::onTaskComplete);
         com.craisinlord.antos.content.antazon.AntazonUnlockMail.registerListener();

@@ -555,7 +555,33 @@ final class TasksApp extends ComputerApp {
             for (int rewardIndex = 0; rewardIndex < task.rewards().size(); rewardIndex++) {
                 var reward = task.rewards().get(rewardIndex);
                 String rewardText = rewardText(reward);
-                if (reward.type().equals("item_pool")) {
+                if (reward.type().equals("choice")) {
+                    line = screen.wrap(g, rewardText, x + 2, line, w - 4, GREEN) + 2;
+                    String selectedPath = poolSelections.getOrDefault(task.id(), Map.of()).get(rewardIndex);
+                    for (int optionIndex = 0; optionIndex < reward.options().size(); optionIndex++) {
+                        var option = reward.options().get(optionIndex);
+                        String path = "option:" + optionIndex;
+                        boolean selected = path.equals(selectedPath);
+                        int rowTop = line;
+                        if (screen.hovered(x + 1, rowTop, w - 2, 30)) screen.drawHover(g, x + 1, rowTop, w - 2, 30);
+                        if (selected) screen.box(g, x + 1, rowTop, x + w - 1, rowTop + 30, 0x5533AA55);
+                        String itemIcon = choiceOptionIcon(option);
+                        if (!itemIcon.isBlank()) screen.renderArchiveAsset(g, itemIcon, "", "", "", x + 9, rowTop + 8, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
+                        else {
+                            g.fill(x + 2, rowTop + 7, x + 17, rowTop + 22, 0xFF183318);
+                            g.drawCenteredString(font, Component.literal("AC"), x + 9, rowTop + 11, PALE_GREEN);
+                        }
+                        String optionTitle = Component.translatable(option.title()).getString();
+                        String optionSummary = choiceOptionSummary(option);
+                        g.drawString(font, Component.literal(truncateText(optionTitle, w - 25)), x + 20, rowTop + 3,
+                                selected ? PALE_GREEN : GREEN, false);
+                        g.drawString(font, Component.literal(truncateText(optionSummary, w - 25)), x + 20, rowTop + 15,
+                                selected ? PALE_GREEN : GREEN, false);
+                        if (rowTop >= y + 19 && rowTop + 30 <= y + h - 17)
+                            poolChoiceButtons.add(new PoolChoiceButton(task.id(), rewardIndex, path, x + 1, rowTop, x + w - 1, rowTop + 30));
+                        line += 32;
+                    }
+                } else if (reward.type().equals("item_pool")) {
                     List<PoolOutcome> outcomes = poolOutcomes(reward.pool(), "", 1, 0);
                     String selectedPath = poolSelections.getOrDefault(task.id(), Map.of()).get(rewardIndex);
                     if (reward.mode().equals("random")) {
@@ -591,10 +617,10 @@ final class TasksApp extends ComputerApp {
             boolean missingChoice = false;
             for (int rewardIndex = 0; rewardIndex < task.rewards().size(); rewardIndex++) {
                 var reward = task.rewards().get(rewardIndex);
-                if (reward.type().equals("item_pool") && reward.mode().equals("choice")
+                if ((reward.type().equals("choice") || reward.type().equals("item_pool") && reward.mode().equals("choice"))
                         && !poolSelections.getOrDefault(task.id(), Map.of()).containsKey(rewardIndex)) missingChoice = true;
             }
-            String rewardStatus = task.claimed() ? "REWARD CLAIMED" : task.claimable() ? missingChoice ? "CHOOSE A POOL REWARD" : "READY TO CLAIM" : "";
+            String rewardStatus = task.claimed() ? "REWARD CLAIMED" : task.claimable() ? missingChoice ? "CHOOSE A REWARD" : "READY TO CLAIM" : "";
             if (!rewardStatus.isBlank()) line = screen.wrap(g, rewardStatus, x, line, w, task.claimed() ? PALE_GREEN : GREEN) + 3;
             if (task.claimable()) {
                 int buttonY = line - 1;
@@ -649,6 +675,7 @@ final class TasksApp extends ComputerApp {
             case "experience_levels" -> reward.count() + " experience levels";
             case "antcoins" -> reward.antcoins() + " AntCoins";
             case "item_pool" -> reward.mode().equals("choice") ? "Choose one reward:" : "Random reward pool";
+            case "choice" -> "Choose one reward package:";
             case "archive" -> {
                 try {
                     var entry = ComputerGuideData.entry(ResourceLocation.parse(reward.target()));
@@ -683,6 +710,39 @@ final class TasksApp extends ComputerApp {
             if (item != null) return Component.translatable(item.getDescriptionId()).getString();
         } catch (RuntimeException ignored) { }
         return itemId;
+    }
+
+    private String choiceOptionSummary(com.craisinlord.antos.content.client.ComputerTasksClientState.RewardOption option) {
+        return option.rewards().stream().map(reward -> switch (reward.type()) {
+            case "item" -> reward.count() + "x " + itemName(reward.item());
+            case "antcoins" -> reward.antcoins() + " AntCoins";
+            case "item_pool" -> "Random item";
+            case "experience" -> reward.experience() + " XP";
+            case "experience_levels" -> reward.count() + " levels";
+            case "effect" -> "Effect";
+            case "advancement" -> "Advancement";
+            case "mail" -> "Antmail";
+            default -> reward.type();
+        }).collect(java.util.stream.Collectors.joining(" + "));
+    }
+
+    private String truncateText(String value, int width) {
+        if (Minecraft.getInstance().font.width(value) <= width) return value;
+        String suffix = "...";
+        int end = value.length();
+        while (end > 0 && Minecraft.getInstance().font.width(value.substring(0, end) + suffix) > width) end--;
+        return value.substring(0, end) + suffix;
+    }
+
+    private String choiceOptionIcon(com.craisinlord.antos.content.client.ComputerTasksClientState.RewardOption option) {
+        for (var reward : option.rewards()) {
+            if (reward.type().equals("item") && !reward.item().isBlank()) return reward.item();
+            if (reward.type().equals("item_pool")) {
+                List<PoolOutcome> outcomes = poolOutcomes(reward.pool(), "", 1, 0);
+                if (!outcomes.isEmpty()) return outcomes.get((int) ((System.currentTimeMillis() / 350L) % outcomes.size())).item();
+            }
+        }
+        return "";
     }
 
     private List<SidebarRow> visibleSidebarRows() {
@@ -893,12 +953,12 @@ final class TasksApp extends ComputerApp {
         for (var task : tasks) depth(task, byId, depths, new HashSet<>());
         Map<Integer, Integer> rowsByColumn = new HashMap<>();
         Set<Long> occupiedCells = new HashSet<>();
-        for (var task : tasks) if (task.x() >= 0 && task.y() >= 0) occupiedCells.add(cellKey(task.x(), task.y()));
+        for (var task : tasks) if (task.hasPosition()) occupiedCells.add(cellKey(task.x(), task.y()));
         List<Cell> result = new ArrayList<>();
         for (var task : tasks.stream().sorted(java.util.Comparator.comparingInt((com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow value) -> depths.getOrDefault(value.id(), 0)).thenComparing(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::id)).toList()) {
             int column = depths.getOrDefault(task.id(), 0);
             int row;
-            if (task.x() >= 0 && task.y() >= 0) {
+            if (task.hasPosition()) {
                 column = task.x();
                 row = task.y();
             } else {
