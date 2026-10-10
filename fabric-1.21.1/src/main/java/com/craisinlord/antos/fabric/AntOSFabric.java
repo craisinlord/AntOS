@@ -52,6 +52,7 @@ public final class AntOSFabric implements ModInitializer {
         registerReloadListener("antmail_data", AntmailEventData.instance());
         registerReloadListener("antazon_data", AntazonData.instance());
         registerReloadListener("antazon_sell_data", AntazonSellData.instance());
+        registerReloadListener("antazon_deal_data", com.craisinlord.antos.content.antazon.AntazonDealData.instance());
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             FieldGuideCompat.tick(server);
             FloppyTextureSync.tick(server);

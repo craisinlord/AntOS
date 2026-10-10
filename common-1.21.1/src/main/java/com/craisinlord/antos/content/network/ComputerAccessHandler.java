@@ -218,7 +218,19 @@ public final class ComputerAccessHandler {
             row.addProperty("restock_in_ms", AntazonService.restockInMillis(product, stock, gameTime));
             row.addProperty("restock_real", availability.restockRealHours() > 0L);
             row.addProperty("limit_used", availability.playerLimit() > 0 ? AntazonService.limitUsed(antazonData, profile, product, day) : 0);
-            row.addProperty("deal_active", com.craisinlord.antos.content.antazon.AntazonService.activeDeal(product, day).enabled());
+            var deal = com.craisinlord.antos.content.antazon.AntazonDeals.active(player, computer, product, day);
+            int dealRemaining = AntazonService.dealRemaining(antazonData, profile, product, deal);
+            boolean discounted = deal != null && dealRemaining != 0;
+            row.addProperty("deal_active", deal != null);
+            if (deal != null) {
+                row.addProperty("deal_label", deal.campaign().label());
+                row.addProperty("deal_discount", deal.discountPercent());
+                row.addProperty("deal_key", deal.key());
+                row.addProperty("deal_ends_in_ms", deal.campaign().endsInMillis(gameTime, System.currentTimeMillis()));
+                row.addProperty("deal_real", deal.campaign().realTime());
+                row.addProperty("deal_limit", deal.campaign().dealLimit());
+                row.addProperty("deal_remaining", dealRemaining);
+            }
             row.addProperty("locked", !AntazonService.unlocked(player, computer, product));
             row.addProperty("rotates_in_ms", AntazonData.rotatesInMillis(product, gameTime));
             row.addProperty("rotates_real", product.itemPool() != null && product.itemPool().rotation() != null
@@ -230,7 +242,7 @@ public final class ComputerAccessHandler {
             com.google.gson.JsonArray payments = new com.google.gson.JsonArray();
             for (AntazonData.Payment payment : product.payments()) {
                 com.google.gson.JsonObject paymentRow = new com.google.gson.JsonObject();
-                paymentRow.addProperty("price", AntazonService.unitPrice(product, payment, day));
+                paymentRow.addProperty("price", discounted ? AntazonService.unitPrice(payment, deal) : payment.amount());
                 paymentRow.addProperty("owned", AntazonService.owned(player, antazonData, profile, payment));
                 payments.add(paymentRow);
             }

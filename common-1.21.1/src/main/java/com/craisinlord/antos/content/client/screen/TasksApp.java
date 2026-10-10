@@ -519,16 +519,8 @@ final class TasksApp extends ComputerApp {
             if (filled > 0) g.fill(x, barY, x + filled, barY + 4, task.complete() ? PALE_GREEN : GREEN);
             line += 8;
         }
-        if (!task.requires().isEmpty()) {
-            line = screen.renderTaskSectionLabel(g, "PREREQUISITES", x, line, w) + 3;
-            for (String requiredId : task.requires()) {
-                var required = viewRowsById.get(requiredId);
-                if (required != null && !required.visible()) required = null;
-                String requiredTitle = required == null ? "SEALED FILE" : text(required.title());
-                line = screen.wrap(g, (required != null && required.complete() ? "[X] " : "[ ] ") + requiredTitle,
-                        x + 2, line, w - 4, required != null && required.complete() ? PALE_GREEN : GREEN) + 2;
-            }
-            line += 3;
+        if (!task.objectives().isEmpty()) {
+            line = screen.renderTaskSectionLabel(g, "OBJECTIVES", x, line, w) + 3;
         }
         for (var objective : task.objectives()) {
             boolean done = objective.complete();
@@ -545,6 +537,18 @@ final class TasksApp extends ComputerApp {
                     itemButtons.add(new ItemButton(objective.item(), x + 2, rowY, x + 18, rowY + 17));
                 if (recipeItem.equals(objective.item())) line = screen.renderTaskItemRecipe(g, objective.item(), x + 20, line - 1, w - 22) + 3;
             } else line = screen.wrap(g, text, x + 2, line, w - 4, objectiveColor) + 3;
+        }
+        if (!task.requires().isEmpty()) {
+            line += 3;
+            line = screen.renderTaskSectionLabel(g, "PREREQUISITES", x, line, w) + 3;
+            for (String requiredId : task.requires()) {
+                var required = viewRowsById.get(requiredId);
+                if (required != null && !required.visible()) required = null;
+                String requiredTitle = required == null ? "SEALED FILE" : text(required.title());
+                line = screen.wrap(g, (required != null && required.complete() ? "[X] " : "[ ] ") + requiredTitle,
+                        x + 2, line, w - 4, required != null && required.complete() ? PALE_GREEN : GREEN) + 2;
+            }
+            line += 3;
         }
         line += 4;
         if (task.hasRewards()) {
@@ -566,7 +570,7 @@ final class TasksApp extends ComputerApp {
                         if (!itemIcon.isBlank()) screen.renderArchiveAsset(g, itemIcon, "", "", "", x + 9, rowTop + 8, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
                         else {
                             g.fill(x + 2, rowTop + 7, x + 17, rowTop + 22, 0xFF183318);
-                            g.drawCenteredString(font, Component.literal("AC"), x + 9, rowTop + 11, PALE_GREEN);
+                            g.drawCenteredString(font, Component.literal(AntOSPlayerText.currencySymbol()), x + 9, rowTop + 11, PALE_GREEN);
                         }
                         String optionTitle = Component.translatable(option.title()).getString();
                         String optionSummary = choiceOptionSummary(option);
@@ -670,7 +674,7 @@ final class TasksApp extends ComputerApp {
             }
             case "experience" -> reward.experience() + " experience points";
             case "experience_levels" -> reward.count() + " experience levels";
-            case "antcoins" -> reward.antcoins() + " AntCoins";
+            case "antcoins" -> reward.antcoins() + " " + AntOSPlayerText.currencyName();
             case "item_pool" -> reward.mode().equals("choice") ? "Choose one reward:" : "Random reward pool";
             case "choice" -> "Choose one reward package:";
             case "archive" -> {
@@ -712,7 +716,7 @@ final class TasksApp extends ComputerApp {
     private String choiceOptionSummary(com.craisinlord.antos.content.client.ComputerTasksClientState.RewardOption option) {
         return option.rewards().stream().map(reward -> switch (reward.type()) {
             case "item" -> reward.count() + "x " + itemName(reward.item());
-            case "antcoins" -> reward.antcoins() + " AntCoins";
+            case "antcoins" -> reward.antcoins() + " " + AntOSPlayerText.currencyName();
             case "item_pool" -> "Random item";
             case "experience" -> reward.experience() + " XP";
             case "experience_levels" -> reward.count() + " levels";

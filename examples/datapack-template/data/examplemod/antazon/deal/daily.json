@@ -1,0 +1,13 @@
+{
+  "label": "computer.antos.deal.daily",
+  "picks": 2,
+  "every_minecraft_days": 1,
+  "order": "shuffled",
+  "discount_percent": { "min": 10, "max": 20 },
+  "candidates": {
+    "tags": ["starter", "food"],
+    "max_price": 100
+  },
+  "max_per_category": 1,
+  "deal_limit": 4
+}

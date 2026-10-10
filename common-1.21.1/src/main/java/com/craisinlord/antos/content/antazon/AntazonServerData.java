@@ -24,6 +24,7 @@ public final class AntazonServerData extends SavedData {
     private final Map<UUID, Long> wallets = new LinkedHashMap<>();
     private final Map<UUID, Map<ResourceLocation, PlayerState>> players = new LinkedHashMap<>();
     private final Map<UUID, Map<String, SellLimitState>> sellLimits = new LinkedHashMap<>();
+    private final Map<UUID, Map<String, DealUsage>> dealUsage = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> wishlists = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> reviewed = new LinkedHashMap<>();
     private final Set<String> onboardingComputers = new LinkedHashSet<>();
@@ -92,13 +93,23 @@ public final class AntazonServerData extends SavedData {
                         .put(key, new SellLimitState(Math.max(0, row.getInt("Quantity")), row.getLong("Reset")));
             } catch (RuntimeException ignored) { }
         }
+        ListTag dealUsageTags = tag.getList("DealUsage", 10);
+        for (int index = 0; index < dealUsageTags.size(); index++) {
+            CompoundTag row = dealUsageTags.getCompound(index);
+            try {
+                UUID owner = UUID.fromString(row.getString("Owner"));
+                String product = row.getString("Product");
+                if (!product.isBlank()) data.dealUsage.computeIfAbsent(owner, ignored -> new LinkedHashMap<>())
+                        .put(product, new DealUsage(row.getString("Deal"), Math.max(0, row.getInt("Units"))));
+            } catch (RuntimeException ignored) { }
+        }
         ListTag orderTags = tag.getList("Orders", 10);
         for (int index = 0; index < orderTags.size(); index++) {
             CompoundTag row = orderTags.getCompound(index);
             try {
                 data.orders.add(new Order(UUID.fromString(row.getString("Id")), UUID.fromString(row.getString("Player")),
                         ResourceLocation.parse(row.getString("Product")), row.getString("Option"), row.getInt("Units"),
-                        row.getLong("GameTime"), row.getString("Status"), row.getInt("PaidAmount"), row.getInt("DealDiscount"), row.getString("DealPool")));
+                        row.getLong("GameTime"), row.getString("Status"), row.getInt("PaidAmount"), row.getInt("DealDiscount"), row.getString("DealCampaign"), row.getInt("DealUnits")));
             } catch (RuntimeException ignored) {
             }
         }
@@ -215,6 +226,18 @@ public final class AntazonServerData extends SavedData {
             }
         }
         tag.put("SellLimits", sellLimitTags);
+        ListTag dealUsageTags = new ListTag();
+        for (Map.Entry<UUID, Map<String, DealUsage>> ownerEntry : dealUsage.entrySet()) {
+            for (Map.Entry<String, DealUsage> usageEntry : ownerEntry.getValue().entrySet()) {
+                CompoundTag row = new CompoundTag();
+                row.putString("Owner", ownerEntry.getKey().toString());
+                row.putString("Product", usageEntry.getKey());
+                row.putString("Deal", usageEntry.getValue().deal());
+                row.putInt("Units", usageEntry.getValue().units());
+                dealUsageTags.add(row);
+            }
+        }
+        tag.put("DealUsage", dealUsageTags);
         ListTag orderTags = new ListTag();
         for (Order order : orders) {
             CompoundTag row = new CompoundTag();
@@ -227,7 +250,8 @@ public final class AntazonServerData extends SavedData {
             row.putString("Status", order.status());
             row.putInt("PaidAmount", order.paidAmount());
             row.putInt("DealDiscount", order.dealDiscount());
-            row.putString("DealPool", order.dealPool());
+            row.putString("DealCampaign", order.dealCampaign());
+            row.putInt("DealUnits", order.dealUnits());
             orderTags.add(row);
         }
         tag.put("Orders", orderTags);
@@ -382,6 +406,17 @@ public final class AntazonServerData extends SavedData {
             }
             changed = true;
         }
+        Map<String, DealUsage> oldDealUsage = dealUsage.remove(playerId);
+        if (oldDealUsage != null) {
+            Map<String, DealUsage> profileUsage = dealUsage.computeIfAbsent(profileId, ignored -> new LinkedHashMap<>());
+            for (Map.Entry<String, DealUsage> entry : oldDealUsage.entrySet()) {
+                DealUsage current = profileUsage.get(entry.getKey());
+                DealUsage old = entry.getValue();
+                if (current == null || !current.deal().equals(old.deal())) profileUsage.putIfAbsent(entry.getKey(), old);
+                else profileUsage.put(entry.getKey(), new DealUsage(current.deal(), (int) Math.min(Integer.MAX_VALUE, (long) current.units() + old.units())));
+            }
+            changed = true;
+        }
         Set<ResourceLocation> oldWishlist = wishlists.remove(playerId);
         if (oldWishlist != null) {
             wishlists.computeIfAbsent(profileId, ignored -> new LinkedHashSet<>()).addAll(oldWishlist);
@@ -395,7 +430,7 @@ public final class AntazonServerData extends SavedData {
         for (int index = 0; index < orders.size(); index++) {
             Order order = orders.get(index);
             if (order.player().equals(playerId)) {
-                orders.set(index, new Order(order.id(), profileId, order.product(), order.option(), order.units(), order.gameTime(), order.status(), order.paidAmount(), order.dealDiscount(), order.dealPool()));
+                orders.set(index, new Order(order.id(), profileId, order.product(), order.option(), order.units(), order.gameTime(), order.status(), order.paidAmount(), order.dealDiscount(), order.dealCampaign(), order.dealUnits()));
                 changed = true;
             }
         }
@@ -511,16 +546,42 @@ public final class AntazonServerData extends SavedData {
         Map<String, DealMetrics> metrics = new LinkedHashMap<>();
         for (Order order : orders) {
             if (!order.status().equals("DELIVERED")) continue;
-            String key = order.product().toString() + (order.dealPool().isBlank() ? "" : " [" + order.dealPool() + "]");
-            boolean deal = order.dealDiscount() > 0;
+            String key = order.product().toString();
+            boolean deal = order.dealDiscount() > 0 && order.dealUnits() > 0;
             DealMetrics previous = metrics.getOrDefault(key, new DealMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
             metrics.put(key, new DealMetrics(previous.orders() + 1, previous.units() + order.units(),
                     previous.revenue() + order.paidAmount(), previous.dealOrders() + (deal ? 1 : 0),
-                    previous.discountPercentTotal() + order.dealDiscount(), previous.regularOrders() + (deal ? 0 : 1),
-                    previous.dealUnits() + (deal ? order.units() : 0), previous.regularUnits() + (deal ? 0 : order.units()),
+                    previous.discountPercentTotal() + (deal ? order.dealDiscount() : 0), previous.regularOrders() + (deal ? 0 : 1),
+                    previous.dealUnits() + (deal ? order.dealUnits() : 0), previous.regularUnits() + order.units() - (deal ? order.dealUnits() : 0),
                     previous.dealRevenue() + (deal ? order.paidAmount() : 0), previous.regularRevenue() + (deal ? 0 : order.paidAmount())));
         }
         return Map.copyOf(metrics);
+    }
+
+    public synchronized Map<String, CampaignMetrics> campaignMetrics() {
+        Map<String, CampaignMetrics> metrics = new LinkedHashMap<>();
+        for (Order order : orders) {
+            if (!order.status().equals("DELIVERED") || order.dealCampaign().isBlank() || order.dealUnits() <= 0) continue;
+            CampaignMetrics previous = metrics.getOrDefault(order.dealCampaign(), new CampaignMetrics(0, 0, 0, 0));
+            metrics.put(order.dealCampaign(), new CampaignMetrics(previous.orders() + 1, previous.dealUnits() + order.dealUnits(),
+                    previous.revenue() + order.paidAmount(), previous.discountPercentTotal() + order.dealDiscount()));
+        }
+        return Map.copyOf(metrics);
+    }
+
+    public synchronized int dealUnitsUsed(UUID owner, String deal, ResourceLocation product) {
+        if (owner == null) return 0;
+        DealUsage usage = dealUsage.getOrDefault(owner, Map.of()).get(product.toString());
+        return usage != null && usage.deal().equals(deal) ? usage.units() : 0;
+    }
+
+    public synchronized void addDealUnits(UUID owner, String deal, ResourceLocation product, int units) {
+        if (owner == null || units <= 0) return;
+        Map<String, DealUsage> usage = dealUsage.computeIfAbsent(owner, ignored -> new LinkedHashMap<>());
+        DealUsage current = usage.get(product.toString());
+        int previous = current != null && current.deal().equals(deal) ? current.units() : 0;
+        usage.put(product.toString(), new DealUsage(deal, (int) Math.min(Integer.MAX_VALUE, (long) previous + units)));
+        setDirty();
     }
 
     public synchronized List<ResourceLocation> wishlist(UUID player) {
@@ -575,7 +636,9 @@ public final class AntazonServerData extends SavedData {
     public record PlayerState(int quantity, long reset, long lastPurchase) { }
     public record SellLimitState(int quantity, long reset) { }
     public record Order(UUID id, UUID player, ResourceLocation product, String option, int units, long gameTime, String status,
-                        int paidAmount, int dealDiscount, String dealPool) { }
+                        int paidAmount, int dealDiscount, String dealCampaign, int dealUnits) { }
+    public record DealUsage(String deal, int units) { }
+    public record CampaignMetrics(int orders, int dealUnits, long revenue, long discountPercentTotal) { }
     public record DealMetrics(int orders, int units, long revenue, int dealOrders, long discountPercentTotal,
                               int regularOrders, int dealUnits, int regularUnits, long dealRevenue, long regularRevenue) { }
     public record CartLine(ResourceLocation product, int option, int units, String variant) {

@@ -251,7 +251,7 @@ final class AntmailApp extends ComputerApp {
                 String attachmentSummary = attachmentLabels.isEmpty() ? "NO ATTACHMENTS" : String.join(" + ", attachmentLabels);
                 if (state.attachCoins && antazonEnabled) {
                     screen.box(g, x, composeLayout.summaryY() - 3, x + navWidth, composeLayout.summaryY() + 10, state.focused && state.field == 4 ? GREEN : PALE_GREEN);
-                    g.drawString(font, Component.literal("ANTCOIN AMOUNT"), x + 5, composeLayout.summaryY(), GREEN, false);
+                    g.drawString(font, Component.literal(AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + " AMOUNT"), x + 5, composeLayout.summaryY(), GREEN, false);
                     String amount = state.coinAmount.isEmpty() ? "CLICK, THEN TYPE" : state.coinAmount;
                     if (!state.coinAmount.isEmpty() && state.focused && state.field == 4 && screen.caretVisible()) {
                         amount = screen.insertCaret(amount, state.cursor);
@@ -268,7 +268,7 @@ final class AntmailApp extends ComputerApp {
                     screen.box(g, x, composeLayout.menuTop(), x + 112, composeLayout.footerTop() - 4, GREEN);
                     g.drawString(font, Component.literal(state.attachText ? "REMOVE TEXT FILE" : "TEXT FILE..."), x + 6, composeLayout.menuTop() + 5, PALE_GREEN, false);
                     g.drawString(font, Component.literal(state.attachPaint ? "REMOVE PAINTING" : "PAINTING..."), x + 6, composeLayout.menuTop() + 21, PALE_GREEN, false);
-                    if (antazonEnabled) g.drawString(font, Component.literal(state.attachCoins ? "REMOVE ANTCOINS" : "ANTCOINS..."), x + 6, composeLayout.menuTop() + 37, PALE_GREEN, false);
+                    if (antazonEnabled) g.drawString(font, Component.literal(state.attachCoins ? "REMOVE " + AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) : AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + "..."), x + 6, composeLayout.menuTop() + 37, PALE_GREEN, false);
                 }
                 if (state.pickingAttachment) {
                     int pickerWidth = Math.max(80, Math.min(navWidth - 8, 380));
@@ -402,7 +402,7 @@ final class AntmailApp extends ComputerApp {
                                     messageLine += previewSize + 8;
                                 } else {
                                     if (messageLine + 10 > detail.bodyTop() && messageLine < detail.bodyBottom()) {
-                                        String attachmentLabel = attachment instanceof AntmailAttachment.Antcoins coins ? "[ ANTCOIN TRANSFER ] " + coins.amount() + " ANTCOINS" : "[ SAVE ATTACHMENT ] " + attachment.fileName();
+                                        String attachmentLabel = attachment instanceof AntmailAttachment.Antcoins coins ? "[ " + AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + " TRANSFER ] " + coins.amount() + " " + AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) : "[ SAVE ATTACHMENT ] " + attachment.fileName();
                                         if (screen.inside(x, Math.max(messageLine, detail.bodyTop()), navWidth - 8,
                                                 Math.min(messageLine + 10, detail.bodyBottom()) - Math.max(messageLine, detail.bodyTop()),
                                                 screen.session.mouseX, screen.session.mouseY)) g.fill(x, messageLine, x + navWidth - 8, messageLine + 10, HOVER_FILL);
@@ -1832,7 +1832,7 @@ final class AntmailApp extends ComputerApp {
                 else ComputerNetworking.createFile(path, encoded);
                 state.status = Component.translatable("computer.antos.status.attachment_saved", name).getString();
             } else if (attachment instanceof AntmailAttachment.Antcoins coins) {
-                state.status = Component.translatable("computer.antos.status.coins_already_credited", coins.amount()).getString();
+                state.status = Component.translatable("computer.antos.status.coins_already_credited", coins.amount(), Component.translatable("computer.antos.currency.name")).getString();
             }
             ComputerNetworking.listFiles();
         } catch (RuntimeException exception) {

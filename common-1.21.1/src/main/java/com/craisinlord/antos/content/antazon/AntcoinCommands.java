@@ -26,7 +26,7 @@ public final class AntcoinCommands {
                                             UUID owner = walletOwner(target);
                                             data.credit(owner, amount);
                                             long balance = data.wallet(owner);
-                                            context.getSource().sendSuccess(() -> Component.literal("Gave " + amount + " AntCoins to " + target.getGameProfile().getName() + ". Balance: " + balance + "."), true);
+                                            context.getSource().sendSuccess(() -> Component.translatable("computer.antos.currency.command.given", amount, Component.translatable("computer.antos.currency.name"), target.getGameProfile().getName(), balance), true);
                                             return 1;
                                         }))))
                 .then(Commands.literal("get")
@@ -34,7 +34,7 @@ public final class AntcoinCommands {
                                 .executes(context -> {
                                     ServerPlayer target = EntityArgument.getPlayer(context, "player");
                                     long balance = AntazonServerData.access(context.getSource().getServer()).wallet(walletOwner(target));
-                                    context.getSource().sendSuccess(() -> Component.literal(target.getGameProfile().getName() + " has " + balance + " AntCoins."), false);
+                                    context.getSource().sendSuccess(() -> Component.translatable("computer.antos.currency.command.balance", target.getGameProfile().getName(), balance, Component.translatable("computer.antos.currency.name")), false);
                                     return 1;
                                 })))
                 .then(Commands.literal("set")
@@ -44,7 +44,7 @@ public final class AntcoinCommands {
                                             ServerPlayer target = EntityArgument.getPlayer(context, "player");
                                             long amount = LongArgumentType.getLong(context, "amount");
                                             AntazonServerData.access(context.getSource().getServer()).setWallet(walletOwner(target), amount);
-                                            context.getSource().sendSuccess(() -> Component.literal("Set " + target.getGameProfile().getName() + "'s AntCoin balance to " + amount + "."), true);
+                                            context.getSource().sendSuccess(() -> Component.translatable("computer.antos.currency.command.set", target.getGameProfile().getName(), Component.translatable("computer.antos.currency.name"), amount), true);
                                             return 1;
                                         })))));
     }

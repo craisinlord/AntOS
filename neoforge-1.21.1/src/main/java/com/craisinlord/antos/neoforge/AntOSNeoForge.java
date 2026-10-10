@@ -54,6 +54,7 @@ public final class AntOSNeoForge {
         event.addListener(AntmailEventData.instance());
         event.addListener(AntazonData.instance());
         event.addListener(AntazonSellData.instance());
+        event.addListener(com.craisinlord.antos.content.antazon.AntazonDealData.instance());
     }
 
     private void onServerTick(ServerTickEvent.Post event) {

@@ -79,7 +79,7 @@ public final class RewardDropEntity extends Entity {
             if (payoutPlayer != null) {
                 ServerPlayer player = serverLevel.getServer().getPlayerList().getPlayer(payoutPlayer);
                 if (player != null) {
-                    player.sendSystemMessage(Component.literal("Antazon shipment accepted: " + payoutAmount + " AntCoins credited.").withStyle(ChatFormatting.GOLD));
+                    player.sendSystemMessage(Component.translatable("computer.antos.currency.shipment_accepted", payoutAmount, Component.translatable("computer.antos.currency.name")).withStyle(ChatFormatting.GOLD));
                     ComputerAccessHandler.sendAntazonShipmentStatus(player, payoutAccount, "shipment_accepted", payoutAmount);
                 }
             }

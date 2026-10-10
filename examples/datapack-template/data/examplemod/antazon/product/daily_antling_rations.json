@@ -35,12 +35,5 @@
       "rating": 5,
       "badge": "NEST VERIFIED"
     }
-  ],
-  "deal": {
-    "enabled": true,
-    "label": "computer.antos.product.daily_antling_rations.deal",
-    "discount_percent": 15,
-    "pool": "examplemod:daily",
-    "cycle_minecraft_days": 1
-  }
+  ]
 }

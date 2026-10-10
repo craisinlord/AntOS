@@ -108,7 +108,7 @@ public final class BlockleProgram {
         try { day = Long.parseLong(values[0]); } catch (NumberFormatException ignored) { return; }
         for (int index = 1; index + 1 < values.length; index++) {
             if (values[index].equals("REWARD")) {
-                rewardPopup = "Great job! You earned " + values[index + 1] + " AntCoins";
+                rewardPopup = "Great job! You earned " + values[index + 1] + " " + com.craisinlord.antos.content.client.AntOSPlayerText.currencyName();
                 rewardPopupUntil = System.currentTimeMillis() + 3500L;
                 break;
             }

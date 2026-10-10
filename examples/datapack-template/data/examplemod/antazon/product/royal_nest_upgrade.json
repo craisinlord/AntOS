@@ -36,11 +36,5 @@
       "rating": 5,
       "badge": "QUEEN APPROVED"
     }
-  ],
-  "deal": {
-    "enabled": true,
-    "label": "computer.antos.product.royal_nest_upgrade.deal",
-    "discount_percent": 10,
-    "cycle_minecraft_days": 7
-  }
+  ]
 }

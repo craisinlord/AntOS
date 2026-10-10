@@ -246,8 +246,9 @@ public final class AntazonClientState {
                 row.get("category").getAsString(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
                 row.has("remaining") ? row.get("remaining").getAsInt() : -1, deadline(row, "restock_in_ms"), bool(row, "restock_real", false),
                 row.has("limit") ? row.get("limit").getAsInt() : 0, row.has("limit_used") ? row.get("limit_used").getAsInt() : 0,
-                string(row, "limit_reset", "none"), row.get("deal_active").getAsBoolean(), row.get("deal_label").getAsString(),
-                row.get("deal_discount").getAsInt(), bool(row, "locked", false), strings(row.getAsJsonArray("unlock_tasks")),
+                string(row, "limit_reset", "none"), bool(row, "deal_active", false), string(row, "deal_label", ""),
+                integer(row, "deal_discount", 0), string(row, "deal_key", ""), deadline(row, "deal_ends_in_ms"), bool(row, "deal_real", false),
+                integer(row, "deal_limit", 0), integer(row, "deal_remaining", -1), bool(row, "locked", false), strings(row.getAsJsonArray("unlock_tasks")),
                 string(row, "unlock_mode", "all"), bool(row, "hidden_until_unlocked", false), strings(row.getAsJsonArray("tags")), thumbnail, List.copyOf(gallery),
                 row.get("quantity").getAsInt(), row.has("cooldown_ends") ? row.get("cooldown_ends").getAsLong() : 0L,
                 List.copyOf(payments), List.copyOf(rewards), List.copyOf(reviews), bool(row, "purchased", false), bool(row, "reviewed", false),
@@ -363,9 +364,14 @@ public final class AntazonClientState {
 
     public record ProductRow(String id, String name, String description, String category, boolean greenTint, boolean renderMobFromSpawnEgg, int remaining, long restockAt, boolean restockReal,
                              int limit, int limitUsed, String limitReset, boolean dealActive, String dealLabel, int dealDiscount,
+                             String dealKey, long dealEndsAt, boolean dealReal, int dealLimit, int dealRemaining,
                              boolean locked, List<String> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, List<String> tags, PreviewAsset thumbnail,
                              List<PreviewAsset> gallery, int quantity, long cooldownEnds, List<PaymentRow> payments, List<RewardRow> rewards,
                              List<ReviewRow> reviews, boolean purchased, boolean reviewed, long rotatesAt, boolean rotatesReal, String variantMode, List<String> variants) {
+        public boolean onSale() {
+            return dealActive && dealRemaining != 0;
+        }
+
         public double rating() {
             return reviews.isEmpty() ? 0.0D : reviews.stream().mapToInt(ReviewRow::rating).average().orElse(0.0D);
         }

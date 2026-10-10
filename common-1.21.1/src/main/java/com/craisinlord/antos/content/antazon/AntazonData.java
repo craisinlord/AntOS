@@ -38,6 +38,10 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         return catalog().sorted();
     }
 
+    public static long version() {
+        return catalog().version();
+    }
+
     public static String catalogVersion(long day) {
         Catalog current = catalog();
         long stamp = current.version();
@@ -70,13 +74,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
     public static long rotatesInMillis(Product product, long gameTime) {
         if (product.poolEntry() == null || product.itemPool().rotation() == null) return 0L;
         Rotation rotation = product.itemPool().rotation();
-        if (rotation.everyRealHours() > 0L) {
-            long periodMillis = rotation.everyRealHours() * 3_600_000L;
-            long now = System.currentTimeMillis();
-            return (Math.floorDiv(now, periodMillis) + 1L) * periodMillis - now;
-        }
-        long periodTicks = rotation.everyMinecraftDays() * 24000L;
-        return ((Math.floorDiv(gameTime, periodTicks) + 1L) * periodTicks - gameTime) * 50L;
+        return AntazonRotation.endsInMillis(rotation.everyMinecraftDays(), rotation.everyRealHours(), gameTime, System.currentTimeMillis());
     }
 
     public static ResourceLocation limitKey(Product product) {
@@ -85,8 +83,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
 
     private static long rotationPeriod(Product template, long day) {
         Rotation rotation = template.itemPool().rotation();
-        if (rotation.everyRealHours() > 0L) return Math.floorDiv(System.currentTimeMillis(), rotation.everyRealHours() * 3_600_000L);
-        return Math.floorDiv(day, rotation.everyMinecraftDays());
+        return AntazonRotation.period(rotation.everyMinecraftDays(), rotation.everyRealHours(), day, System.currentTimeMillis());
     }
 
     private static Set<Integer> activeIndices(ResourceLocation templateId, Rotation rotation, int size, long period) {
@@ -97,35 +94,11 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
             return Set.copyOf(chosen);
         }
         long position = period * picks;
-        int[] order = null;
-        long orderCycle = Long.MIN_VALUE;
+        AntazonRotation.OrderCache cache = new AntazonRotation.OrderCache();
         for (int guard = 0; chosen.size() < picks && guard < picks * 2 + size; guard++, position++) {
-            long cycle = Math.floorDiv(position, size);
-            int slot = (int) Math.floorMod(position, (long) size);
-            if (!rotation.shuffled()) {
-                chosen.add(slot);
-                continue;
-            }
-            if (cycle != orderCycle) {
-                order = shuffledOrder(templateId, cycle, size);
-                orderCycle = cycle;
-            }
-            chosen.add(order[slot]);
+            chosen.add(AntazonRotation.slot(templateId, rotation.shuffled(), position, size, cache));
         }
         return Set.copyOf(chosen);
-    }
-
-    private static int[] shuffledOrder(ResourceLocation templateId, long cycle, int size) {
-        int[] order = new int[size];
-        for (int index = 0; index < size; index++) order[index] = index;
-        java.util.Random random = new java.util.Random(templateId.toString().hashCode() * 0x9E3779B97F4A7C15L + cycle);
-        for (int index = size - 1; index > 0; index--) {
-            int swap = random.nextInt(index + 1);
-            int value = order[index];
-            order[index] = order[swap];
-            order[swap] = value;
-        }
-        return order;
     }
 
     private static Catalog catalog() {
@@ -147,7 +120,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
                     AntOS.LOGGER.warn("Antazon product {} has an empty variant tag", product.id());
                     continue;
                 }
-                Product configured = new Product(product.id(), product.name(), product.description(), product.category(), product.tags(), product.thumbnail(), product.gallery(), product.quantity(), product.payments(), product.unlockMode(), product.unlockTasks(), product.availability(), product.rewards(), product.reviews(), product.deal(), product.delivery(), product.deliveryLocation(), product.enabled(), product.greenTint(), product.renderMobFromSpawnEgg(), product.hiddenUntilUnlocked(), product.notifyOnUnlock(), product.itemPool(), product.poolEntry(), product.variants(), variants);
+                Product configured = new Product(product.id(), product.name(), product.description(), product.category(), product.tags(), product.thumbnail(), product.gallery(), product.quantity(), product.payments(), product.unlockMode(), product.unlockTasks(), product.availability(), product.rewards(), product.reviews(), product.delivery(), product.deliveryLocation(), product.enabled(), product.greenTint(), product.renderMobFromSpawnEgg(), product.hiddenUntilUnlocked(), product.notifyOnUnlock(), product.itemPool(), product.poolEntry(), product.variants(), variants);
                 all.put(configured.id(), configured);
                 continue;
             }
@@ -187,7 +160,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         List<PreviewAsset> gallery = template.gallery().isEmpty() ? List.of(new PreviewAsset(item.toString(), "")) : template.gallery();
         return new Product(id, template.name(), template.description(), template.category(), template.tags(), thumbnail, gallery,
                 template.quantity(), template.payments(), template.unlockMode(), template.unlockTasks(), template.availability(),
-                List.copyOf(rewards), template.reviews(), template.deal(), template.delivery(), template.deliveryLocation(), template.enabled(), template.greenTint(),
+                List.copyOf(rewards), template.reviews(), template.delivery(), template.deliveryLocation(), template.enabled(), template.greenTint(),
                 template.renderMobFromSpawnEgg(), template.hiddenUntilUnlocked(), template.notifyOnUnlock(), template.itemPool(), new PoolEntry(template.id(), item, index, size), null, List.of());
     }
 
@@ -240,9 +213,6 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         row.addProperty("restock_real_hours", availability.restockRealHours());
         row.addProperty("limit", availability.playerLimit());
         row.addProperty("limit_reset", availability.playerLimitReset());
-        row.addProperty("deal_label", product.deal().label());
-        row.addProperty("deal_discount", product.deal().discountPercent());
-        row.addProperty("deal_pool", product.deal().pool());
         row.addProperty("hidden_until_unlocked", product.hiddenUntilUnlocked());
         row.addProperty("unlock_mode", product.unlockMode());
         JsonArray unlockTasks = new JsonArray();
@@ -369,9 +339,9 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         boolean enabled = !object.has("enabled") || object.get("enabled").getAsBoolean();
         boolean greenTint = !object.has("green_tint") || !object.get("green_tint").isJsonPrimitive() || object.get("green_tint").getAsBoolean();
         List<Review> reviews = parseReviews(id, object.get("reviews"));
-        Deal deal = parseDeal(id, object.getAsJsonObject("deal"));
+        if (object.has("deal")) AntOS.LOGGER.warn("Antazon product {} has a deal block, which is no longer supported; use a deal campaign in data/<namespace>/antazon/deal instead", id);
         boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive() || object.get("render_mob_from_spawn_egg").getAsBoolean();
-        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, deal, delivery, deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, notifyOnUnlock, itemPool, null, variants, List.of());
+        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, delivery, deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, notifyOnUnlock, itemPool, null, variants, List.of());
     }
 
     private static VariantPool parseVariants(ResourceLocation id, JsonElement element) {
@@ -527,21 +497,6 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         return List.copyOf(reviews);
     }
 
-    private static Deal parseDeal(ResourceLocation productId, JsonObject object) {
-        if (object == null) return new Deal(false, "", 0, 0, 0, "");
-        String label = string(object, "label", "Nest Deal").trim();
-        int discount = boundedInt(object, "discount_percent", 0, 0, 90);
-        long cycle = boundedLong(object, "cycle_minecraft_days", 1L, 1L, 1_000_000L);
-        long offset = boundedLong(object, "day_offset", 0L, 0L, 1_000_000L);
-        String pool = string(object, "pool", "").trim();
-        boolean enabled = object.has("enabled") && object.get("enabled").getAsBoolean();
-        if (enabled && (label.isBlank() || discount <= 0)) {
-            AntOS.LOGGER.warn("Disabling invalid deal on Antazon product {}", productId);
-            return new Deal(false, "", 0, 0, 0, "");
-        }
-        return new Deal(enabled, label, discount, cycle, offset, pool);
-    }
-
     private static ResourceLocation resourceId(ResourceLocation path) {
         String prefix = DIRECTORY + "/";
         String value = path.getPath().startsWith(prefix) ? path.getPath().substring(prefix.length()) : path.getPath();
@@ -593,7 +548,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
 
     public record Product(ResourceLocation id, String name, String description, String category, List<String> tags,
                           PreviewAsset thumbnail, List<PreviewAsset> gallery, int quantity, List<Payment> payments, String unlockMode, List<ResourceLocation> unlockTasks,
-                          Availability availability, List<Reward> rewards, List<Review> reviews, Deal deal, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint, boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked, boolean notifyOnUnlock,
+                          Availability availability, List<Reward> rewards, List<Review> reviews, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint, boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked, boolean notifyOnUnlock,
                           ItemPool itemPool, PoolEntry poolEntry, VariantPool variants, List<ResourceLocation> variantItems) {
     }
 
@@ -627,12 +582,6 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
     }
 
     public record Review(String id, String author, String title, String body, int rating, String badge) {
-    }
-
-    public record Deal(boolean enabled, String label, int discountPercent, long cycleMinecraftDays, long dayOffset, String pool) {
-        public boolean active(long day) {
-            return enabled && pool.isBlank() && cycleMinecraftDays > 0 && Math.floorMod(day - dayOffset, cycleMinecraftDays) == 0;
-        }
     }
 
     public record Availability(int serverStock, long restockMinecraftDays, long restockRealHours, long cooldownMinecraftDays,

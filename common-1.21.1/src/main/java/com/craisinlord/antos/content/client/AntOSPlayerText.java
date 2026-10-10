@@ -20,4 +20,12 @@ public final class AntOSPlayerText {
     public static String apply(String text) {
         return text == null || !text.contains(TOKEN) ? text : text.replace(TOKEN, playerName());
     }
+
+    public static String currencyName() {
+        return net.minecraft.network.chat.Component.translatable("computer.antos.currency.name").getString();
+    }
+
+    public static String currencySymbol() {
+        return net.minecraft.network.chat.Component.translatable("computer.antos.currency.symbol").getString();
+    }
 }

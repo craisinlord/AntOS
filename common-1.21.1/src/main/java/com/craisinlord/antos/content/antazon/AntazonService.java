@@ -12,6 +12,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.Container;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -38,20 +40,19 @@ public final class AntazonService {
                                           ResourceLocation productId, String optionId, String variantId, int units) {
         if (player == null || computer == null || productId == null || optionId == null || units < 1 || units > 64)
             return PurchaseResult.failed("invalid_request");
-        CrateRef deliveryCrate = resolveCrate(player, computer);
         List<ItemStack> deliveries = new ArrayList<>();
         List<ItemStack> directDeliveries = new ArrayList<>();
         List<LocationDelivery> locationDeliveries = new ArrayList<>();
-        PurchaseResult result = purchase(player, computer, deliveryCrate, productId, optionId, variantId, units, deliveries, directDeliveries, locationDeliveries);
+        PurchaseResult result = purchase(player, computer, productId, optionId, variantId, units, deliveries, directDeliveries, locationDeliveries);
         if (result.success()) {
-            launchDelivery(player, deliveryCrate, deliveries);
+            launchDelivery(player, deliveries);
             deliverDirect(player, directDeliveries);
             launchLocationDeliveries(player, locationDeliveries);
         }
         return result;
     }
 
-    private static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer, CrateRef deliveryCrate,
+    private static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer,
                                            ResourceLocation productId, String optionId, String variantId, int units, List<ItemStack> deliveries,
                                            List<ItemStack> directDeliveries, List<LocationDelivery> locationDeliveries) {
         if (player == null || computer == null || productId == null || optionId == null || units < 1 || units > 64)
@@ -65,7 +66,6 @@ public final class AntazonService {
             catch (NumberFormatException exception) { return PurchaseResult.failed("invalid_request"); }
             if (optionIndex < 0 || optionIndex >= product.payments().size()) return PurchaseResult.failed("invalid_request");
         }
-        if (product.delivery().equals("falling_chest") && deliveryCrate == null) return PurchaseResult.failed("crate_unavailable");
         BlockPos deliveryLocation = null;
         if (product.delivery().equals("falling_chest_location")) {
             AntazonData.DeliveryLocation coordinates = product.deliveryLocation();
@@ -115,13 +115,17 @@ public final class AntazonService {
             List<ItemStack> rewards = rewards(rewardDefinitions, requiredUnits);
             if (rewards.isEmpty()) return PurchaseResult.failed("delivery_unavailable");
             UUID account = accountOwner(computer, player);
+            AntazonDeals.Active deal = AntazonDeals.active(player, computer, product, day);
+            int dealUnits = dealUnits(data, profile, product, deal, units);
             AntazonData.Payment payment = null;
             String paymentReceipt = "";
+            int paidAmount = 0;
             List<AntazonData.Payment> candidates = optionIndex < 0 ? product.payments() : List.of(product.payments().get(optionIndex));
             for (AntazonData.Payment candidate : candidates) {
-                int totalPayment = Math.multiplyExact(unitPrice(product, candidate, day), units);
+                int totalPayment = totalPrice(candidate, deal, dealUnits, units);
                 if (pay(player, data, account, candidate, totalPayment)) {
                     payment = candidate;
+                    paidAmount = totalPayment;
                     paymentReceipt = totalPayment + " " + (candidate.type().equals("antcoins") ? "antcoins" : candidate.resource());
                     if (!variantReceipt.isBlank()) paymentReceipt += " // " + variantReceipt;
                     break;
@@ -131,10 +135,11 @@ public final class AntazonService {
             if (availability.serverStock() > 0) data.setStock(limitKey, new AntazonServerData.Stock(current.remaining() - requiredUnits, current.nextRestockDay()));
             data.setPlayerState(profile, limitKey, new AntazonServerData.PlayerState(playerQuantity + requiredUnits, reset, gameTime));
             UUID orderId = UUID.randomUUID();
-            AntazonData.Deal deal = activeDeal(product, day);
-            int paidAmount = Math.multiplyExact(unitPrice(product, payment, day), units);
+            if (deal != null && dealUnits > 0) data.addDealUnits(profile, deal.key(), limitKey, dealUnits);
+            boolean discounted = deal != null && dealUnits > 0;
             data.addOrder(new AntazonServerData.Order(orderId, profile, productId, paymentReceipt, requiredUnits, gameTime, "DELIVERED",
-                    paidAmount, deal.enabled() ? deal.discountPercent() : 0, deal.enabled() ? deal.pool() : ""));
+                    paidAmount, discounted ? deal.discountPercent() : 0, discounted ? deal.campaign().id().toString() : "",
+                    discounted ? Math.multiplyExact(dealUnits, product.quantity()) : 0));
             if (product.delivery().equals("direct")) directDeliveries.addAll(rewards);
             else if (product.delivery().equals("falling_chest_location")) locationDeliveries.add(new LocationDelivery(deliveryLocation, rewards));
             else deliveries.addAll(rewards);
@@ -142,8 +147,8 @@ public final class AntazonService {
         }
     }
 
-    private static void launchDelivery(ServerPlayer player, CrateRef crate, List<ItemStack> deliveries) {
-        if (crate == null || deliveries.isEmpty()) return;
+    private static void launchDelivery(ServerPlayer player, List<ItemStack> deliveries) {
+        if (player == null || deliveries.isEmpty()) return;
         List<ItemStack> merged = new ArrayList<>();
         for (ItemStack stack : deliveries) {
             ItemStack remaining = stack.copy();
@@ -156,15 +161,16 @@ public final class AntazonService {
             }
             while (!remaining.isEmpty()) merged.add(remaining.split(remaining.getMaxStackSize()));
         }
-        BlockPos landing = crate.position();
+        ServerLevel level = player.serverLevel();
+        BlockPos landing = player.blockPosition();
         int perDrop = RewardDropEntity.MAX_REWARD_STACKS - 1;
         for (int start = 0; start < merged.size(); start += perDrop) {
             List<ItemStack> contents = new ArrayList<>(merged.subList(start, Math.min(merged.size(), start + perDrop)));
             contents.add(new ItemStack(Items.CHEST, 1));
-            RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), crate.level());
-            drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(crate.level(), landing), landing.getZ() + 0.5D);
+            RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
+            drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
             drop.setRewards(contents, player);
-            crate.level().addFreshEntity(drop);
+            level.addFreshEntity(drop);
         }
         RewardDropEntity.announceIncoming(player);
     }
@@ -203,11 +209,6 @@ public final class AntazonService {
         AntazonServerData data = AntazonServerData.access(player.server);
         UUID owner = accountOwner(computer, player);
         List<AntazonServerData.CartLine> cart = data.cart(owner);
-        boolean hasFallingChestOrder = cart.stream().anyMatch(line -> {
-            AntazonData.Product product = AntazonData.product(line.product());
-            return product != null && product.delivery().equals("falling_chest");
-        });
-        CrateRef crate = hasFallingChestOrder ? resolveCrate(player, computer) : null;
         List<ItemStack> deliveries = new ArrayList<>();
         List<ItemStack> directDeliveries = new ArrayList<>();
         List<LocationDelivery> locationDeliveries = new ArrayList<>();
@@ -216,14 +217,14 @@ public final class AntazonService {
         for (AntazonServerData.CartLine line : cart) {
             PurchaseResult result;
             try {
-                result = purchase(player, computer, crate, line.product(), Integer.toString(line.option()), line.variant(), line.units(), deliveries, directDeliveries, locationDeliveries);
+                result = purchase(player, computer, line.product(), Integer.toString(line.option()), line.variant(), line.units(), deliveries, directDeliveries, locationDeliveries);
             } catch (ArithmeticException exception) {
                 result = PurchaseResult.failed("invalid_request");
             }
             results.add(new CheckoutLine(line, result.status(), result.receipt()));
             if (!result.success() && !result.status().equals("product_unavailable")) remaining.add(line);
         }
-        launchDelivery(player, crate, deliveries);
+        launchDelivery(player, deliveries);
         deliverDirect(player, directDeliveries);
         launchLocationDeliveries(player, locationDeliveries);
         if (!cart.equals(remaining)) data.setCart(owner, remaining);
@@ -249,28 +250,24 @@ public final class AntazonService {
         return List.copyOf(merged.values());
     }
 
-    public static int unitPrice(AntazonData.Product product, AntazonData.Payment payment, long day) {
-        AntazonData.Deal deal = activeDeal(product, day);
-        return deal.enabled()
-                ? Math.max(1, payment.amount() * (100 - deal.discountPercent()) / 100)
-                : payment.amount();
+    public static int unitPrice(AntazonData.Payment payment, AntazonDeals.Active deal) {
+        return deal == null ? payment.amount() : deal.price(payment.amount());
     }
 
-    public static AntazonData.Deal activeDeal(AntazonData.Product product, long day) {
-        AntazonData.Deal deal = product.deal();
-        if (!deal.enabled()) return deal;
-        if (deal.pool().isBlank()) return deal.active(day) ? deal : inactiveDeal(deal);
-        List<AntazonData.Product> pool = AntazonData.products().stream()
-                .filter(candidate -> candidate.enabled() && candidate.deal().enabled() && candidate.deal().pool().equals(deal.pool())
-                        && AntazonData.availableOn(candidate, day))
-                .sorted(java.util.Comparator.comparing(candidate -> candidate.id().toString())).toList();
-        if (pool.isEmpty()) return inactiveDeal(deal);
-        int selected = Math.floorMod(day, pool.size());
-        return pool.get(selected).id().equals(product.id()) ? deal : inactiveDeal(deal);
+    public static int dealUnits(AntazonServerData data, UUID profile, AntazonData.Product product, AntazonDeals.Active deal, int units) {
+        if (deal == null) return 0;
+        int remaining = dealRemaining(data, profile, product, deal);
+        return remaining < 0 ? units : Math.min(units, remaining);
     }
 
-    private static AntazonData.Deal inactiveDeal(AntazonData.Deal deal) {
-        return new AntazonData.Deal(false, deal.label(), deal.discountPercent(), deal.cycleMinecraftDays(), deal.dayOffset(), deal.pool());
+    public static int dealRemaining(AntazonServerData data, UUID profile, AntazonData.Product product, AntazonDeals.Active deal) {
+        if (deal == null) return 0;
+        if (deal.campaign().dealLimit() <= 0) return -1;
+        return Math.max(0, deal.campaign().dealLimit() - data.dealUnitsUsed(profile, deal.key(), AntazonData.limitKey(product)));
+    }
+
+    private static int totalPrice(AntazonData.Payment payment, AntazonDeals.Active deal, int dealUnits, int units) {
+        return Math.addExact(Math.multiplyExact(unitPrice(payment, deal), dealUnits), Math.multiplyExact(payment.amount(), units - dealUnits));
     }
 
     public static AntazonServerData.Stock currentStock(AntazonServerData data, AntazonData.Product product, long day) {
@@ -321,7 +318,7 @@ public final class AntazonService {
 
     private static ShipmentPlan shipmentPlan(ServerPlayer player, ComputerWorkspace computer, CrateRef crate, UUID owner, long day) {
         if (crate == null) return new ShipmentPlan(Manifest.failed(computer.isRemoteWorkspace() ? "crate_unavailable" : "crate_required"), List.of(), List.of(), Map.of());
-        ChestBlockEntity chest = crate.chest();
+        Container chest = crate.container();
         AntazonServerData data = AntazonServerData.access(crate.level().getServer());
         Map<ResourceLocation, ManifestEntry> entries = new LinkedHashMap<>();
         Map<String, Integer> pendingByLimit = new LinkedHashMap<>();
@@ -426,7 +423,7 @@ public final class AntazonService {
         CrateRef crate = resolveCrate(player, computer);
         if (rule == null) return PrepareResult.failed("unsupported_item");
         if (crate == null) return PrepareResult.failed(computer.isRemoteWorkspace() ? "crate_unavailable" : "crate_required");
-        ChestBlockEntity chest = crate.chest();
+        Container chest = crate.container();
         Item item = BuiltInRegistries.ITEM.get(itemId);
         int available = player.getInventory().countItem(item);
         if (available < amount) return PrepareResult.failed("insufficient_inventory");
@@ -470,7 +467,7 @@ public final class AntazonService {
         CrateRef crate = resolveCrate(player, computer);
         if (crate == null) return SellResult.failed(computer.isRemoteWorkspace() ? "crate_unavailable" : "crate_required");
         BlockPos chestPos = crate.position();
-        ChestBlockEntity chest = crate.chest();
+        Container chest = crate.container();
         synchronized (AntazonServerData.access(player.server)) {
             long day = player.server.overworld().getGameTime() / MINECRAFT_DAY;
             UUID account = accountOwner(computer, player);
@@ -491,13 +488,14 @@ public final class AntazonService {
             }
             if (currentTotal != manifest.total()) return SellResult.failed("crate_changed");
             var chestState = crate.level().getBlockState(chestPos);
+            var blockEntityTag = crate.blockEntity().saveWithFullMetadata(crate.level().registryAccess());
             crate.level().removeBlock(chestPos, false);
             RewardDropEntity shipment = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), crate.level());
             shipment.setPos(chestPos.getX() + 0.5D, chestPos.getY() + 0.75D, chestPos.getZ() + 0.5D);
             shipment.setRewards(shipmentContents, player);
             shipment.setShipping(account, manifest.total(), player.getUUID());
             if (!crate.level().addFreshEntity(shipment)) {
-                restoreShippingChest(crate.level(), chestPos, chestState, originalContents);
+                restoreShippingContainer(crate.level(), chestPos, chestState, blockEntityTag, originalContents);
                 return SellResult.failed("shipment_failed");
             }
             List<ItemEntity> returnedItems = new ArrayList<>();
@@ -507,7 +505,7 @@ public final class AntazonService {
                 if (!crate.level().addFreshEntity(item)) {
                     for (ItemEntity returned : returnedItems) returned.discard();
                     shipment.discard();
-                    restoreShippingChest(crate.level(), chestPos, chestState, originalContents);
+                    restoreShippingContainer(crate.level(), chestPos, chestState, blockEntityTag, originalContents);
                     return SellResult.failed("shipment_failed");
                 }
                 returnedItems.add(item);
@@ -527,10 +525,13 @@ public final class AntazonService {
         }
     }
 
-    private static void restoreShippingChest(ServerLevel level, BlockPos position, net.minecraft.world.level.block.state.BlockState state, List<ItemStack> contents) {
+    private static void restoreShippingContainer(ServerLevel level, BlockPos position, net.minecraft.world.level.block.state.BlockState state,
+                                                 net.minecraft.nbt.CompoundTag blockEntityTag, List<ItemStack> contents) {
         level.setBlock(position, state, 3);
-        if (level.getBlockEntity(position) instanceof ChestBlockEntity restored) {
-            for (int slot = 0; slot < contents.size(); slot++) restored.setItem(slot, contents.get(slot));
+        BlockEntity restoredEntity = level.getBlockEntity(position);
+        if (restoredEntity != null) restoredEntity.loadWithComponents(blockEntityTag, level.registryAccess());
+        if (shippingInventory(level, position) instanceof Container restored) {
+            for (int slot = 0; slot < contents.size() && slot < restored.getContainerSize(); slot++) restored.setItem(slot, contents.get(slot));
             restored.setChanged();
         }
     }
@@ -625,47 +626,80 @@ public final class AntazonService {
             if (level == null) return null;
             BlockPos position = BlockPos.of(location.position());
             if (!level.hasChunkAt(position)) return null;
-            if (!isShippingChest(level, position)) {
+            CrateRef crate = shippingContainer(level, position);
+            if (crate == null) {
                 data.clearShippingCrate(owner);
                 return null;
             }
-            return new CrateRef(level, position, (ChestBlockEntity) level.getBlockEntity(position));
+            return crate;
         }
-        BlockPos best = findNearbyChestPosition(player);
+        BlockPos best = findNearbyContainerPosition(player);
         if (best == null) return null;
         data.setShippingCrate(owner, player.serverLevel().dimension().location(), best);
-        return new CrateRef(player.serverLevel(), best, (ChestBlockEntity) player.serverLevel().getBlockEntity(best));
+        return shippingContainer(player.serverLevel(), best);
     }
 
     public static boolean linkNearbyCrate(ServerPlayer player, UUID accountId) {
         if (player == null || accountId == null) return false;
-        BlockPos position = findNearbyChestPosition(player);
+        BlockPos position = findNearbyContainerPosition(player);
         if (position == null) return false;
         AntazonServerData.access(player.server).setShippingCrate(accountId, player.serverLevel().dimension().location(), position);
         return true;
     }
 
-    private static BlockPos findNearbyChestPosition(ServerPlayer player) {
+    private static BlockPos findNearbyContainerPosition(ServerPlayer player) {
         BlockPos origin = player.blockPosition();
         BlockPos best = null;
         double bestDistance = 36.0D;
         for (BlockPos candidate : BlockPos.betweenClosed(origin.offset(-3, -2, -3), origin.offset(3, 2, 3))) {
-            if (!player.serverLevel().getBlockState(candidate).is(Blocks.CHEST)
-                    || player.serverLevel().getBlockState(candidate).getValue(ChestBlock.TYPE) != ChestType.SINGLE
-                    || !(player.serverLevel().getBlockEntity(candidate) instanceof ChestBlockEntity)) continue;
+            if (shippingContainer(player.serverLevel(), candidate) == null) continue;
             double distance = candidate.distToCenterSqr(player.position());
             if (distance <= bestDistance) { best = candidate.immutable(); bestDistance = distance; }
         }
         return best;
     }
 
-    private static boolean isShippingChest(ServerLevel level, BlockPos position) {
-        return level.getBlockState(position).is(Blocks.CHEST)
-                && level.getBlockState(position).getValue(ChestBlock.TYPE) == ChestType.SINGLE
-                && level.getBlockEntity(position) instanceof ChestBlockEntity;
+    private static CrateRef shippingContainer(ServerLevel level, BlockPos position) {
+        BlockEntity blockEntity = level.getBlockEntity(position);
+        Container inventory = shippingInventory(level, position);
+        if (blockEntity == null || inventory == null) return null;
+        if (blockEntity instanceof ChestBlockEntity
+                && level.getBlockState(position).is(Blocks.CHEST)
+                && level.getBlockState(position).getValue(ChestBlock.TYPE) == ChestType.SINGLE)
+            return new CrateRef(level, position, inventory, blockEntity);
+        String className = blockEntity.getClass().getName();
+        if (className.equals("com.mrcrayfish.furniture.refurbished.blockentity.MailboxBlockEntity")
+                && optionalModClassLoaded(blockEntity, className))
+            return new CrateRef(level, position, inventory, blockEntity);
+        if (className.equals("com.simibubi.create.content.logistics.packagePort.frogport.FrogportBlockEntity")
+                && optionalModClassLoaded(blockEntity, className))
+            return new CrateRef(level, position, inventory, blockEntity);
+        return null;
     }
 
-    public record CrateRef(ServerLevel level, BlockPos position, ChestBlockEntity chest) { }
+    private static Container shippingInventory(ServerLevel level, BlockPos position) {
+        BlockEntity blockEntity = level.getBlockEntity(position);
+        if (blockEntity instanceof Container container) return container;
+        if (blockEntity == null || !blockEntity.getClass().getName().equals("com.simibubi.create.content.logistics.packagePort.frogport.FrogportBlockEntity")
+                || !optionalModClassLoaded(blockEntity, blockEntity.getClass().getName())) return null;
+        try {
+            Object inventory = blockEntity.getClass().getField("inventory").get(blockEntity);
+            return inventory instanceof Container container ? container : null;
+        } catch (ReflectiveOperationException | LinkageError exception) {
+            return null;
+        }
+    }
+
+    private static boolean optionalModClassLoaded(BlockEntity blockEntity, String className) {
+        try {
+            Class.forName(className, false, blockEntity.getClass().getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError exception) {
+            return false;
+        }
+    }
+
+    public record CrateRef(ServerLevel level, BlockPos position, Container container, BlockEntity blockEntity) { }
 
     private record LocationDelivery(BlockPos position, List<ItemStack> rewards) { }
 

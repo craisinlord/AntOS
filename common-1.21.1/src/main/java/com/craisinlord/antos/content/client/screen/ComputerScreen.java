@@ -94,10 +94,6 @@ public final class ComputerScreen extends Screen {
         SESSIONS.clear();
     }
     private static final String[] ICONS = {"ARCHIVE", "FILES", "SETTINGS", "TASKS", "TERMINAL", "TEXT", "PAINT", "ANTMAIL", "ANTAZON", "GAMES", "TRASH"};
-    private static final Map<String, String> TITLES = Map.ofEntries(Map.entry("ARCHIVE", "ANTARCHIVE"), Map.entry("FILES", "FILE EXPLORER"),
-            Map.entry("SETTINGS", "SYSTEM SETTINGS"), Map.entry("WALLPAPERS", "DESKTOP WALLPAPERS"), Map.entry("TASKS", "TASKS"),
-            Map.entry("TERMINAL", "ANTOS TERMINAL"), Map.entry("TEXT", "ANTTEXT EDITOR"), Map.entry("PAINT", "ANTPAINT"),
-            Map.entry("ANTMAIL", "ANTMAIL"), Map.entry("ANTAZON", "ANTAZON // SUPPLIES"), Map.entry("GAMES", "INSTALLED GAMES"), Map.entry("TRASH", "RECYCLE BIN"));
     private static final Map<ResourceLocation, int[]> WALLPAPER_TEXTURE_SIZES = new HashMap<>();
     private final String sessionKey;
     final Session session;
@@ -387,7 +383,7 @@ public final class ComputerScreen extends Screen {
             drawDesktopIcon(g, app, x + 25, y + 2);
             if (app.equals("ANTMAIL") && session.antmail.hasUnreadMessages()) drawNotificationBadge(g, x + 35, y + 6);
             if (app.equals("ANTAZON") && session.antazon.hasUnseenDeals()) drawNotificationBadge(g, x + 35, y + 6);
-            g.drawString(font, Component.literal(app), x, y + 35, GREEN, false);
+            g.drawString(font, Component.translatable(appNameKey(app)), x, y + 35, GREEN, false);
         }
     }
 
@@ -405,7 +401,7 @@ public final class ComputerScreen extends Screen {
                 g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, HOVER_FILL);
                 box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, GREEN);
                 drawDesktopIcon(g, app, iconX + 25, iconY + 2);
-                g.drawString(font, Component.literal(app), iconX, iconY + 35, GREEN, false);
+                g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, GREEN, false);
             }
             int panelX = onboardingAppPanelX(l, desktopIndex);
             int panelY = onboardingAppPanelY(t, desktopIndex);
@@ -417,7 +413,7 @@ public final class ComputerScreen extends Screen {
             box(g, panelX, panelY, panelX + panelW, panelY + panelH, GREEN);
             g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, DARK_GREEN);
             g.drawString(font, Component.literal("ANTOS // APP TOUR"), contentX, panelY + 8, GREEN, false);
-            g.drawString(font, Component.literal(app), contentX, panelY + 35, GREEN, false);
+            g.drawString(font, Component.translatable(appNameKey(app)), contentX, panelY + 35, GREEN, false);
             g.drawString(font, Component.literal("APP " + (appStep + 1) + " / " + apps.size()), panelX + panelW - 68, panelY + 35, PALE_GREEN, false);
             g.drawString(font, Component.literal(onboardingAppTitle(app)), contentX, panelY + 53, PALE_GREEN, false);
             wrap(g, onboardingAppDescription(app), contentX, panelY + 70, panelW - 20, PALE_GREEN);
@@ -429,7 +425,7 @@ public final class ComputerScreen extends Screen {
                 g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, HOVER_FILL);
                 box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, GREEN);
                 drawDesktopIcon(g, app, iconX + 25, iconY + 2);
-                g.drawString(font, Component.literal(app), iconX, iconY + 35, GREEN, false);
+            g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, GREEN, false);
             }
             return;
         }
@@ -474,38 +470,16 @@ public final class ComputerScreen extends Screen {
     }
 
     private String onboardingAppTitle(String app) {
-        return switch (app) {
-            case "ARCHIVE" -> "LEARN ABOUT THE WORLD";
-            case "TASKS" -> "TRACK YOUR TASKS";
-            case "ANTMAIL" -> "STAY CONNECTED";
-            case "ANTAZON" -> "BUY AND SELL THROUGH ANTAZON";
-            case "SETTINGS" -> "CUSTOMIZE ANTOS";
-            case "TERMINAL" -> "RUN COMMANDS";
-            case "TEXT" -> "WRITE DOCUMENTS";
-            case "PAINT" -> "CREATE PIXEL ART";
-            case "FILES" -> "KEEP YOUR WORK ORGANIZED";
-            case "GAMES" -> "TAKE A BREAK";
-            case "TRASH" -> "REMOVE OLD FILES";
-            default -> "EXPLORE ANTOS";
-        };
+        return Component.translatable(appTitleKey(app)).getString();
     }
 
     private String onboardingAppDescription(String app) {
-        return switch (app) {
-            case "ARCHIVE" -> "Discover creatures, items, recipes, and locations. Insert floppy disks to unlock new entries and wallpapers.";
-            case "TASKS" -> "Follow tasks, watch your progress, and earn useful rewards as you play.";
-            case "ANTMAIL" -> "Read messages, receive task rewards, and send notes or attachments to other AntOS users.";
-            case "ANTAZON" -> "Buy supplies with Antcoins, or sell eligible items from a nearby chest to earn Antcoins. Products can arrive in a delivery chest, at configured coordinates, or directly in your inventory.";
-            case "SETTINGS" -> "Change wallpapers, manage installed disks, and adjust computer options.";
-            case "TERMINAL" -> "Use commands to work with files and perform computer actions directly.";
-            case "TEXT" -> "Write, edit, and save plain text documents.";
-            case "PAINT" -> "Draw pixel art and save your creations as AntPaint files.";
-            case "FILES" -> "Manage local documents and saved AntPaint files on this computer.";
-            case "GAMES" -> "Play installed games whenever you want a little recreation.";
-            case "TRASH" -> "Drop unwanted files here when you are ready to remove them.";
-            default -> "Explore the tools available on your AntOS desktop.";
-        };
+        return Component.translatable(appDescriptionKey(app)).getString();
     }
+
+    private static String appNameKey(String app) { return "computer.antos.app." + app.toLowerCase(Locale.ROOT) + ".name"; }
+    private static String appTitleKey(String app) { return "computer.antos.app." + app.toLowerCase(Locale.ROOT) + ".title"; }
+    private static String appDescriptionKey(String app) { return "computer.antos.app." + app.toLowerCase(Locale.ROOT) + ".description"; }
 
     private static List<String> desktopApps() {
         return java.util.Arrays.stream(ICONS).filter(AntOSSettings::appEnabled).toList();
@@ -1713,7 +1687,7 @@ public final class ComputerScreen extends Screen {
               else if (type.equals("ANTAZON")) session.antazon.refresh();
             return;
         }
-        Window window = new Window(type, TITLES.get(type), 112 + session.windows.size() * 12, 52 + session.windows.size() * 10);
+        Window window = new Window(type, Component.translatable("computer.antos.app." + type.toLowerCase(Locale.ROOT) + ".window_title").getString(), 112 + session.windows.size() * 12, 52 + session.windows.size() * 10);
         session.windows.add(window);
         activeWindow = window;
         if (type.equals("ANTMAIL")) session.antmail.requestState();
