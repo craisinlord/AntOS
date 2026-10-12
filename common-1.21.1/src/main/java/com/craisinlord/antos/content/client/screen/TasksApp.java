@@ -236,16 +236,14 @@ final class TasksApp extends ComputerApp {
         if (visibleRows.isEmpty()) {
             g.drawString(font, Component.literal(allRows.isEmpty() ? "NO TASK RECORDS FOUND" : "NO RECORDS VISIBLE YET"), x + contentOffset, y + 12, GREEN, false);
             g.drawString(font, Component.literal(allRows.isEmpty() ? "INSERT A FIELD DISK TO LOAD ITS RECORDS" : "COMPLETE A PREREQUISITE TO REVEAL MORE"), x + contentOffset, y + 28, PALE_GREEN, false);
-            renderTeamPanel(g, x, y, w, h);
-            renderTeamMenu(g, x, y, w, h);
+            renderTeamOverlay(g, x, y, w, h);
             return;
         }
         var selectedTask = viewRowsById.get(selectedTaskId);
         if (selectedTask != null && !selectedTask.visible()) selectedTask = null;
         if (selectedTask != null) {
             renderDetail(g, selectedTask, x + contentOffset, bodyY, w - contentOffset, bodyHeight, unlockedArchiveIds(selectedTask));
-            renderTeamPanel(g, x, y, w, h);
-            renderTeamMenu(g, x, y, w, h);
+            renderTeamOverlay(g, x, y, w, h);
             return;
         }
         selectedTaskId = "";
@@ -307,8 +305,17 @@ final class TasksApp extends ComputerApp {
         renderMapControls(g, mapX, bodyY, mapW, bodyHeight);
         renderSearchResults(g, mapX, mapY, mapW);
         renderNotice(g, mapX, mapY, mapW);
-        renderTeamPanel(g, x, y, w, h);
-        renderTeamMenu(g, x, y, w, h);
+        renderTeamOverlay(g, x, y, w, h);
+    }
+
+    private void renderTeamOverlay(GuiGraphics g, int x, int y, int w, int h) {
+        screen.enableComputerScissor(g, x, y, x + w, y + h);
+        try {
+            renderTeamPanel(g, x, y, w, h);
+            renderTeamMenu(g, x, y, w, h);
+        } finally {
+            g.disableScissor();
+        }
     }
 
     private void observeStatusChanges(List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> rows) {

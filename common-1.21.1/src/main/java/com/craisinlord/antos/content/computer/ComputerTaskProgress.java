@@ -12,9 +12,9 @@ import java.util.Set;
 
 public final class ComputerTaskProgress {
     private static final int SCHEMA_VERSION = 2;
-    private static final int MAX_TASKS = 512;
+    private static final int MAX_TASKS = 1024;
     private static final int MAX_ARCHIVE_ENTRIES = 8192;
-    private static final int MAX_OBJECTIVES_PER_TASK = 64;
+    private static final int MAX_OBJECTIVES_PER_TASK = 256;
     private static final int MAX_TAG_ITEMS_PER_OBJECTIVE = 128;
     private final Set<ResourceLocation> granted = new LinkedHashSet<>();
     private final Set<ResourceLocation> completed = new LinkedHashSet<>();
@@ -180,7 +180,7 @@ public final class ComputerTaskProgress {
                 objective.putString("Id", progress.getKey());
                 objective.putInt("Count", progress.getValue());
                 objectives.add(objective);
-                if (objectives.size() >= 64) break;
+                if (objectives.size() >= MAX_OBJECTIVES_PER_TASK) break;
             }
             task.put("Objectives", objectives);
             tasks.add(task);
@@ -238,7 +238,7 @@ public final class ComputerTaskProgress {
             if (taskId == null) continue;
             Map<String, Integer> values = new LinkedHashMap<>();
             ListTag objectives = task.getList("Objectives", 10);
-            for (int objectiveIndex = 0; objectiveIndex < objectives.size() && values.size() < 64; objectiveIndex++) {
+            for (int objectiveIndex = 0; objectiveIndex < objectives.size() && values.size() < MAX_OBJECTIVES_PER_TASK; objectiveIndex++) {
                 CompoundTag objective = objectives.getCompound(objectiveIndex);
                 String objectiveId = objective.getString("Id");
                 if (objectiveId.length() <= 128 && !objectiveId.isBlank()) {

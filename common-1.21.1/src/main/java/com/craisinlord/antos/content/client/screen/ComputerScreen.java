@@ -107,7 +107,7 @@ public final class ComputerScreen extends Screen {
     private boolean accountWaiting;
     private long faceIdStatusAtOpen;
     private boolean faceIdAutoLoginStarted;
-    private String accountMessage = "SIGN IN OR CREATE AN ACCOUNT";
+    private String accountMessage;
     String faceIdMessage = "";
     boolean faceIdWaiting;
     long faceIdRevisionAtRequest;
@@ -313,8 +313,11 @@ public final class ComputerScreen extends Screen {
         box(g, l + 28, t + 150, l + WIDTH - 28, t + 173, accountPasswordFocused ? GREEN : 0xFF527952);
         g.drawString(font, Component.literal("*".repeat(accountPassword.length()) + (accountPasswordFocused ? "_" : "")), l + 34, t + 158, PALE_GREEN, false);
         loginButton(g, buttonX, t + 184, 140, 22, accountWaiting ? "CONNECTING..." : creatingAccount ? "CREATE ACCOUNT" : "SIGN IN", true);
-        g.drawCenteredString(font, Component.literal(accountMessage), l + WIDTH / 2, t + 218,
-                accountMessage.contains("UNAVAILABLE") || accountMessage.contains("NOT RECOGNIZED") ? 0xFFFF7777 : PALE_GREEN);
+        Component accountMessageComponent = accountMessage == null
+                ? Component.translatable("computer.antos.account.initial_prompt")
+                : Component.literal(accountMessage);
+        g.drawCenteredString(font, accountMessageComponent, l + WIDTH / 2, t + 218,
+                accountMessage != null && (accountMessage.contains("UNAVAILABLE") || accountMessage.contains("NOT RECOGNIZED")) ? 0xFFFF7777 : PALE_GREEN);
         g.drawCenteredString(font, Component.literal("Turn on FACE ID in settings to skip login"), l + WIDTH / 2, t + HEIGHT - 14, PALE_GREEN);
     }
 
@@ -412,13 +415,15 @@ public final class ComputerScreen extends Screen {
             g.fill(panelX, panelY, panelX + panelW, panelY + panelH, BLACK);
             box(g, panelX, panelY, panelX + panelW, panelY + panelH, GREEN);
             g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, DARK_GREEN);
-            g.drawString(font, Component.literal("ANTOS // APP TOUR"), contentX, panelY + 8, GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.app_tour"), contentX, panelY + 8, GREEN, false);
             g.drawString(font, Component.translatable(appNameKey(app)), contentX, panelY + 35, GREEN, false);
-            g.drawString(font, Component.literal("APP " + (appStep + 1) + " / " + apps.size()), panelX + panelW - 68, panelY + 35, PALE_GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.app_step", appStep + 1, apps.size()), panelX + panelW - 68, panelY + 35, PALE_GREEN, false);
             g.drawString(font, Component.literal(onboardingAppTitle(app)), contentX, panelY + 53, PALE_GREEN, false);
             wrap(g, onboardingAppDescription(app), contentX, panelY + 70, panelW - 20, PALE_GREEN);
-            if (appStep > 0) onboardingButton(g, contentX, actionY, 82, "[ BACK ]", hovered(contentX, actionY, 82, 22));
-            onboardingButton(g, panelX + panelW - 78, actionY, 68, appStep + 1 < apps.size() ? "[ NEXT ]" : "[ DONE ]", hovered(panelX + panelW - 78, actionY, 68, 22));
+            if (appStep > 0) onboardingButton(g, contentX, actionY, 82, Component.translatable("computer.antos.onboarding.back"), hovered(contentX, actionY, 82, 22));
+            Component nextLabel = Component.translatable(appStep + 1 < apps.size()
+                    ? "computer.antos.onboarding.next" : "computer.antos.onboarding.done");
+            onboardingButton(g, panelX + panelW - 78, actionY, 68, nextLabel, hovered(panelX + panelW - 78, actionY, 68, 22));
             if (desktopIndex >= 0) {
                 int iconX = desktopIconX(l, desktopIndex);
                 int iconY = desktopIconY(t, desktopIndex);
@@ -438,23 +443,23 @@ public final class ComputerScreen extends Screen {
         g.fill(panelX, panelY, panelX + panelW, panelY + panelH, BLACK);
         box(g, panelX, panelY, panelX + panelW, panelY + panelH, GREEN);
         g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, DARK_GREEN);
-        g.drawString(font, Component.literal("ANTOS // ONBOARDING"), contentX, panelY + 8, GREEN, false);
+        g.drawString(font, Component.translatable("computer.antos.onboarding.title"), contentX, panelY + 8, GREEN, false);
         if (welcome) {
-            g.drawString(font, Component.literal("WELCOME TO ANTOS"), contentX, panelY + 43, GREEN, false);
-            g.drawString(font, Component.literal("YOUR PERSONAL COMPUTER"), contentX, panelY + 62, PALE_GREEN, false);
-            wrap(g, "Explore the archive, complete tasks, communicate with Antmail, and keep useful tools close at hand.", contentX, panelY + 91, panelW - 44, PALE_GREEN);
-            g.drawString(font, Component.literal("A QUICK TOUR TAKES ABOUT A MINUTE."), contentX, panelY + 145, GREEN, false);
-            g.drawString(font, Component.literal("WELCOME"), contentX, panelY + 166, PALE_GREEN, false);
-            onboardingButton(g, contentX, actionY, 126, "[ START TOUR ]", hovered(contentX, actionY, 126, 22));
-            onboardingButton(g, panelX + panelW - 110, actionY, 88, "[ SKIP ]", hovered(panelX + panelW - 110, actionY, 88, 22));
+            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome_title"), contentX, panelY + 43, GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome_subtitle"), contentX, panelY + 62, PALE_GREEN, false);
+            wrap(g, Component.translatable("computer.antos.onboarding.welcome_description"), contentX, panelY + 91, panelW - 44, PALE_GREEN);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.duration"), contentX, panelY + 145, GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome"), contentX, panelY + 166, PALE_GREEN, false);
+            onboardingButton(g, contentX, actionY, 126, Component.translatable("computer.antos.onboarding.start_tour"), hovered(contentX, actionY, 126, 22));
+            onboardingButton(g, panelX + panelW - 110, actionY, 88, Component.translatable("computer.antos.onboarding.skip"), hovered(panelX + panelW - 110, actionY, 88, 22));
             return;
         }
         finishOnboarding();
     }
 
-    private void onboardingButton(GuiGraphics g, int x, int y, int width, String label, boolean hover) {
+    private void onboardingButton(GuiGraphics g, int x, int y, int width, Component label, boolean hover) {
         if (hover) drawHover(g, x, y, width, 22);
-        g.drawCenteredString(font, Component.literal(label), x + width / 2, y + 7, GREEN);
+        g.drawCenteredString(font, label, x + width / 2, y + 7, GREEN);
     }
 
     private List<String> onboardingApps() {
@@ -500,7 +505,6 @@ public final class ComputerScreen extends Screen {
         icon(g, type, 0, 0);
         g.pose().popPose();
     }
-
 
     private void drawNotificationBadge(GuiGraphics g, int x, int y) {
         String[] circle = {
@@ -814,21 +818,6 @@ public final class ComputerScreen extends Screen {
         }
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     int renderTaskItemRecipe(GuiGraphics g, String itemId, int x, int y, int w) {
         if (Minecraft.getInstance().level != null) {
             try {
@@ -847,32 +836,6 @@ public final class ComputerScreen extends Screen {
         g.fill(x, y + 10, x + width, y + 11, DARK_GREEN);
         return y + 13;
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     void enableComputerScissor(GuiGraphics g, int left, int top, int right, int bottom) {
         float scale = uiScale();
@@ -899,11 +862,6 @@ public final class ComputerScreen extends Screen {
             window.maximized = true;
         }
     }
-
-
-
-
-
 
     int renderArchiveRecipe(GuiGraphics g, String recipeId, int x, int y, int w) {
         int slot = 16;
@@ -1085,7 +1043,7 @@ public final class ComputerScreen extends Screen {
                     living.yHeadRotO = yaw;
                     living.tickCount = (int) (Minecraft.getInstance().level.getGameTime() & Integer.MAX_VALUE);
                     float largestDimension = Math.max(0.45F, Math.max(living.getBbWidth(), living.getBbHeight()));
-                    int entityRenderScale = Math.max(4, Math.min(size, Math.round(size * 0.52F * renderScale / largestDimension)));
+                    float entityRenderScale = Math.max(0.5F, Math.min(size, size * 0.52F * renderScale / largestDimension));
                     float entityScale = Math.max(0.01F, living.getScale());
                     Vector3f translation = new Vector3f(0.0F, living.getBbHeight() / 2.0F + 0.0625F * entityScale, 0.0F);
                     Quaternionf pose = new Quaternionf().rotateZ((float) Math.PI);
@@ -1153,19 +1111,6 @@ public final class ComputerScreen extends Screen {
     private void logArchivePreviewOnce(String key, String message, Object... arguments) {
         if (archiveRenderLog.add(key)) AntOS.LOGGER.info(message, arguments);
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
     String parentDirectory(String path) {
         if (path.equals("/")) return "/";
         int slash = path.lastIndexOf('/');
@@ -1178,20 +1123,12 @@ public final class ComputerScreen extends Screen {
         return font.plainSubstrByWidth(value, Math.max(0, width - font.width(ellipsis))) + ellipsis;
     }
 
-
-
-
-
     boolean faceIdLinkedToCurrentAccount() {
         var current = AnternetAccountClientState.latest();
         java.util.UUID linkedAccount = AnternetAccountClientState.faceIdAccountId();
         return current != null && current.result() == AnternetAccountResultPayload.SUCCESS
                 && linkedAccount != null && linkedAccount.equals(current.accountId());
     }
-
-
-
-
 
     void drawScrollbar(GuiGraphics g, int x, int top, int trackHeight, int visible, int total, int scroll, int maximum) {
         if (maximum <= 0 || total <= 0) return;
@@ -1210,30 +1147,14 @@ public final class ComputerScreen extends Screen {
         int minimumThumbHeight = Math.min(12, safeTrackHeight);
         return Math.min(safeTrackHeight, Math.max(minimumThumbHeight, safeTrackHeight * Math.max(1, visible) / safeTotal));
     }
-
-
-
-
-
-
-
-
     boolean caretVisible() {
         return (System.currentTimeMillis() / 500L) % 2L == 0L;
     }
-
-
 
     String insertCaret(String value, int cursor) {
         int index = Math.max(0, Math.min(cursor, value.length()));
         return value.substring(0, index) + "|" + value.substring(index);
     }
-
-
-
-
-
-
     void drawTabLabel(GuiGraphics g, String label, int x, int y, int width, int color) {
         drawTabLabel(g, label, x, y, width, color, tabLabelScale(label, width));
     }
@@ -1255,8 +1176,6 @@ public final class ComputerScreen extends Screen {
         }
     }
 
-
-
     void drawFilterButton(GuiGraphics g, int x, int y, int width, boolean selected, String label) {
         boolean hover = hovered(x, y, width, 17);
         g.fill(x, y, x + width, y + 17, selected ? PALE_GREEN : hover ? HOVER_FILL : DARK_GREEN);
@@ -1272,24 +1191,6 @@ public final class ComputerScreen extends Screen {
             g.pose().popPose();
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     int wrap(GuiGraphics g, String text, int x, int y, int width, int color) { return wrap(g, Component.literal(text), x, y, width, color); }
 
@@ -1581,76 +1482,9 @@ public final class ComputerScreen extends Screen {
         return handled || super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     int mouseX() {
         return session.mouseX;
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     boolean hasControl(int modifiers) {
         return (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
@@ -1666,14 +1500,6 @@ public final class ComputerScreen extends Screen {
     List<ResourceLocation> physicalDisks() {
         return com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.installedDisks();
     }
-
-
-
-
-
-
-
-
     void open(String type) {
         if (!AntOSSettings.appEnabled(type)) return;
         for (int index = 0; index < session.windows.size(); index++) {
@@ -1714,9 +1540,7 @@ public final class ComputerScreen extends Screen {
         return null;
     }
 
-
-
-    static boolean inside(int x, int y, int w, int h, double mx, double my) { return mx >= x && mx < x + w && my >= y && my < y + h; }
+static boolean inside(int x, int y, int w, int h, double mx, double my) { return mx >= x && mx < x + w && my >= y && my < y + h; }
 
     @Override
     public boolean isPauseScreen() { return false; }

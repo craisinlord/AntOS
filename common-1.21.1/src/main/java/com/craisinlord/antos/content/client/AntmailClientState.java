@@ -12,13 +12,19 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class AntmailClientState {
-    private static final int MAX_CACHED_DETAILS_PER_MAILBOX = 8;
+    private static final int MAX_CACHED_DETAILS_PER_MAILBOX = 32;
     private static volatile AntmailAnternetResultPayload result;
     private static volatile AntmailAnternetResultPayload mailbox;
     private static volatile long version;
     private static volatile Snapshot snapshot;
     private static volatile boolean refreshRequested;
-    private static final Map<java.util.UUID, AntmailMessage> DETAILS = new ConcurrentHashMap<>();
+    private static final Map<java.util.UUID, AntmailMessage> DETAILS = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<>(16, 0.75F, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<java.util.UUID, AntmailMessage> eldest) {
+                    return size() > MAX_CACHED_DETAILS_PER_MAILBOX;
+                }
+            });
     private static final Map<String, AntmailProfile> PROFILES = new ConcurrentHashMap<>();
 
     private AntmailClientState() {
@@ -41,10 +47,6 @@ public final class AntmailClientState {
             try {
                 AntmailMessage message = AntmailMessage.fromTag(com.craisinlord.antos.content.antmail.AntmailWire.decodeTag(payload.data()));
                 DETAILS.put(message.id(), message);
-                while (DETAILS.size() > MAX_CACHED_DETAILS_PER_MAILBOX) {
-                    java.util.UUID oldest = DETAILS.keySet().iterator().next();
-                    DETAILS.remove(oldest);
-                }
             } catch (RuntimeException ignored) {
             }
         } else if (!payload.data().isBlank()) {

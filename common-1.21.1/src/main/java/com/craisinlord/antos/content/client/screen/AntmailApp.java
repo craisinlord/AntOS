@@ -43,6 +43,8 @@ import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 
 final class AntmailApp extends ComputerApp {
     final State state = new State();
+    private java.util.UUID detailRequestedId;
+    private long detailRequestedAt;
 
     void screenOpened(boolean loggedIn) {
         state.pickingAttachment = false;
@@ -856,7 +858,16 @@ final class AntmailApp extends ComputerApp {
         if (state.messageIndex < 0 || state.messageIndex >= messages.size()) return null;
         AntmailMessage summary = messages.get(state.messageIndex);
         AntmailMessage detail = AntmailClientState.getMessage(summary.id());
+        if (detail == null) requestMissingDetail(summary.id());
         return detail == null ? summary : detail;
+    }
+
+    private void requestMissingDetail(java.util.UUID id) {
+        long now = System.currentTimeMillis();
+        if (id.equals(detailRequestedId) && now - detailRequestedAt < 1000L) return;
+        detailRequestedId = id;
+        detailRequestedAt = now;
+        AntmailNetworking.requestMessage(id);
     }
 
     private void openMessage(AntmailMessage message, String originMode) {

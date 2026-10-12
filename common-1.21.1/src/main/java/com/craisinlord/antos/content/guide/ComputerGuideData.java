@@ -22,8 +22,8 @@ import java.util.List;
 import java.util.Map;
 
 public final class ComputerGuideData extends SimplePreparableReloadListener<ComputerGuideData.LoadedData> {
-    private static final int MAX_TASK_DEFINITIONS = 512;
-    private static final int MAX_TASK_OBJECTIVES = 64;
+    private static final int MAX_TASK_DEFINITIONS = 1024;
+    private static final int MAX_TASK_OBJECTIVES = 256;
     private static final String TASK_CATEGORY_DIRECTORY = "computer/task/category";
     private static final String TASK_GROUP_DIRECTORY = "computer/task/group";
     private static final String TASK_REWARD_POOL_DIRECTORY = "computer/task/reward_pool";
