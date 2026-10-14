@@ -49,11 +49,11 @@ public final class AntazonSellData extends SimplePreparableReloadListener<List<A
         for (Source source : loaded) {
             for (ResourceLocation item : AntazonTags.items(source.items(), List.of()))
                 direct.putIfAbsent(item, new Rule(item, source.value(), source.greenTint(), source.renderMobFromSpawnEgg(), source.limit(), source.limitReset(), "item:" + item,
-                        source.unlockTasks(), source.unlockMode(), source.hiddenUntilUnlocked(), source.notifyOnUnlock()));
+                        source.unlockTasks(), source.unlockMode(), source.hiddenUntilUnlocked(), source.notifyOnUnlock(), source.unlockDisks(), source.unlockCommands()));
             for (ResourceLocation tag : source.tags()) {
                 for (ResourceLocation item : AntazonTags.items(List.of(), List.of(tag)))
                     tagged.putIfAbsent(item, new Rule(item, source.value(), source.greenTint(), source.renderMobFromSpawnEgg(), source.limit(), source.limitReset(), "tag:" + tag,
-                            source.unlockTasks(), source.unlockMode(), source.hiddenUntilUnlocked(), source.notifyOnUnlock()));
+                            source.unlockTasks(), source.unlockMode(), source.hiddenUntilUnlocked(), source.notifyOnUnlock(), source.unlockDisks(), source.unlockCommands()));
             }
         }
         tagged.putAll(direct);
@@ -78,6 +78,10 @@ public final class AntazonSellData extends SimplePreparableReloadListener<List<A
                 String limitReset = object.has("limit_reset") ? object.get("limit_reset").getAsString().trim().toLowerCase(java.util.Locale.ROOT) : "none";
                 List<ResourceLocation> unlockTasks = new ArrayList<>();
                 if (object.has("unlock_tasks")) for (JsonElement task : object.getAsJsonArray("unlock_tasks")) unlockTasks.add(ResourceLocation.parse(task.getAsString().trim()));
+                List<ResourceLocation> unlockDisks = new ArrayList<>();
+                if (object.has("unlock_disks")) for (JsonElement disk : object.getAsJsonArray("unlock_disks")) unlockDisks.add(ResourceLocation.parse(disk.getAsString().trim()));
+                List<ResourceLocation> unlockCommands = new ArrayList<>();
+                if (object.has("unlock_commands")) for (JsonElement command : object.getAsJsonArray("unlock_commands")) unlockCommands.add(ResourceLocation.parse(command.getAsString().trim()));
                 String unlockMode = object.has("unlock_mode") ? object.get("unlock_mode").getAsString().trim().toLowerCase(java.util.Locale.ROOT) : "all";
                 boolean hiddenUntilUnlocked = !object.has("hidden_until_unlocked") || !object.get("hidden_until_unlocked").isJsonPrimitive()
                         || object.get("hidden_until_unlocked").getAsBoolean();
@@ -98,7 +102,7 @@ public final class AntazonSellData extends SimplePreparableReloadListener<List<A
                 boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive()
                         || object.get("render_mob_from_spawn_egg").getAsBoolean();
                 loaded.add(new Source(id, List.copyOf(items), List.copyOf(tags), value, limit, limitReset, List.copyOf(unlockTasks), unlockMode,
-                        hiddenUntilUnlocked, notifyOnUnlock, greenTint, renderMobFromSpawnEgg));
+                        hiddenUntilUnlocked, notifyOnUnlock, greenTint, renderMobFromSpawnEgg, List.copyOf(unlockDisks), List.copyOf(unlockCommands)));
             } catch (Exception exception) {
                 AntOS.LOGGER.warn("Ignoring malformed Antazon sell rule {}", id, exception);
             }
@@ -123,8 +127,30 @@ public final class AntazonSellData extends SimplePreparableReloadListener<List<A
 
     public record Source(ResourceLocation id, List<ResourceLocation> items, List<ResourceLocation> tags, int value, int limit, String limitReset,
                          List<ResourceLocation> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, boolean notifyOnUnlock,
-                         boolean greenTint, boolean renderMobFromSpawnEgg) { }
+                         boolean greenTint, boolean renderMobFromSpawnEgg, List<ResourceLocation> unlockDisks, List<ResourceLocation> unlockCommands) {
+        public Source(ResourceLocation id, List<ResourceLocation> items, List<ResourceLocation> tags, int value, int limit, String limitReset,
+                      List<ResourceLocation> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, boolean notifyOnUnlock, boolean greenTint, boolean renderMobFromSpawnEgg,
+                      List<ResourceLocation> unlockDisks) {
+            this(id, items, tags, value, limit, limitReset, unlockTasks, unlockMode, hiddenUntilUnlocked, notifyOnUnlock, greenTint, renderMobFromSpawnEgg, unlockDisks, List.of());
+        }
+
+        public Source(ResourceLocation id, List<ResourceLocation> items, List<ResourceLocation> tags, int value, int limit, String limitReset,
+                      List<ResourceLocation> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, boolean notifyOnUnlock, boolean greenTint, boolean renderMobFromSpawnEgg) {
+            this(id, items, tags, value, limit, limitReset, unlockTasks, unlockMode, hiddenUntilUnlocked, notifyOnUnlock, greenTint, renderMobFromSpawnEgg, List.of(), List.of());
+        }
+    }
 
     public record Rule(ResourceLocation item, int value, boolean greenTint, boolean renderMobFromSpawnEgg, int limit, String limitReset, String limitKey,
-                       List<ResourceLocation> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, boolean notifyOnUnlock) { }
+                       List<ResourceLocation> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, boolean notifyOnUnlock, List<ResourceLocation> unlockDisks,
+                       List<ResourceLocation> unlockCommands) {
+        public Rule(ResourceLocation item, int value, boolean greenTint, boolean renderMobFromSpawnEgg, int limit, String limitReset, String limitKey,
+                    List<ResourceLocation> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, boolean notifyOnUnlock, List<ResourceLocation> unlockDisks) {
+            this(item, value, greenTint, renderMobFromSpawnEgg, limit, limitReset, limitKey, unlockTasks, unlockMode, hiddenUntilUnlocked, notifyOnUnlock, unlockDisks, List.of());
+        }
+
+        public Rule(ResourceLocation item, int value, boolean greenTint, boolean renderMobFromSpawnEgg, int limit, String limitReset, String limitKey,
+                    List<ResourceLocation> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, boolean notifyOnUnlock) {
+            this(item, value, greenTint, renderMobFromSpawnEgg, limit, limitReset, limitKey, unlockTasks, unlockMode, hiddenUntilUnlocked, notifyOnUnlock, List.of(), List.of());
+        }
+    }
 }

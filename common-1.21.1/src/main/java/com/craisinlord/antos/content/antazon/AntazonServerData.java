@@ -20,6 +20,8 @@ public final class AntazonServerData extends SavedData {
     public static final int MAX_CART_LINES = 32;
     private static final int MAX_ORDERS = 1024;
     private static final int MAX_REVIEWS = 2048;
+    private static final SavedData.Factory<AntazonServerData> FACTORY = new SavedData.Factory<>(AntazonServerData::new, AntazonServerData::load, null);
+    private static volatile Cached cached;
     private final Map<ResourceLocation, Stock> stock = new LinkedHashMap<>();
     private final Map<UUID, Long> wallets = new LinkedHashMap<>();
     private final Map<UUID, Map<ResourceLocation, PlayerState>> players = new LinkedHashMap<>();
@@ -34,11 +36,24 @@ public final class AntazonServerData extends SavedData {
     private final Map<UUID, List<CartLine>> carts = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> purchased = new LinkedHashMap<>();
     private final Map<ResourceLocation, List<PlayerReview>> reviewsByProduct = new LinkedHashMap<>();
+    private final Map<ResourceLocation, Long> reviewRevisions = new LinkedHashMap<>();
+    private final long reviewRevisionBase = System.currentTimeMillis();
+    private final Map<UUID, Set<String>> unlockMailSent = new LinkedHashMap<>();
+    private boolean legacyUnlockMailImported;
 
     public static AntazonServerData access(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(AntazonServerData::new, AntazonServerData::load, null), DATA_ID);
+        Cached current = cached;
+        if (current != null && current.server().get() == server) {
+            AntazonServerData data = current.data().get();
+            if (data != null) return data;
+        }
+        AntazonServerData data = server.overworld().getDataStorage().computeIfAbsent(FACTORY, DATA_ID);
+        if (current == null || current.server().get() != server) AntazonDeals.clear();
+        cached = new Cached(new java.lang.ref.WeakReference<>(server), new java.lang.ref.WeakReference<>(data));
+        return data;
     }
+
+    private record Cached(java.lang.ref.WeakReference<MinecraftServer> server, java.lang.ref.WeakReference<AntazonServerData> data) { }
 
     private static AntazonServerData load(CompoundTag tag, HolderLookup.Provider registries) {
         AntazonServerData data = new AntazonServerData();
@@ -46,6 +61,17 @@ public final class AntazonServerData extends SavedData {
         for (int index = 0; index < onboardingTags.size(); index++) {
             data.onboardingComputers.add(onboardingTags.getString(index));
         }
+        ListTag unlockMailTags = tag.getList("UnlockMailSent", 10);
+        for (int index = 0; index < unlockMailTags.size(); index++) {
+            CompoundTag row = unlockMailTags.getCompound(index);
+            try {
+                UUID account = UUID.fromString(row.getString("Account"));
+                ListTag listings = row.getList("Listings", 8);
+                Set<String> sent = data.unlockMailSent.computeIfAbsent(account, ignored -> new LinkedHashSet<>());
+                for (int listingIndex = 0; listingIndex < listings.size(); listingIndex++) sent.add(listings.getString(listingIndex));
+            } catch (RuntimeException ignored) { }
+        }
+        data.legacyUnlockMailImported = tag.getBoolean("LegacyUnlockMailImported");
         ListTag crateTags = tag.getList("ShippingCrates", 10);
         for (int index = 0; index < crateTags.size(); index++) {
             CompoundTag row = crateTags.getCompound(index);
@@ -290,6 +316,18 @@ public final class AntazonServerData extends SavedData {
         ListTag onboardingTags = new ListTag();
         for (String computer : onboardingComputers) onboardingTags.add(net.minecraft.nbt.StringTag.valueOf(computer));
         tag.put("Onboarding", onboardingTags);
+        ListTag unlockMailTags = new ListTag();
+        for (Map.Entry<UUID, Set<String>> entry : unlockMailSent.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            CompoundTag row = new CompoundTag();
+            row.putString("Account", entry.getKey().toString());
+            ListTag listings = new ListTag();
+            for (String listing : entry.getValue()) listings.add(net.minecraft.nbt.StringTag.valueOf(listing));
+            row.put("Listings", listings);
+            unlockMailTags.add(row);
+        }
+        tag.put("UnlockMailSent", unlockMailTags);
+        tag.putBoolean("LegacyUnlockMailImported", legacyUnlockMailImported);
         ListTag crateTags = new ListTag();
         for (Map.Entry<UUID, CrateLocation> entry : shippingCrates.entrySet()) {
             CompoundTag row = new CompoundTag();
@@ -351,8 +389,35 @@ public final class AntazonServerData extends SavedData {
     public synchronized boolean onboardingComplete(String computer) { return onboardingComputers.contains(computer); }
 
     public synchronized void setOnboardingComplete(String computer, boolean complete) {
-        if (complete) onboardingComputers.add(computer); else onboardingComputers.remove(computer);
+        boolean changed = complete ? onboardingComputers.add(computer) : onboardingComputers.remove(computer);
+        if (changed) setDirty();
+    }
+
+    public synchronized boolean unlockMailSent(UUID account, String listing) {
+        return account != null && unlockMailSent.getOrDefault(account, Set.of()).contains(listing);
+    }
+
+    public synchronized void markUnlockMailSent(UUID account, Set<String> listings) {
+        if (account == null || listings == null || listings.isEmpty()) return;
+        if (unlockMailSent.computeIfAbsent(account, ignored -> new LinkedHashSet<>()).addAll(listings)) setDirty();
+    }
+
+    public synchronized void importLegacyUnlockMail(Set<String> entries, java.util.function.Predicate<UUID> knownAccount) {
+        if (legacyUnlockMailImported) return;
+        legacyUnlockMailImported = true;
+        for (String entry : entries) {
+            int separator = entry.indexOf(':');
+            if (separator <= 0 || separator == entry.length() - 1) continue;
+            try {
+                UUID account = UUID.fromString(entry.substring(0, separator));
+                if (knownAccount.test(account)) unlockMailSent.computeIfAbsent(account, ignored -> new LinkedHashSet<>()).add(entry.substring(separator + 1));
+            } catch (RuntimeException ignored) { }
+        }
         setDirty();
+    }
+
+    public synchronized boolean legacyUnlockMailImported() {
+        return legacyUnlockMailImported;
     }
 
     public synchronized Stock stock(ResourceLocation productId) {
@@ -525,6 +590,7 @@ public final class AntazonServerData extends SavedData {
         if (orders.size() > MAX_ORDERS) orders.subList(0, orders.size() - MAX_ORDERS).clear();
         while (reviews.size() > MAX_REVIEWS) {
             PlayerReview oldest = reviews.remove(0);
+            bumpReviewRevision(oldest.product());
             List<PlayerReview> productReviews = reviewsByProduct.get(oldest.product());
             if (productReviews != null && !productReviews.isEmpty()) {
                 productReviews.remove(0);
@@ -534,8 +600,14 @@ public final class AntazonServerData extends SavedData {
     }
 
     private void rebuildReviewIndex() {
+        reviewsByProduct.keySet().forEach(this::bumpReviewRevision);
         reviewsByProduct.clear();
         for (PlayerReview review : reviews) reviewsByProduct.computeIfAbsent(review.product(), ignored -> new ArrayList<>()).add(review);
+        reviewsByProduct.keySet().forEach(this::bumpReviewRevision);
+    }
+
+    private void bumpReviewRevision(ResourceLocation product) {
+        reviewRevisions.merge(product, 1L, Long::sum);
     }
 
     public synchronized List<Order> orders(UUID player) {
@@ -618,6 +690,7 @@ public final class AntazonServerData extends SavedData {
     public synchronized void addReview(PlayerReview review) {
         reviews.add(review);
         reviewsByProduct.computeIfAbsent(review.product(), ignored -> new ArrayList<>()).add(review);
+        bumpReviewRevision(review.product());
         reviewed.computeIfAbsent(review.player(), ignored -> new LinkedHashSet<>()).add(review.product());
         trimHistory();
         setDirty();
@@ -625,6 +698,21 @@ public final class AntazonServerData extends SavedData {
 
     public synchronized List<PlayerReview> reviews(ResourceLocation product) {
         return List.copyOf(reviewsByProduct.getOrDefault(product, List.of()));
+    }
+
+    public synchronized List<PlayerReview> reviews(ResourceLocation product, int offset, int limit) {
+        List<PlayerReview> productReviews = reviewsByProduct.getOrDefault(product, List.of());
+        int start = Math.max(0, Math.min(offset, productReviews.size()));
+        int end = (int) Math.min(productReviews.size(), (long) start + Math.max(0, limit));
+        return List.copyOf(productReviews.subList(start, end));
+    }
+
+    public synchronized int reviewCount(ResourceLocation product) {
+        return reviewsByProduct.getOrDefault(product, List.of()).size();
+    }
+
+    public synchronized long reviewRevision(ResourceLocation product) {
+        return reviewRevisionBase + reviewRevisions.getOrDefault(product, 0L);
     }
 
     private static ResourceLocation parse(String value) {

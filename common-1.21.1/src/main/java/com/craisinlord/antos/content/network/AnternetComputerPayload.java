@@ -11,7 +11,7 @@ public record AnternetComputerPayload(int action, String value) implements Custo
     public static final Type<AnternetComputerPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "anternet_computer"));
     public static final StreamCodec<RegistryFriendlyByteBuf, AnternetComputerPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, AnternetComputerPayload::action,
-            ByteBufCodecs.stringUtf8(65536), AnternetComputerPayload::value,
+            ByteBufCodecs.stringUtf8(ComputerAccessPayload.MAX_VALUE_CHARS), AnternetComputerPayload::value,
             AnternetComputerPayload::new
     );
 

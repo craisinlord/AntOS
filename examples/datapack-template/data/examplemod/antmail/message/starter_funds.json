@@ -1,0 +1,8 @@
+{
+  "sender": "fieldoffice@antmail.com",
+  "sender_display": "Field Office",
+  "subject": "Starter funds",
+  "body": "We've added 50 AntCoins to your account. Spend them on supplies.",
+  "antcoins": 50,
+  "trigger": { "type": "advancement", "value": "minecraft:story/root" }
+}

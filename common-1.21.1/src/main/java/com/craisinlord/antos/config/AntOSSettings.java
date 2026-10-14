@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -96,6 +97,36 @@ public final class AntOSSettings {
         save();
     }
 
+    public static synchronized Preferences preferences() {
+        if (config.preferences == null) config.preferences = new Preferences();
+        return config.preferences.copy();
+    }
+
+    public static synchronized void updatePreferences(java.util.function.Consumer<Preferences> change) {
+        if (config.preferences == null) config.preferences = new Preferences();
+        change.accept(config.preferences);
+        config.preferences.normalize();
+        save();
+    }
+
+    public static synchronized List<String> terminalHistory(String workspace) {
+        if (config.terminalHistory == null || workspace == null) return List.of();
+        return List.copyOf(config.terminalHistory.getOrDefault(workspace, List.of()));
+    }
+
+    public static synchronized void setTerminalHistory(String workspace, List<String> history) {
+        if (workspace == null || workspace.isBlank()) return;
+        if (config.terminalHistory == null) config.terminalHistory = new HashMap<>();
+        if (history == null || history.isEmpty()) config.terminalHistory.remove(workspace);
+        else config.terminalHistory.put(workspace, List.copyOf(history.subList(Math.max(0, history.size() - 50), history.size())));
+        save();
+    }
+
+    public static synchronized void clearTerminalHistory() {
+        if (config.terminalHistory != null) config.terminalHistory.clear();
+        save();
+    }
+
     private static void save() {
         if (configPath == null) return;
         try (Writer writer = Files.newBufferedWriter(configPath)) {
@@ -113,6 +144,10 @@ public final class AntOSSettings {
         return config.unlockAllGameEntries;
     }
 
+    public static boolean showIntroductionEntry() {
+        return config.showIntroductionEntry;
+    }
+
     public static synchronized long blockleDailyAntcoinReward() {
         return Math.max(0L, config.blockleDailyAntcoinReward);
     }
@@ -121,16 +156,8 @@ public final class AntOSSettings {
         return config.sendAntazonUnlockEmail;
     }
 
-    public static synchronized boolean hasAntazonUnlockEmail(UUID accountId, String listingId) {
-        return config.antazonUnlockEmailsSent != null
-                && config.antazonUnlockEmailsSent.contains(accountId + ":" + listingId);
-    }
-
-    public static synchronized void markAntazonUnlockEmailsSent(UUID accountId, Set<String> listingIds) {
-        if (accountId == null || listingIds == null || listingIds.isEmpty()) return;
-        if (config.antazonUnlockEmailsSent == null) config.antazonUnlockEmailsSent = new HashSet<>();
-        for (String listingId : listingIds) config.antazonUnlockEmailsSent.add(accountId + ":" + listingId);
-        save();
+    public static synchronized Set<String> legacyAntazonUnlockEmails() {
+        return config.antazonUnlockEmailsSent == null ? Set.of() : Set.copyOf(config.antazonUnlockEmailsSent);
     }
 
     public static boolean inventoryComputerButtonEnabled() {
@@ -149,7 +176,7 @@ public final class AntOSSettings {
             case "ANTMAIL" -> apps.antmail;
             case "ANTAZON" -> apps.antazon;
             case "GAMES" -> apps.games;
-            case "TRASH" -> apps.trash;
+            case "DISKS" -> apps.disks;
             case "TASKS" -> apps.tasks;
             default -> true;
         };
@@ -158,6 +185,7 @@ public final class AntOSSettings {
     private static final class Config {
         private boolean unlockAllArchiveEntries;
         private boolean unlockAllGameEntries;
+        private boolean showIntroductionEntry = true;
         private long blockleDailyAntcoinReward = 10L;
         private boolean sendAntazonUnlockEmail = true;
         private Set<String> antazonUnlockEmailsSent = new HashSet<>();
@@ -167,13 +195,61 @@ public final class AntOSSettings {
         private boolean initialBootSeen;
         private Set<String> completedComputerTours = new HashSet<>();
         private Map<String, Boolean> taskGroupCollapsed = new HashMap<>();
+        private Preferences preferences = new Preferences();
+        private Map<String, List<String>> terminalHistory = new HashMap<>();
 
         private Config withDefaults() {
+            if (preferences == null) preferences = new Preferences();
+            preferences.normalize();
+            if (terminalHistory == null) terminalHistory = new HashMap<>();
             if (desktopApps == null) desktopApps = new DesktopApps();
             if (completedComputerTours == null) completedComputerTours = new HashSet<>();
             if (taskGroupCollapsed == null) taskGroupCollapsed = new HashMap<>();
             if (antazonUnlockEmailsSent == null) antazonUnlockEmailsSent = new HashSet<>();
             return this;
+        }
+    }
+
+    public static final class Preferences {
+        public static final List<String> TASK_MAP_ZOOMS = List.of("55", "65", "75", "85", "100");
+
+        public String theme = "green";
+        public String mailAlerts = "toast";
+        public boolean mailSound = true;
+        public String taskAlerts = "actionbar";
+        public boolean taskSound = true;
+        public String taskMapZoom = "75";
+        public String editorLineNumbers = "auto";
+        public boolean paintGrid = true;
+        public int paintBrush = 1;
+        public boolean terminalKeepHistory = true;
+        public boolean explorerPlaces = true;
+        public boolean explorerSortBySize;
+
+        private Preferences copy() {
+            Preferences copy = new Preferences();
+            copy.theme = theme;
+            copy.mailAlerts = mailAlerts;
+            copy.mailSound = mailSound;
+            copy.taskAlerts = taskAlerts;
+            copy.taskSound = taskSound;
+            copy.taskMapZoom = taskMapZoom;
+            copy.editorLineNumbers = editorLineNumbers;
+            copy.paintGrid = paintGrid;
+            copy.paintBrush = paintBrush;
+            copy.terminalKeepHistory = terminalKeepHistory;
+            copy.explorerPlaces = explorerPlaces;
+            copy.explorerSortBySize = explorerSortBySize;
+            return copy;
+        }
+
+        private void normalize() {
+            if (theme == null || !List.of("green", "amber", "blue", "white").contains(theme)) theme = "green";
+            if (mailAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(mailAlerts)) mailAlerts = "toast";
+            if (taskAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(taskAlerts)) taskAlerts = "actionbar";
+            if (taskMapZoom == null || !TASK_MAP_ZOOMS.contains(taskMapZoom)) taskMapZoom = "75";
+            if (editorLineNumbers == null || !List.of("auto", "on", "off").contains(editorLineNumbers)) editorLineNumbers = "auto";
+            paintBrush = Math.max(1, Math.min(3, paintBrush));
         }
     }
 
@@ -187,7 +263,7 @@ public final class AntOSSettings {
         private boolean antmail = true;
         private boolean antazon;
         private boolean games = true;
-        private boolean trash = true;
+        private boolean disks = true;
         private boolean tasks;
     }
 }

@@ -1,6 +1,8 @@
 {
   "category": "general",
   "title": "guide.examplemod.disk.field_notes.title",
+  "description": "guide.examplemod.disk.field_notes.description",
+  "hidden": false,
   "entries": [
     "examplemod:field_notes"
   ],

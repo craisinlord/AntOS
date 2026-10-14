@@ -1,0 +1,27 @@
+{
+  "type": "quiz",
+  "title": "program.examplemod.lab_quiz.title",
+  "questions_per_run": 2,
+  "questions": [
+    {
+      "question": "Which tool mines stone most effectively?",
+      "answers": ["A shovel", "A pickaxe", "An axe"],
+      "correct": 1,
+      "item": "minecraft:iron_pickaxe"
+    },
+    {
+      "question": "What does a bee produce in a hive?",
+      "answers": ["Honey", "Redstone", "Iron"],
+      "correct": 0,
+      "entity": "minecraft:bee"
+    },
+    {
+      "question": "Which item can power a redstone circuit?",
+      "answers": ["A feather", "A lever", "A bowl"],
+      "correct": 1,
+      "item": "minecraft:lever"
+    }
+  ],
+  "daily_reward": [{ "type": "antcoins", "amount": 10 }],
+  "reward_on": "perfect"
+}

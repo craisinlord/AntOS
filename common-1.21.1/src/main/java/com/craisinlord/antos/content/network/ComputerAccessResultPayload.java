@@ -9,6 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 
 public record ComputerAccessResultPayload(int result, boolean hasPassword, boolean authenticated, String data) implements CustomPacketPayload {
     public static final int MAX_DATA_CHARS = 900_000;
+    public static final int MAX_DATA_BYTES = 1_000_000;
     public static final int SETUP_REQUIRED = 0;
     public static final int READY = 1;
     public static final int SUCCESS = 2;
@@ -27,6 +28,25 @@ public record ComputerAccessResultPayload(int result, boolean hasPassword, boole
 
     public ComputerAccessResultPayload(int result, boolean hasPassword, boolean authenticated) {
         this(result, hasPassword, authenticated, "");
+    }
+
+    public static boolean fits(String data) {
+        if (data == null) return true;
+        int length = data.length();
+        if (length > MAX_DATA_CHARS) return false;
+        if ((long) length * 3L <= MAX_DATA_BYTES) return true;
+        long bytes = 0L;
+        for (int index = 0; index < length; index++) {
+            char character = data.charAt(index);
+            if (character < 0x80) bytes++;
+            else if (character < 0x800) bytes += 2;
+            else if (Character.isHighSurrogate(character) && index + 1 < length && Character.isLowSurrogate(data.charAt(index + 1))) {
+                bytes += 4;
+                index++;
+            } else bytes += 3;
+            if (bytes > MAX_DATA_BYTES) return false;
+        }
+        return true;
     }
 
     @Override

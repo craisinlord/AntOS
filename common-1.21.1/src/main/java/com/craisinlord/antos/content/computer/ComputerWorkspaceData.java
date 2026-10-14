@@ -3,10 +3,13 @@ package com.craisinlord.antos.content.computer;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.storage.DimensionDataStorage;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,12 +40,20 @@ public final class ComputerWorkspaceData extends SavedData {
     private static final int PASSWORD_HASH_BYTES = 32;
     private static final int MAX_PASSWORD_LENGTH = 128;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final List<String> LEGACY_ACCOUNT_KEYS = List.of(ComputerAccountShard.DISKS_TAG,
+            ComputerAccountShard.COLLECTED_DISKS_TAG, ComputerAccountShard.DISK_STATE_TAG, ComputerAccountShard.DISK_REWARDS_TAG);
+    private static final SavedData.Factory<ComputerWorkspaceData> FACTORY =
+            new SavedData.Factory<>(ComputerWorkspaceData::new, ComputerWorkspaceData::load, null);
     private final Map<UUID, CompoundTag> workspaces = new LinkedHashMap<>();
     private final Map<UUID, UUID> activeWorkspaceByOwner = new LinkedHashMap<>();
     private final Map<UUID, Account> accounts = new LinkedHashMap<>();
     private final Map<String, UUID> accountIdByUsername = new LinkedHashMap<>();
-    private final Map<UUID, CompoundTag> workspaceSnapshots = new LinkedHashMap<>();
-    private final Map<UUID, Set<ResourceLocation>> profileDisks = new LinkedHashMap<>();
+    private final Map<UUID, UUID> accountByWorkspace = new HashMap<>();
+    private final Map<UUID, ComputerAccountShard> shards = new HashMap<>();
+    private final Map<UUID, CompoundTag> legacyShards = new LinkedHashMap<>();
+    private final Set<UUID> pendingMigrations = new LinkedHashSet<>();
+    private DimensionDataStorage storage;
+    private volatile long mutationEpoch;
     private final Map<UUID, UUID> faceIdAccountByPlayer = new LinkedHashMap<>();
     private final Map<UUID, Team> teams = new LinkedHashMap<>();
     private final Map<UUID, UUID> teamByAccount = new LinkedHashMap<>();
@@ -51,8 +62,76 @@ public final class ComputerWorkspaceData extends SavedData {
     private final Map<UUID, Set<PendingAntOSGrant>> pendingAntOSGrants = new LinkedHashMap<>();
 
     public static ComputerWorkspaceData access(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(ComputerWorkspaceData::new, ComputerWorkspaceData::load, null), DATA_ID);
+        DimensionDataStorage storage = server.overworld().getDataStorage();
+        ComputerWorkspaceData data = storage.computeIfAbsent(FACTORY, DATA_ID);
+        if (data.storage != storage) data.attach(storage, server.registryAccess());
+        return data;
+    }
+
+    private synchronized void attach(DimensionDataStorage storage, HolderLookup.Provider registries) {
+        if (this.storage == storage) return;
+        this.storage = storage;
+        shards.clear();
+        if (legacyShards.isEmpty()) return;
+        for (Map.Entry<UUID, CompoundTag> entry : legacyShards.entrySet()) {
+            String key = ComputerAccountShard.dataId(entry.getKey());
+            ComputerAccountShard shard = storage.get(ComputerAccountShard.FACTORY, key);
+            if (shard == null) {
+                shard = ComputerAccountShard.load(entry.getValue(), registries);
+                storage.set(key, shard);
+                shard.setDirty();
+                pendingMigrations.add(entry.getKey());
+            }
+            shard.bind(this);
+            shards.put(entry.getKey(), shard);
+        }
+        legacyShards.clear();
+        if (pendingMigrations.isEmpty()) setDirty();
+    }
+
+    long mutationEpoch() {
+        return mutationEpoch;
+    }
+
+    void touch() {
+        mutationEpoch++;
+    }
+
+    @Override
+    public void setDirty(boolean dirty) {
+        super.setDirty(dirty);
+        if (dirty) touch();
+    }
+
+    synchronized void shardPersisted() {
+        if (!pendingMigrations.isEmpty()) setDirty();
+    }
+
+    private CompoundTag legacyAccountData(UUID accountId) {
+        CompoundTag legacy = legacyShards.get(accountId);
+        if (legacy != null) return legacy;
+        ComputerAccountShard shard = pendingMigrations.contains(accountId) ? shards.get(accountId) : null;
+        return shard == null ? null : shard.write(new CompoundTag());
+    }
+
+    private ComputerAccountShard shard(UUID accountId) {
+        ComputerAccountShard shard = shards.get(accountId);
+        if (shard == null) {
+            shard = storage == null ? new ComputerAccountShard()
+                    : storage.computeIfAbsent(ComputerAccountShard.FACTORY, ComputerAccountShard.dataId(accountId));
+            shard.bind(this);
+            shards.put(accountId, shard);
+        }
+        return shard;
+    }
+
+    private ComputerAccountShard workspaceShard(UUID workspaceId) {
+        UUID accountId = workspaceId == null ? null : accountByWorkspace.get(workspaceId);
+        return accountId == null ? null : shard(accountId);
+    }
+
+    private ComputerAccountShard accountShard(UUID accountId) {
+        return accountId == null || !accounts.containsKey(accountId) ? null : shard(accountId);
     }
 
     private static ComputerWorkspaceData load(CompoundTag tag, HolderLookup.Provider registries) {
@@ -90,14 +169,15 @@ public final class ComputerWorkspaceData extends SavedData {
                             salt, verifier, iterations);
                     data.accounts.put(accountId, account);
                     data.accountIdByUsername.put(username, accountId);
-                    data.workspaceSnapshots.putIfAbsent(workspaceId, new CompoundTag());
-                    Set<ResourceLocation> disks = new LinkedHashSet<>();
-                    ListTag diskTags = row.getList("Disks", 8);
-                    for (int diskIndex = 0; diskIndex < diskTags.size(); diskIndex++) {
-                        try { disks.add(ResourceLocation.parse(diskTags.getString(diskIndex))); }
-                        catch (RuntimeException ignored) { }
+                    data.accountByWorkspace.put(workspaceId, accountId);
+                    if (legacyAccountRow(row)) {
+                        CompoundTag legacy = new CompoundTag();
+                        for (String key : LEGACY_ACCOUNT_KEYS) {
+                            Tag value = row.get(key);
+                            if (value != null) legacy.put(key, value);
+                        }
+                        data.legacyShards.put(accountId, legacy);
                     }
-                    data.profileDisks.put(accountId, disks);
                 }
             } catch (RuntimeException ignored) { }
         }
@@ -105,9 +185,10 @@ public final class ComputerWorkspaceData extends SavedData {
         for (int index = 0; index < snapshots.size(); index++) {
             CompoundTag row = snapshots.getCompound(index);
             try {
-                UUID workspaceId = UUID.fromString(row.getString("Workspace"));
-                if (data.isAccountWorkspace(workspaceId)) {
-                    data.workspaceSnapshots.put(workspaceId, row.getCompound("Data").copy());
+                UUID accountId = data.accountByWorkspace.get(UUID.fromString(row.getString("Workspace")));
+                if (accountId != null) {
+                    data.legacyShards.computeIfAbsent(accountId, ignored -> new CompoundTag())
+                            .put(ComputerAccountShard.SNAPSHOT_TAG, row.getCompound("Data").copy());
                 }
             } catch (RuntimeException ignored) { }
         }
@@ -191,57 +272,116 @@ public final class ComputerWorkspaceData extends SavedData {
         return data;
     }
 
-    public synchronized AccountResult createAccount(String requestedUsername, String password) {
+    private static boolean legacyAccountRow(CompoundTag row) {
+        for (String key : LEGACY_ACCOUNT_KEYS) {
+            if (row.contains(key)) return true;
+        }
+        return false;
+    }
+
+    public AccountResult createAccount(String requestedUsername, String password) {
+        AccountFailure failure = validateNewAccount(requestedUsername, password);
+        if (failure != null) return AccountResult.failure(failure);
+        return completeAccountCreation(requestedUsername, hashPassword(password));
+    }
+
+    public synchronized AccountFailure validateNewAccount(String requestedUsername, String password) {
+        String username = normalizeUsername(requestedUsername);
+        if (!validUsername(username)) return AccountFailure.INVALID_USERNAME;
+        if (accountIdByUsername.containsKey(username)) return AccountFailure.USERNAME_TAKEN;
+        if (!validPassword(password)) return AccountFailure.INVALID_PASSWORD;
+        return null;
+    }
+
+    public synchronized AccountResult completeAccountCreation(String requestedUsername, PasswordHash hash) {
         String username = normalizeUsername(requestedUsername);
         if (!validUsername(username)) return AccountResult.failure(AccountFailure.INVALID_USERNAME);
         if (accountIdByUsername.containsKey(username)) return AccountResult.failure(AccountFailure.USERNAME_TAKEN);
-        if (!validPassword(password)) return AccountResult.failure(AccountFailure.INVALID_PASSWORD);
-        byte[] salt = new byte[PASSWORD_SALT_BYTES];
-        SECURE_RANDOM.nextBytes(salt);
-        byte[] verifier = derivePassword(password, salt, PASSWORD_ITERATIONS);
-        if (verifier == null) return AccountResult.failure(AccountFailure.STORAGE_ERROR);
+        if (hash == null) return AccountResult.failure(AccountFailure.STORAGE_ERROR);
         UUID accountId = UUID.randomUUID();
         UUID workspaceId = UUID.randomUUID();
         String displayUsername = requestedUsername.trim();
         Account account = new Account(accountId, username, displayUsername, workspaceId,
-                Base64.getEncoder().encodeToString(salt), Base64.getEncoder().encodeToString(verifier),
-                PASSWORD_ITERATIONS);
+                hash.salt(), hash.verifier(), hash.iterations());
         accounts.put(accountId, account);
         accountIdByUsername.put(username, accountId);
-        workspaceSnapshots.put(workspaceId, new CompoundTag());
+        accountByWorkspace.put(workspaceId, accountId);
         setDirty();
-        Arrays.fill(verifier, (byte) 0);
         return AccountResult.success(account.publicAccount());
     }
 
-    public synchronized AccountResult authenticate(String requestedUsername, String password) {
-        String username = normalizeUsername(requestedUsername);
-        Account account = accounts.get(accountIdByUsername.get(username));
-        byte[] salt = account == null ? new byte[PASSWORD_SALT_BYTES] : decodeBase64(account.salt());
-        byte[] expected = account == null ? new byte[PASSWORD_HASH_BYTES] : decodeBase64(account.verifier());
-        byte[] actual = derivePassword(password == null ? "" : password, salt, account == null ? PASSWORD_ITERATIONS : account.iterations());
-        boolean valid = actual != null && MessageDigest.isEqual(expected, actual) && account != null;
-        Arrays.fill(salt, (byte) 0);
-        Arrays.fill(expected, (byte) 0);
-        if (actual != null) Arrays.fill(actual, (byte) 0);
-        return valid ? AccountResult.success(account.publicAccount()) : AccountResult.failure(AccountFailure.INVALID_CREDENTIALS);
+    public AccountResult authenticate(String requestedUsername, String password) {
+        CredentialCheck check = prepareAuthentication(requestedUsername);
+        return completeAuthentication(check, verifyCredentials(check, password));
     }
 
-    public synchronized AccountResult changePassword(UUID accountId, String newPassword) {
-        Account account = accounts.get(accountId);
-        if (account == null) return AccountResult.failure(AccountFailure.INVALID_CREDENTIALS);
-        if (!validPassword(newPassword)) return AccountResult.failure(AccountFailure.INVALID_PASSWORD);
+    public synchronized CredentialCheck prepareAuthentication(String requestedUsername) {
+        String username = normalizeUsername(requestedUsername);
+        Account account = accounts.get(accountIdByUsername.get(username));
+        if (account == null) {
+            return new CredentialCheck(null, new byte[PASSWORD_SALT_BYTES], new byte[PASSWORD_HASH_BYTES], PASSWORD_ITERATIONS, null);
+        }
+        return new CredentialCheck(account.accountId(), decodeBase64(account.salt()), decodeBase64(account.verifier()),
+                account.iterations(), account.verifier());
+    }
+
+    public static boolean verifyCredentials(CredentialCheck check, String password) {
+        byte[] actual = derivePassword(password == null ? "" : password, check.salt(), check.iterations());
+        boolean valid = actual != null && MessageDigest.isEqual(check.expected(), actual) && check.accountId() != null;
+        Arrays.fill(check.salt(), (byte) 0);
+        Arrays.fill(check.expected(), (byte) 0);
+        if (actual != null) Arrays.fill(actual, (byte) 0);
+        return valid;
+    }
+
+    public synchronized AccountResult completeAuthentication(CredentialCheck check, boolean valid) {
+        Account account = check.accountId() == null ? null : accounts.get(check.accountId());
+        if (!valid || account == null || !account.verifier().equals(check.verifier())) {
+            return AccountResult.failure(AccountFailure.INVALID_CREDENTIALS);
+        }
+        return AccountResult.success(account.publicAccount());
+    }
+
+    public static PasswordHash hashPassword(String password) {
+        if (!validPassword(password)) return null;
         byte[] salt = new byte[PASSWORD_SALT_BYTES];
         SECURE_RANDOM.nextBytes(salt);
-        byte[] verifier = derivePassword(newPassword, salt, PASSWORD_ITERATIONS);
-        if (verifier == null) return AccountResult.failure(AccountFailure.STORAGE_ERROR);
-        accounts.put(accountId, new Account(account.accountId(), account.username(), account.displayUsername(),
-                account.workspaceId(), Base64.getEncoder().encodeToString(salt),
-                Base64.getEncoder().encodeToString(verifier), PASSWORD_ITERATIONS));
-        setDirty();
+        byte[] verifier = derivePassword(password, salt, PASSWORD_ITERATIONS);
+        if (verifier == null) return null;
+        PasswordHash hash = new PasswordHash(Base64.getEncoder().encodeToString(salt),
+                Base64.getEncoder().encodeToString(verifier), PASSWORD_ITERATIONS);
         Arrays.fill(verifier, (byte) 0);
+        return hash;
+    }
+
+    public static PasswordChange derivePasswordChange(CredentialCheck check, String currentPassword, String newPassword) {
+        boolean verified = verifyCredentials(check, currentPassword);
+        if (!verified) return new PasswordChange(false, false, null);
+        if (!validPassword(newPassword)) return new PasswordChange(true, false, null);
+        return new PasswordChange(true, true, hashPassword(newPassword));
+    }
+
+    public AccountResult changePassword(UUID accountId, String newPassword) {
+        if (account(accountId) == null) return AccountResult.failure(AccountFailure.INVALID_CREDENTIALS);
+        if (!validPassword(newPassword)) return AccountResult.failure(AccountFailure.INVALID_PASSWORD);
+        return completePasswordChange(accountId, null, hashPassword(newPassword));
+    }
+
+    public synchronized AccountResult completePasswordChange(UUID accountId, String expectedVerifier, PasswordHash hash) {
+        Account account = accounts.get(accountId);
+        if (account == null || expectedVerifier != null && !expectedVerifier.equals(account.verifier())) {
+            return AccountResult.failure(AccountFailure.INVALID_CREDENTIALS);
+        }
+        if (hash == null) return AccountResult.failure(AccountFailure.STORAGE_ERROR);
+        accounts.put(accountId, new Account(account.accountId(), account.username(), account.displayUsername(),
+                account.workspaceId(), hash.salt(), hash.verifier(), hash.iterations()));
+        setDirty();
         return AccountResult.success(accounts.get(accountId).publicAccount());
     }
+
+    public record CredentialCheck(UUID accountId, byte[] salt, byte[] expected, int iterations, String verifier) { }
+    public record PasswordHash(String salt, String verifier, int iterations) { }
+    public record PasswordChange(boolean verified, boolean validPassword, PasswordHash hash) { }
 
     public synchronized AccountInfo account(UUID accountId) {
         Account account = accounts.get(accountId);
@@ -335,8 +475,7 @@ public final class ComputerWorkspaceData extends SavedData {
         if (ownerId == null || !accounts.containsKey(ownerId) || teamByAccount.containsKey(ownerId)) return false;
         UUID teamId = UUID.randomUUID();
         Team team = new Team(teamId, ownerId);
-        CompoundTag snapshot = workspaceSnapshots.get(accounts.get(ownerId).workspaceId());
-        if (snapshot != null) team.progress.load(snapshot.getCompound("TaskProgress"));
+        team.progress.load(shard(ownerId).snapshot.getCompound("TaskProgress"));
         team.members.add(ownerId);
         teams.put(teamId, team);
         teamByAccount.put(ownerId, teamId);
@@ -363,11 +502,10 @@ public final class ComputerWorkspaceData extends SavedData {
         if (accountId == null || invite == null || !invite.recipientId().equals(accountId) || teamByAccount.containsKey(accountId)) return false;
         Team team = teams.get(invite.teamId());
         if (team == null) { teamInvites.remove(inviteId); setDirty(); return false; }
-        Account account = accounts.get(accountId);
-        CompoundTag snapshot = workspaceSnapshots.get(account.workspaceId());
-        if (snapshot != null) {
+        ComputerAccountShard shard = accountShard(accountId);
+        if (shard != null) {
             ComputerTaskProgress personal = new ComputerTaskProgress();
-            personal.load(snapshot.getCompound("TaskProgress"));
+            personal.load(shard.snapshot.getCompound("TaskProgress"));
             team.progress.mergeFrom(personal);
         }
         team.members.add(accountId);
@@ -438,13 +576,17 @@ public final class ComputerWorkspaceData extends SavedData {
     }
 
     private void persistTeamProgressToAccount(Team team, UUID accountId) {
-        Account account = accounts.get(accountId);
-        if (account == null) return;
-        CompoundTag snapshot = workspaceSnapshots.computeIfAbsent(account.workspaceId(), ignored -> new CompoundTag());
+        ComputerAccountShard shard = accountShard(accountId);
+        if (shard == null) return;
         ComputerTaskProgress personal = new ComputerTaskProgress();
-        personal.load(snapshot.getCompound("TaskProgress"));
+        personal.load(shard.snapshot.getCompound("TaskProgress"));
         personal.mergeFrom(team.progress);
-        snapshot.put("TaskProgress", personal.save());
+        CompoundTag saved = personal.save();
+        if (saved.equals(shard.snapshot.get("TaskProgress"))) return;
+        CompoundTag next = shallowCopy(shard.snapshot);
+        next.put("TaskProgress", saved);
+        shard.snapshot = next;
+        shard.setDirty();
     }
 
     public synchronized List<AccountInfo> accounts() {
@@ -452,53 +594,123 @@ public final class ComputerWorkspaceData extends SavedData {
     }
 
     public synchronized List<ResourceLocation> profileDisks(UUID accountId) {
-        return List.copyOf(profileDisks.getOrDefault(accountId, Set.of()));
+        ComputerAccountShard shard = accountShard(accountId);
+        return shard == null ? List.of() : List.copyOf(shard.profileDisks);
+    }
+
+    public synchronized List<ResourceLocation> collectedDisks(UUID accountId) {
+        ComputerAccountShard shard = accountShard(accountId);
+        return shard == null ? List.of() : List.copyOf(shard.collectedDisks);
+    }
+
+    public synchronized DiskProfileState diskState(UUID accountId) {
+        ComputerAccountShard shard = accountShard(accountId);
+        if (shard == null) throw new IllegalArgumentException("Unknown disk profile");
+        return shard.diskState;
+    }
+
+    public synchronized List<ResourceLocation> activatedDisks(UUID accountId) {
+        return accountId == null || !accounts.containsKey(accountId) ? List.of() : diskState(accountId).activatedDisks();
+    }
+
+    public synchronized boolean claimDiskRewards(UUID accountId, ResourceLocation diskId) {
+        ComputerAccountShard shard = diskId == null ? null : accountShard(accountId);
+        if (shard == null || !shard.collectedDisks.contains(diskId)) return false;
+        if (shard.diskRewardReceipts.putIfAbsent(diskId, "[]") != null) return false;
+        shard.setDirty();
+        return true;
+    }
+
+    public synchronized void recordDiskRewardReceipt(UUID accountId, ResourceLocation diskId, String receipt) {
+        ComputerAccountShard shard = accountShard(accountId);
+        if (shard == null) return;
+        Map<ResourceLocation, String> receipts = shard.diskRewardReceipts;
+        if (!receipts.containsKey(diskId) || receipt == null || receipt.equals(receipts.get(diskId))) return;
+        receipts.put(diskId, receipt);
+        shard.setDirty();
+    }
+
+    public synchronized Map<ResourceLocation, String> diskRewardReceipts(UUID accountId) {
+        ComputerAccountShard shard = accountShard(accountId);
+        return shard == null ? Map.of() : Map.copyOf(shard.diskRewardReceipts);
     }
 
     public synchronized boolean addProfileDisk(UUID accountId, ResourceLocation diskId) {
-        if (accountId == null || diskId == null || !accounts.containsKey(accountId)) return false;
-        boolean changed = profileDisks.computeIfAbsent(accountId, ignored -> new LinkedHashSet<>()).add(diskId);
-        if (changed) setDirty();
+        ComputerAccountShard shard = diskId == null ? null : accountShard(accountId);
+        if (shard == null) return false;
+        boolean changed = shard.profileDisks.add(diskId);
+        boolean collected = shard.collectedDisks.add(diskId);
+        if (changed || collected) shard.setDirty();
         return changed;
     }
 
     public synchronized boolean removeProfileDisk(UUID accountId, ResourceLocation diskId) {
-        Set<ResourceLocation> disks = profileDisks.get(accountId);
-        if (disks == null || !disks.remove(diskId)) return false;
-        setDirty();
+        ComputerAccountShard shard = accountShard(accountId);
+        if (shard == null || !shard.profileDisks.remove(diskId)) return false;
+        shard.setDirty();
         return true;
     }
 
     public synchronized CompoundTag workspaceSnapshot(UUID workspaceId) {
-        CompoundTag snapshot = workspaceId == null ? null : workspaceSnapshots.get(workspaceId);
-        return snapshot == null ? null : snapshot.copy();
+        ComputerAccountShard shard = workspaceShard(workspaceId);
+        return shard == null ? null : shard.snapshot.copy();
     }
 
     public synchronized CompoundTag workspaceSection(UUID workspaceId, String key) {
-        CompoundTag snapshot = workspaceId == null ? null : workspaceSnapshots.get(workspaceId);
-        return snapshot == null ? null : snapshot.getCompound(key).copy();
+        ComputerAccountShard shard = workspaceShard(workspaceId);
+        return shard == null ? null : shard.snapshot.getCompound(key).copy();
+    }
+
+    synchronized boolean readWorkspaceSnapshot(UUID workspaceId, java.util.function.Consumer<CompoundTag> reader) {
+        ComputerAccountShard shard = workspaceShard(workspaceId);
+        if (shard == null) return false;
+        reader.accept(shard.snapshot);
+        return true;
     }
 
     public synchronized boolean saveWorkspaceSection(UUID workspaceId, String key, CompoundTag section) {
-        if (workspaceId == null || section == null || !isAccountWorkspace(workspaceId)) return false;
-        CompoundTag snapshot = workspaceSnapshots.computeIfAbsent(workspaceId, ignored -> new CompoundTag());
-        CompoundTag copy = section.copy();
-        if (copy.equals(snapshot.get(key))) return true;
-        snapshot.put(key, copy);
-        setDirty();
+        ComputerAccountShard shard = section == null ? null : workspaceShard(workspaceId);
+        if (shard == null) return false;
+        if (section.equals(shard.snapshot.get(key))) return true;
+        CompoundTag next = shallowCopy(shard.snapshot);
+        next.put(key, section.copy());
+        shard.snapshot = next;
+        shard.setDirty();
         return true;
+    }
+
+    synchronized boolean saveOwnedWorkspaceSections(UUID workspaceId, Map<String, Tag> sections) {
+        ComputerAccountShard shard = sections == null ? null : workspaceShard(workspaceId);
+        if (shard == null) return false;
+        CompoundTag snapshot = shard.snapshot;
+        CompoundTag next = null;
+        for (Map.Entry<String, Tag> section : sections.entrySet()) {
+            if (section.getValue() == null || section.getValue().equals(snapshot.get(section.getKey()))) continue;
+            if (next == null) next = shallowCopy(snapshot);
+            next.put(section.getKey(), section.getValue());
+        }
+        if (next == null) return true;
+        shard.snapshot = next;
+        shard.setDirty();
+        return true;
+    }
+
+    private static CompoundTag shallowCopy(CompoundTag tag) {
+        CompoundTag copy = new CompoundTag();
+        if (tag != null) {
+            for (String key : tag.getAllKeys()) copy.put(key, tag.get(key));
+        }
+        return copy;
     }
 
     public synchronized boolean saveWorkspaceSnapshot(UUID workspaceId, CompoundTag snapshot) {
-        if (workspaceId == null || snapshot == null || !isAccountWorkspace(workspaceId)) return false;
+        ComputerAccountShard shard = snapshot == null ? null : workspaceShard(workspaceId);
+        if (shard == null) return false;
         CompoundTag copy = snapshot.copy();
-        CompoundTag previous = workspaceSnapshots.put(workspaceId, copy);
-        if (previous == null || !previous.equals(copy)) setDirty();
+        CompoundTag previous = shard.snapshot;
+        shard.snapshot = copy;
+        if (!previous.equals(copy)) shard.setDirty();
         return true;
-    }
-
-    private boolean isAccountWorkspace(UUID workspaceId) {
-        return accounts.values().stream().anyMatch(account -> account.workspaceId().equals(workspaceId));
     }
 
     public static String normalizeUsername(String username) {
@@ -547,7 +759,7 @@ public final class ComputerWorkspaceData extends SavedData {
     public synchronized ComputerTaskProgress progress(UUID workspaceId) {
         ComputerTaskProgress result = new ComputerTaskProgress();
         CompoundTag saved = workspaceId == null ? null : workspaces.get(workspaceId);
-        if (saved != null) result.load(saved.copy());
+        if (saved != null) result.load(saved);
         return result;
     }
 
@@ -580,7 +792,7 @@ public final class ComputerWorkspaceData extends SavedData {
         for (Map.Entry<UUID, CompoundTag> entry : workspaces.entrySet()) {
             CompoundTag row = new CompoundTag();
             row.putString("Id", entry.getKey().toString());
-            row.put("Progress", entry.getValue().copy());
+            row.put("Progress", entry.getValue());
             rows.add(row);
         }
         tag.put(WORKSPACES_TAG, rows);
@@ -592,7 +804,12 @@ public final class ComputerWorkspaceData extends SavedData {
             owners.add(row);
         }
         tag.put(OWNERS_TAG, owners);
+        pendingMigrations.removeIf(accountId -> {
+            ComputerAccountShard shard = shards.get(accountId);
+            return shard == null || shard.persisted();
+        });
         ListTag accountRows = new ListTag();
+        ListTag snapshotRows = new ListTag();
         for (Account account : accounts.values()) {
             CompoundTag row = new CompoundTag();
             row.putInt("Schema", ACCOUNT_SCHEMA);
@@ -603,22 +820,23 @@ public final class ComputerWorkspaceData extends SavedData {
             row.putString("Salt", account.salt());
             row.putString("Verifier", account.verifier());
             row.putInt("Iterations", account.iterations());
-            ListTag disks = new ListTag();
-            for (ResourceLocation diskId : profileDisks.getOrDefault(account.accountId(), Set.of())) {
-                disks.add(net.minecraft.nbt.StringTag.valueOf(diskId.toString()));
+            CompoundTag legacy = legacyAccountData(account.accountId());
+            if (legacy != null) {
+                for (String key : LEGACY_ACCOUNT_KEYS) {
+                    Tag value = legacy.get(key);
+                    if (value != null) row.put(key, value);
+                }
+                if (legacy.contains(ComputerAccountShard.SNAPSHOT_TAG)) {
+                    CompoundTag snapshotRow = new CompoundTag();
+                    snapshotRow.putString("Workspace", account.workspaceId().toString());
+                    snapshotRow.put("Data", legacy.getCompound(ComputerAccountShard.SNAPSHOT_TAG));
+                    snapshotRows.add(snapshotRow);
+                }
             }
-            row.put("Disks", disks);
             accountRows.add(row);
         }
         tag.put(ACCOUNTS_TAG, accountRows);
-        ListTag snapshotRows = new ListTag();
-        for (Map.Entry<UUID, CompoundTag> entry : workspaceSnapshots.entrySet()) {
-            CompoundTag row = new CompoundTag();
-            row.putString("Workspace", entry.getKey().toString());
-            row.put("Data", entry.getValue().copy());
-            snapshotRows.add(row);
-        }
-        tag.put(SNAPSHOTS_TAG, snapshotRows);
+        if (!snapshotRows.isEmpty()) tag.put(SNAPSHOTS_TAG, snapshotRows);
         ListTag faceIdLinks = new ListTag();
         for (Map.Entry<UUID, UUID> entry : faceIdAccountByPlayer.entrySet()) {
             CompoundTag row = new CompoundTag();

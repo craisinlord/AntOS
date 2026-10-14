@@ -13,6 +13,8 @@ public final class ComputerAccessClientState {
 
     public static void clearAll() {
         RESULTS.clear();
+        DiskRewardsClientState.clearAll();
+        ComputerProgramClientState.clearAll();
         ComputerTasksClientState.clearAll();
         ComputerStructureLocatorClientState.clearAll();
         ComputerTerminalClientState.clearAll();
@@ -23,15 +25,18 @@ public final class ComputerAccessClientState {
     }
 
     public static void update(ComputerAccessResultPayload result) {
+        DiskRewardsClientState.update(result);
+        ComputerProgramClientState.update(result);
         com.craisinlord.antos.content.client.game.BlockleClientState.update(result);
         ComputerTasksClientState.update(result);
         ComputerStructureLocatorClientState.update(result);
         ComputerTerminalClientState.update(result);
         AntazonClientState.update(result);
+        ComputerNotificationClientState.update(result);
         if (result.data().startsWith(com.craisinlord.antos.content.network.ComputerAccessPayload.ARCHIVE_STATE + "\0")) {
-            String[] envelope = result.data().split("\u0000", 3);
-            if (envelope.length == 3) {
-                com.craisinlord.antos.content.guide.ComputerGuideData.applyNetworkSnapshot(envelope[2]);
+            String[] envelope = result.data().split("\u0000", 4);
+            if (envelope.length >= 3) {
+                if (envelope.length == 4) com.craisinlord.antos.content.guide.ComputerGuideData.applyNetworkSnapshot(envelope[3]);
                 ComputerArchiveUnlockClientState.update(envelope[2]);
             }
         }
@@ -46,6 +51,7 @@ public final class ComputerAccessClientState {
     public static void clear() {
         RESULTS.remove(ComputerWorkspaceClientKey.of());
         ComputerTasksClientState.clearTransient();
+        ComputerProgramClientState.clear();
         ComputerArchiveUnlockClientState.clear();
         ComputerTerminalClientState.clear();
         AntazonClientState.clear();

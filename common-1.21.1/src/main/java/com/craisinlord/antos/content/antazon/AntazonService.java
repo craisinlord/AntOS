@@ -2,6 +2,7 @@ package com.craisinlord.antos.content.antazon;
 
 import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.computer.ComputerWorkspace;
+import com.craisinlord.antos.content.computer.ComputerWorkspaceData;
 import com.craisinlord.antos.content.computer.ComputerTasks;
 import com.craisinlord.antos.content.entity.RewardDropEntity;
 import net.minecraft.core.BlockPos;
@@ -28,6 +29,7 @@ import java.util.UUID;
 
 public final class AntazonService {
     private static final long MINECRAFT_DAY = 24000L;
+    private static final Map<ServerPlayer, InventorySnapshot> INVENTORIES = new java.util.WeakHashMap<>();
 
     private AntazonService() { }
 
@@ -297,14 +299,68 @@ public final class AntazonService {
     public static long owned(ServerPlayer player, AntazonServerData data, UUID account, AntazonData.Payment payment) {
         if (payment.type().equals("antcoins")) return data.wallet(account);
         if (!payment.type().equals("item")) return 0L;
-        java.util.function.Predicate<ItemStack> matches = AntazonTags.matcher(payment.resource());
-        if (matches == null) return 0L;
-        long count = 0L;
-        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
-            ItemStack stack = player.getInventory().getItem(slot);
-            if (matches.test(stack)) count += stack.getCount();
+        return inventory(player).owned(payment.resource());
+    }
+
+    private static InventorySnapshot inventory(ServerPlayer player) {
+        int tick = player.server.getTickCount();
+        synchronized (INVENTORIES) {
+            InventorySnapshot snapshot = INVENTORIES.get(player);
+            if (snapshot == null || !snapshot.matches(player.getInventory(), tick)) {
+                snapshot = InventorySnapshot.capture(player.getInventory(), tick);
+                INVENTORIES.put(player, snapshot);
+            }
+            return snapshot;
         }
-        return count;
+    }
+
+    private static final class InventorySnapshot {
+        private final int tick;
+        private final ItemStack[] stacks;
+        private final int[] counts;
+        private final Map<Item, ItemStack> samples = new LinkedHashMap<>();
+        private final Map<Item, Long> totals = new LinkedHashMap<>();
+        private final Map<String, Long> owned = new java.util.HashMap<>();
+
+        private InventorySnapshot(int tick, int size) {
+            this.tick = tick;
+            this.stacks = new ItemStack[size];
+            this.counts = new int[size];
+        }
+
+        static InventorySnapshot capture(net.minecraft.world.entity.player.Inventory inventory, int tick) {
+            InventorySnapshot snapshot = new InventorySnapshot(tick, inventory.getContainerSize());
+            for (int slot = 0; slot < snapshot.stacks.length; slot++) {
+                ItemStack stack = inventory.getItem(slot);
+                snapshot.stacks[slot] = stack;
+                snapshot.counts[slot] = stack.getCount();
+                if (stack.isEmpty()) continue;
+                snapshot.samples.putIfAbsent(stack.getItem(), stack);
+                snapshot.totals.merge(stack.getItem(), (long) stack.getCount(), Long::sum);
+            }
+            return snapshot;
+        }
+
+        boolean matches(net.minecraft.world.entity.player.Inventory inventory, int currentTick) {
+            if (tick != currentTick || inventory.getContainerSize() != stacks.length) return false;
+            for (int slot = 0; slot < stacks.length; slot++) {
+                ItemStack stack = inventory.getItem(slot);
+                if (stack != stacks[slot] || stack.getCount() != counts[slot]) return false;
+            }
+            return true;
+        }
+
+        long owned(String resource) {
+            Long cached = owned.get(resource);
+            if (cached != null) return cached;
+            java.util.function.Predicate<ItemStack> matches = AntazonTags.matcher(resource);
+            long count = 0L;
+            if (matches != null) for (Map.Entry<Item, Long> entry : totals.entrySet()) {
+                if (matches.test(samples.get(entry.getKey()))) count += entry.getValue();
+            }
+            owned.put(resource, count);
+            return count;
+        }
     }
 
     public static Manifest manifest(ServerPlayer player, ComputerWorkspace computer) {
@@ -361,7 +417,8 @@ public final class AntazonService {
                     (previous == null ? 0 : previous.returnedCount()) + excess,
                     (previous != null && previous.overLimit()) || (rule != null && !ruleLocked && excess > 0 && rule.limit() > 0),
                     ruleLocked || (previous != null && previous.locked()),
-                    rule == null ? "all" : rule.unlockMode(), rule == null ? List.of() : rule.unlockTasks()));
+                    rule == null ? "all" : rule.unlockMode(), rule == null ? List.of() : rule.unlockTasks(), rule == null ? List.of() : rule.unlockDisks(),
+                    rule == null ? List.of() : rule.unlockCommands()));
             unsupported |= rule == null;
             locked |= ruleLocked;
             acceptedTotal += available;
@@ -374,7 +431,7 @@ public final class AntazonService {
             if (rule == null || rule.limit() <= 0) continue;
             int remaining = (int) Math.max(0L, (long) rule.limit() - sellLimitUsage(data, owner, rule, day) - pendingByLimit.getOrDefault(rule.limitKey(), 0));
             entries.put(entry.getKey(), new ManifestEntry(row.item(), row.count(), row.value(), row.sellable(), row.greenTint(), row.renderMobFromSpawnEgg(),
-                    row.limit(), row.limitReset(), remaining, row.acceptedCount(), row.returnedCount(), row.overLimit(), row.locked(), row.unlockMode(), row.unlockTasks()));
+                    row.limit(), row.limitReset(), remaining, row.acceptedCount(), row.returnedCount(), row.overLimit(), row.locked(), row.unlockMode(), row.unlockTasks(), row.unlockDisks(), row.unlockCommands()));
         }
         long total = entries.values().stream().mapToLong(ManifestEntry::value).sum();
         String status = !hasItems ? "crate_empty" : unsupported ? "unsupported_items" : locked ? "task_locked"
@@ -396,16 +453,8 @@ public final class AntazonService {
     }
 
     public static boolean sellRuleUnlocked(ServerPlayer player, ComputerWorkspace computer, AntazonSellData.Rule rule) {
-        if (rule == null || rule.unlockTasks().isEmpty()) return true;
-        boolean any = rule.unlockMode().equals("any");
-        for (ResourceLocation task : rule.unlockTasks()) {
-            boolean complete = ComputerTasks.isTaskComplete(player, computer, task);
-            if (any && complete) return true;
-            if (!any && !complete) return false;
-        }
-        return !any;
+        return rule == null || requirementsMet(player, computer, rule.unlockTasks(), rule.unlockDisks(), rule.unlockCommands(), rule.unlockMode());
     }
-
     public static List<AntazonSellData.Rule> visibleSellRules(ServerPlayer player, ComputerWorkspace computer) {
         return priceList().stream().filter(rule -> !rule.hiddenUntilUnlocked() || sellRuleUnlocked(player, computer, rule)).toList();
     }
@@ -554,16 +603,19 @@ public final class AntazonService {
     }
 
     public static boolean unlocked(ServerPlayer player, ComputerWorkspace computer, AntazonData.Product product) {
-        if (product.unlockTasks().isEmpty()) return true;
-        boolean any = product.unlockMode().equals("any");
-        for (ResourceLocation task : product.unlockTasks()) {
-            boolean complete = ComputerTasks.isTaskComplete(player, computer, task);
-            if (any && complete) return true;
-            if (!any && !complete) return false;
-        }
-        return !any;
+        return requirementsMet(player, computer, product.unlockTasks(), product.unlockDisks(), product.unlockCommands(), product.unlockMode());
     }
 
+    private static boolean requirementsMet(ServerPlayer player, ComputerWorkspace computer, List<ResourceLocation> tasks, List<ResourceLocation> disks,
+                                           List<ResourceLocation> commands, String mode) {
+        var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+        ComputerWorkspaceData workspaceData = account == null ? null : ComputerWorkspaceData.access(player.server);
+        com.craisinlord.antos.content.computer.DiskProfileState diskState = workspaceData == null || workspaceData.account(account.accountId()) == null
+                ? null : workspaceData.diskState(account.accountId());
+        return AntazonUnlocks.test(tasks, disks, commands, mode, task -> ComputerTasks.isTaskComplete(player, computer, task),
+                disk -> diskState != null && diskState.activated(disk),
+                command -> com.craisinlord.antos.content.computer.terminal.TerminalCommands.ran(player, command));
+    }
     private static long resetMarker(String reset, long day) {
         return switch (reset) {
             case "minecraft_day" -> day;
@@ -733,7 +785,7 @@ public final class AntazonService {
 
     public record ManifestEntry(ResourceLocation item, int count, long value, boolean sellable, boolean greenTint, boolean renderMobFromSpawnEgg,
                                 int limit, String limitReset, int remaining, int acceptedCount, int returnedCount, boolean overLimit, boolean locked, String unlockMode,
-                                List<ResourceLocation> unlockTasks) { }
+                                List<ResourceLocation> unlockTasks, List<ResourceLocation> unlockDisks, List<ResourceLocation> unlockCommands) { }
 
     public record ReviewResult(boolean success, String status) {
         static ReviewResult accepted() { return new ReviewResult(true, "review_accepted"); }

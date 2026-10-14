@@ -38,6 +38,8 @@ import com.craisinlord.antos.content.computer.terminal.TerminalCommandParser;
 import com.craisinlord.antos.content.computer.terminal.TerminalResult;
 import com.craisinlord.antos.config.AntOSSettings;
 import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.GlConst;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -69,6 +71,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.HashMap;
@@ -93,7 +96,7 @@ public final class ComputerScreen extends Screen {
     public static void clearCachedSessions() {
         SESSIONS.clear();
     }
-    private static final String[] ICONS = {"ARCHIVE", "FILES", "SETTINGS", "TASKS", "TERMINAL", "TEXT", "PAINT", "ANTMAIL", "ANTAZON", "GAMES", "TRASH"};
+    private static final String[] ICONS = {"ARCHIVE", "FILES", "SETTINGS", "TASKS", "TERMINAL", "TEXT", "PAINT", "ANTMAIL", "ANTAZON", "GAMES", "DISKS"};
     private static final Map<ResourceLocation, int[]> WALLPAPER_TEXTURE_SIZES = new HashMap<>();
     private final String sessionKey;
     final Session session;
@@ -113,9 +116,11 @@ public final class ComputerScreen extends Screen {
     long faceIdRevisionAtRequest;
     boolean faceIdExpectedLinked;
     final GamesApp games = new GamesApp();
-    final TrashApp trash = new TrashApp();
     final TasksApp tasks = new TasksApp();
     private ComputerAccessResultPayload accessResult;
+    private com.craisinlord.antos.content.client.DiskRewardsClientState.Award diskRewardToast;
+    private int diskRewardToastTicks;
+    private String diskRewardToastKey = "";
     private int observedResult = -1;
     private Window dragging;
     private int dragX;
@@ -128,14 +133,32 @@ public final class ComputerScreen extends Screen {
     private static final Set<String> unavailableArchiveEntities = new HashSet<>();
     private static final Map<String, ItemStack> archiveItemStacks = new HashMap<>();
     private static Object archivePreviewLevel;
+    private static final Map<String, ItemStack> archiveEnchantedBooks = new HashMap<>();
+    private static final Map<String, ItemStack> archivePotionStacks = new HashMap<>();
+    private static final Map<String, Optional<ResourceLocation>> WALLPAPER_TEXTURES = new HashMap<>();
+    private static final int MAX_WRAP_CACHE = 512;
+    private static final int[][] BADGE_RECTS = badgeRects();
+    private final Map<WrapKey, List<net.minecraft.util.FormattedCharSequence>> wrapCache = new LinkedHashMap<>(128, 0.75F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<WrapKey, List<net.minecraft.util.FormattedCharSequence>> eldest) {
+            return size() > MAX_WRAP_CACHE;
+        }
+    };
+    private Object wrapLanguage;
+    private long clockMinute = -1L;
+    private String clockLabel = "";
+    private List<String> frameDesktopApps;
+    private String parsedWallpaperId;
+    private ResourceLocation parsedWallpaperLocation;
 
     public ComputerScreen() {
         super(Component.translatable("screen.antos.computer"));
+        PixelIcons.clear();
         var accountResult = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
         this.sessionKey = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
         this.session = SESSIONS.computeIfAbsent(sessionKey, ignored -> new Session());
         this.session.attach(this);
-        for (ComputerApp app : List.of(tasks, games, trash)) app.attach(this);
+        for (ComputerApp app : List.of(tasks, games)) app.attach(this);
         this.loggedIn = accountResult != null && accountResult.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS;
         if (!loggedIn || AntOSSettings.hasCompletedComputerTour(accountResult.accountId())) {
             this.session.onboardingCompleted = true;
@@ -144,7 +167,7 @@ public final class ComputerScreen extends Screen {
             this.session.onboardingCompleted = false;
             this.session.onboardingStep = 0;
         }
-        this.session.windows.removeIf(window -> window.type.equals("GAMES") && window.gameOpen);
+        this.session.windows.removeIf(window -> window.type.equals("GAMES") && (window.gameOpen || window.programOpen));
         if (this.session.bootTicks < 0) this.session.bootTicks = AntOSSettings.consumeInitialBoot() ? 80 : 0;
         ComputerAccessClientState.clear();
         ComputerNetworking.open();
@@ -258,12 +281,23 @@ public final class ComputerScreen extends Screen {
             }
         }
         session.terminal.tick();
+        if (loggedIn && !diskRewardToastKey.equals(com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of())) {
+            diskRewardToastKey = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
+            diskRewardToast = null;
+            diskRewardToastTicks = 0;
+        }
+        if (loggedIn && --diskRewardToastTicks <= 0) {
+            diskRewardToast = com.craisinlord.antos.content.client.DiskRewardsClientState.poll();
+            if (diskRewardToast != null) diskRewardToastTicks = 140;
+        }
         if (activeWindow != null && activeWindow.type.equals("GAMES")) games.tick(activeWindow);
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(graphics, mouseX, mouseY, partialTick);
+    public void render(GuiGraphics source, int mouseX, int mouseY, float partialTick) {
+        if (archivePreviewLevel != null && archivePreviewLevel != Minecraft.getInstance().level) clearArchivePreviews();
+        this.renderBackground(source, mouseX, mouseY, partialTick);
+        GuiGraphics graphics = new com.craisinlord.antos.content.client.ThemedGraphics(source);
         float scale = uiScale();
         graphics.pose().pushPose();
         graphics.pose().translate(width / 2.0F, height / 2.0F, 0.0F);
@@ -279,6 +313,7 @@ public final class ComputerScreen extends Screen {
         graphics.fill(left + 5, top + 5, left + WIDTH - 5, top + HEIGHT - 5, DARK_GREEN);
         if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, localMouseX, localMouseY); else renderLogin(graphics, left, top);
         graphics.pose().popPose();
+        graphics.flush();
     }
 
     float uiScale() {
@@ -355,6 +390,7 @@ public final class ComputerScreen extends Screen {
         session.mouseY = mouseY;
         session.archiveMouseX = mouseX;
         session.archiveMouseY = mouseY;
+        frameDesktopApps = desktopApps();
         g.drawManaged(() -> renderDesktopSurface(g, l, t, mouseX, mouseY));
         if (activeWindow != null && !activeWindow.minimized && session.windows.remove(activeWindow)) {
             session.windows.add(activeWindow);
@@ -363,7 +399,37 @@ public final class ComputerScreen extends Screen {
         for (Window window : session.windows) {
             if (!window.minimized) renderWindow(g, window, l, t, mouseX, mouseY, layer++);
         }
-        if (!session.onboardingCompleted) renderOnboarding(g, l, t, mouseX, mouseY);
+        if (!session.onboardingCompleted) {
+            beginLayer(g);
+            renderOnboarding(g, l, t, mouseX, mouseY);
+        }
+        if (diskRewardToast != null && diskRewardToastTicks > 0) renderDiskRewardToast(g, l, t, layer + 2);
+    }
+
+    void beginLayer(GuiGraphics g) {
+        g.flush();
+        RenderSystem.clear(GlConst.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
+    }
+
+    private void renderDiskRewardToast(GuiGraphics g, int l, int t, int layer) {
+        beginLayer(g);
+        g.pose().pushPose();
+        g.pose().translate(0, 0, layer * 10.0F);
+        try {
+            int rows = Math.min(4, diskRewardToast.rewards().size());
+            int h = 40 + rows * 12 + (diskRewardToast.rewards().size() > rows ? 12 : 0);
+            int x = l + WIDTH - 230;
+            int y = t + HEIGHT - h - 14;
+            g.fill(x, y, x + 216, y + h, BLACK);
+            box(g, x, y, x + 216, y + h, GREEN);
+            g.drawString(font, Component.translatable("computer.antos.disks.rewards_received"), x + 8, y + 7, GREEN, false);
+            g.drawString(font, trimToWidth(Component.translatable(diskRewardToast.title()).getString(), 198), x + 8, y + 21, PALE_GREEN, false);
+            for (int i = 0; i < rows; i++) g.drawString(font, trimToWidth("+ " + com.craisinlord.antos.content.client.DiskRewardsClientState.label(diskRewardToast.rewards().get(i)), 198), x + 8, y + 35 + i * 12, PALE_GREEN, false);
+            if (diskRewardToast.rewards().size() > rows) g.drawString(font, Component.translatable("computer.antos.disks.more_rewards"), x + 8, y + 35 + rows * 12, GREEN, false);
+        } finally {
+            g.flush();
+            g.pose().popPose();
+        }
     }
 
     private void renderDesktopSurface(GuiGraphics g, int l, int t, int mouseX, int mouseY) {
@@ -374,9 +440,14 @@ public final class ComputerScreen extends Screen {
         long dayTicks = Math.floorMod(dayTime, 24000L);
         int hours = (int) ((dayTicks / 1000L + 6L) % 24L);
         int minutes = (int) (dayTicks % 1000L * 60L / 1000L);
-        g.drawString(font, Component.literal(String.format("%02d:%02d", hours, minutes)), l + WIDTH - 48, t + 15, PALE_GREEN, false);
+        long minute = hours * 60L + minutes;
+        if (minute != clockMinute) {
+            clockMinute = minute;
+            clockLabel = String.format("%02d:%02d", hours, minutes);
+        }
+        g.drawString(font, Component.literal(clockLabel), l + WIDTH - 48, t + 15, PALE_GREEN, false);
         g.fill(l + 9, t + 31, l + WIDTH - 9, t + 33, GREEN);
-        List<String> desktopApps = desktopApps();
+        List<String> desktopApps = renderedDesktopApps();
         for (int i = 0; i < desktopApps.size(); i++) {
             String app = desktopApps.get(i);
             int x = desktopIconX(l, i);
@@ -391,13 +462,13 @@ public final class ComputerScreen extends Screen {
     }
 
     private void renderOnboarding(GuiGraphics g, int l, int t, int mouseX, int mouseY) {
-        List<String> apps = onboardingApps();
+        List<String> apps = renderedDesktopApps();
         int appStep = session.onboardingStep - 1;
         boolean welcome = session.onboardingStep == 0;
         g.fill(l + 9, t + 34, l + WIDTH - 9, t + HEIGHT - 9, 0xC4000000);
         if (!welcome && appStep >= 0 && appStep < apps.size()) {
             String app = apps.get(appStep);
-            int desktopIndex = desktopApps().indexOf(app);
+            int desktopIndex = renderedDesktopApps().indexOf(app);
             if (desktopIndex >= 0) {
                 int iconX = desktopIconX(l, desktopIndex);
                 int iconY = desktopIconY(t, desktopIndex);
@@ -490,6 +561,11 @@ public final class ComputerScreen extends Screen {
         return java.util.Arrays.stream(ICONS).filter(AntOSSettings::appEnabled).toList();
     }
 
+    private List<String> renderedDesktopApps() {
+        if (frameDesktopApps == null) frameDesktopApps = desktopApps();
+        return frameDesktopApps;
+    }
+
     private int desktopIconX(int left, int index) {
         return left + 28 + index % 4 * 104;
     }
@@ -499,14 +575,16 @@ public final class ComputerScreen extends Screen {
     }
 
     private void drawDesktopIcon(GuiGraphics g, String type, int x, int y) {
-        g.pose().pushPose();
-        g.pose().translate(x, y, 0.0F);
-        g.pose().scale(1.12F, 1.12F, 1.0F);
-        icon(g, type, 0, 0);
-        g.pose().popPose();
+        PixelIcons.desktop(g, type, x - PixelIcons.DESKTOP_SIZE / 2.0F, y - 3.5F);
     }
 
     private void drawNotificationBadge(GuiGraphics g, int x, int y) {
+        for (int[] rect : BADGE_RECTS) g.fill(x - 6 + rect[0], y - 6 + rect[1], x - 6 + rect[2], y - 6 + rect[3], rect[4] == 0 ? BLACK : GREEN);
+        g.fill(x - 1, y - 4, x + 1, y + 2, BLACK);
+        g.fill(x - 1, y + 3, x + 1, y + 5, BLACK);
+    }
+
+    private static int[][] badgeRects() {
         String[] circle = {
                 "....#####....",
                 "..##+++++##..",
@@ -522,16 +600,36 @@ public final class ComputerScreen extends Screen {
                 "..##+++++##..",
                 "....#####...."
         };
-        int badgeFill = GREEN;
+        List<int[]> rects = new ArrayList<>();
+        List<int[]> previous = new ArrayList<>();
         for (int row = 0; row < circle.length; row++) {
-            for (int column = 0; column < circle[row].length(); column++) {
+            List<int[]> current = new ArrayList<>();
+            int column = 0;
+            while (column < circle[row].length()) {
                 char pixel = circle[row].charAt(column);
-                if (pixel == '#') g.fill(x - 6 + column, y - 6 + row, x - 5 + column, y - 5 + row, BLACK);
-                else if (pixel == '+') g.fill(x - 6 + column, y - 6 + row, x - 5 + column, y - 5 + row, badgeFill);
+                if (pixel != '#' && pixel != '+') {
+                    column++;
+                    continue;
+                }
+                int start = column;
+                while (column < circle[row].length() && circle[row].charAt(column) == pixel) column++;
+                int color = pixel == '#' ? 0 : 1;
+                int[] rect = null;
+                for (int[] candidate : previous) {
+                    if (candidate[0] == start && candidate[2] == column && candidate[4] == color && candidate[3] == row) {
+                        rect = candidate;
+                        break;
+                    }
+                }
+                if (rect == null) {
+                    rect = new int[]{start, row, column, row + 1, color};
+                    rects.add(rect);
+                } else rect[3] = row + 1;
+                current.add(rect);
             }
+            previous = current;
         }
-        g.fill(x - 1, y - 4, x + 1, y + 2, BLACK);
-        g.fill(x - 1, y + 3, x + 1, y + 5, BLACK);
+        return rects.toArray(new int[0][]);
     }
 
     private void renderWallpaper(GuiGraphics g, int l, int t) {
@@ -541,7 +639,7 @@ public final class ComputerScreen extends Screen {
         int bottom = t + HEIGHT - 8;
         String wallpaperId = session.wallpaperId;
         ComputerGuideData.Wallpaper wallpaper;
-        try { wallpaper = ComputerGuideData.wallpaper(ResourceLocation.parse(wallpaperId)); }
+        try { wallpaper = ComputerGuideData.wallpaper(parsedWallpaper(wallpaperId)); }
         catch (RuntimeException exception) { wallpaper = null; }
         if (wallpaper != null && !wallpaper.textureId().isBlank() && drawWallpaperTexture(g, wallpaper, left, top, right - left, bottom - top)) return;
         int hash = wallpaperId.hashCode();
@@ -571,10 +669,35 @@ public final class ComputerScreen extends Screen {
         }
     }
 
+    private ResourceLocation parsedWallpaper(String wallpaperId) {
+        if (!wallpaperId.equals(parsedWallpaperId)) {
+            parsedWallpaperId = null;
+            parsedWallpaperLocation = ResourceLocation.parse(wallpaperId);
+            parsedWallpaperId = wallpaperId;
+        }
+        return parsedWallpaperLocation;
+    }
+
+    private static ResourceLocation wallpaperTexture(String textureIdValue) {
+        Optional<ResourceLocation> cached = WALLPAPER_TEXTURES.get(textureIdValue);
+        if (cached == null) {
+            ResourceLocation texture;
+            try {
+                ResourceLocation textureId = ResourceLocation.parse(textureIdValue);
+                texture = ResourceLocation.fromNamespaceAndPath(textureId.getNamespace(), "textures/" + textureId.getPath() + ".png");
+            } catch (RuntimeException exception) {
+                texture = null;
+            }
+            cached = Optional.ofNullable(texture);
+            WALLPAPER_TEXTURES.put(textureIdValue, cached);
+        }
+        return cached.orElse(null);
+    }
+
     boolean drawWallpaperTexture(GuiGraphics g, ComputerGuideData.Wallpaper wallpaper, int x, int y, int width, int height) {
         try {
-            ResourceLocation textureId = ResourceLocation.parse(wallpaper.textureId());
-            ResourceLocation texture = ResourceLocation.fromNamespaceAndPath(textureId.getNamespace(), "textures/" + textureId.getPath() + ".png");
+            ResourceLocation texture = wallpaperTexture(wallpaper.textureId());
+            if (texture == null) return false;
             int[] size = WALLPAPER_TEXTURE_SIZES.get(texture);
             if (size == null) {
                 var resource = Minecraft.getInstance().getResourceManager().getResource(texture);
@@ -621,139 +744,8 @@ public final class ComputerScreen extends Screen {
         return name.toUpperCase();
     }
 
-    private void icon(GuiGraphics g, String type, int x, int y) {
-        if (type.equals("ARCHIVE") || type.equals("DISK")) {
-            g.fill(x - 11, y - 2, x + 11, y + 20, BLACK);
-            g.fill(x - 8, y + 1, x + 8, y + 16, GREEN);
-            g.fill(x - 5, y + 3, x + 5, y + 8, BLACK);
-            g.fill(x - 4, y + 4, x + 4, y + 7, PALE_GREEN);
-            g.fill(x - 5, y + 11, x + 5, y + 13, BLACK);
-            g.fill(x + 5, y + 14, x + 7, y + 16, BLACK);
-            return;
-        }
-        if (type.equals("TASKS")) {
-            g.fill(x - 11, y - 3, x + 11, y + 19, BLACK);
-            g.fill(x - 8, y, x + 8, y + 16, GREEN);
-            g.fill(x - 5, y + 3, x + 5, y + 5, BLACK);
-            g.fill(x - 3, y + 8, x + 5, y + 10, BLACK);
-            g.fill(x - 3, y + 12, x + 5, y + 14, BLACK);
-            g.fill(x - 6, y + 7, x - 4, y + 9, PALE_GREEN);
-            g.fill(x - 6, y + 11, x - 4, y + 13, PALE_GREEN);
-            return;
-        }
-        if (type.equals("FILES")) {
-            g.fill(x - 8, y - 2, x + 9, y + 14, BLACK);
-            g.fill(x - 5, y + 1, x + 6, y + 11, PALE_GREEN);
-            g.fill(x - 10, y + 4, x + 11, y + 20, BLACK);
-            g.fill(x - 7, y + 7, x + 8, y + 17, GREEN);
-            g.fill(x - 8, y + 4, x - 2, y + 7, GREEN);
-            g.fill(x - 4, y + 10, x + 5, y + 12, BLACK);
-            g.fill(x - 4, y + 14, x + 3, y + 16, BLACK);
-            return;
-        }
-        if (type.equals("SETTINGS")) {
-            g.fill(x - 4, y - 2, x + 4, y + 22, BLACK);
-            g.fill(x - 12, y + 6, x + 12, y + 14, BLACK);
-            g.fill(x - 10, y + 1, x - 5, y + 5, BLACK);
-            g.fill(x + 5, y + 1, x + 10, y + 5, BLACK);
-            g.fill(x - 10, y + 15, x - 5, y + 19, BLACK);
-            g.fill(x + 5, y + 15, x + 10, y + 19, BLACK);
-            g.fill(x - 2, y, x + 2, y + 20, GREEN);
-            g.fill(x - 10, y + 8, x + 10, y + 12, GREEN);
-            g.fill(x - 7, y + 3, x + 7, y + 17, GREEN);
-            g.fill(x - 3, y + 7, x + 3, y + 13, BLACK);
-            g.fill(x - 1, y + 9, x + 1, y + 11, PALE_GREEN);
-            return;
-        }
-        if (type.equals("TERMINAL")) {
-            g.fill(x - 12, y - 1, x + 12, y + 19, BLACK);
-            g.fill(x - 9, y + 2, x + 9, y + 14, GREEN);
-            g.fill(x - 6, y + 5, x - 3, y + 8, BLACK);
-            g.fill(x - 3, y + 8, x + 1, y + 11, BLACK);
-            g.fill(x - 6, y + 11, x - 3, y + 14, BLACK);
-            g.fill(x + 3, y + 11, x + 7, y + 13, BLACK);
-            g.fill(x - 5, y + 16, x + 5, y + 18, BLACK);
-            return;
-        }
-        if (type.equals("TEXT")) {
-            g.fill(x - 9, y - 2, x + 10, y + 20, BLACK);
-            g.fill(x - 6, y + 1, x + 7, y + 17, GREEN);
-            g.fill(x + 4, y + 1, x + 7, y + 4, BLACK);
-            g.fill(x - 3, y + 5, x + 4, y + 7, BLACK);
-            g.fill(x - 3, y + 9, x + 4, y + 11, BLACK);
-            g.fill(x - 3, y + 13, x + 2, y + 15, BLACK);
-            return;
-        }
-        if (type.equals("PAINT")) {
-            g.fill(x - 11, y + 2, x + 8, y + 20, BLACK);
-            g.fill(x - 8, y + 5, x + 5, y + 17, GREEN);
-            g.fill(x - 11, y + 5, x - 8, y + 7, GREEN);
-            g.fill(x - 6, y + 8, x - 3, y + 11, BLACK);
-            g.fill(x, y + 7, x + 3, y + 10, BLACK);
-            g.fill(x - 1, y + 13, x + 2, y + 16, BLACK);
-            g.fill(x + 6, y - 3, x + 11, y + 1, BLACK);
-            g.fill(x + 4, y, x + 9, y + 6, BLACK);
-            g.fill(x + 2, y + 5, x + 7, y + 11, BLACK);
-            g.fill(x, y + 10, x + 5, y + 16, BLACK);
-            g.fill(x + 7, y - 1, x + 9, y + 2, PALE_GREEN);
-            g.fill(x + 5, y + 3, x + 7, y + 7, PALE_GREEN);
-            g.fill(x + 3, y + 8, x + 5, y + 11, PALE_GREEN);
-            return;
-        }
-        if (type.equals("ANTMAIL")) {
-            g.fill(x - 12, y + 1, x + 12, y + 18, BLACK);
-            g.fill(x - 9, y + 4, x + 9, y + 15, GREEN);
-            g.fill(x - 9, y + 4, x + 9, y + 6, BLACK);
-            g.fill(x - 7, y + 6, x - 4, y + 8, BLACK);
-            g.fill(x + 4, y + 6, x + 7, y + 8, BLACK);
-            g.fill(x - 4, y + 8, x + 4, y + 10, BLACK);
-            g.fill(x - 9, y + 11, x - 6, y + 13, BLACK);
-            g.fill(x + 6, y + 11, x + 9, y + 13, BLACK);
-            g.fill(x - 6, y + 13, x - 3, y + 15, BLACK);
-            g.fill(x + 3, y + 13, x + 6, y + 15, BLACK);
-            return;
-        }
-        if (type.equals("GAMES")) {
-            g.fill(x - 7, y + 2, x + 7, y + 5, BLACK);
-            g.fill(x - 11, y + 5, x + 11, y + 15, BLACK);
-            g.fill(x - 9, y + 15, x - 5, y + 19, BLACK);
-            g.fill(x + 5, y + 15, x + 9, y + 19, BLACK);
-            g.fill(x - 8, y + 5, x + 8, y + 13, GREEN);
-            g.fill(x - 7, y + 8, x - 1, y + 10, BLACK);
-            g.fill(x - 5, y + 6, x - 3, y + 12, BLACK);
-            g.fill(x + 3, y + 7, x + 5, y + 9, BLACK);
-            g.fill(x + 6, y + 10, x + 8, y + 12, BLACK);
-            return;
-        }
-        if (type.equals("ANTAZON")) {
-            g.fill(x - 12, y - 3, x - 8, y - 1, BLACK);
-            g.fill(x - 9, y - 1, x + 10, y + 2, BLACK);
-            g.fill(x - 9, y + 2, x + 11, y + 5, BLACK);
-            g.fill(x - 7, y + 5, x + 8, y + 15, BLACK);
-            g.fill(x - 4, y + 6, x + 6, y + 12, GREEN);
-            g.fill(x - 3, y + 8, x + 5, y + 10, PALE_GREEN);
-            g.fill(x - 8, y + 14, x + 8, y + 17, BLACK);
-            g.fill(x - 6, y + 17, x - 2, y + 21, BLACK);
-            g.fill(x + 4, y + 17, x + 8, y + 21, BLACK);
-            g.fill(x - 5, y + 18, x - 3, y + 20, PALE_GREEN);
-            g.fill(x + 5, y + 18, x + 7, y + 20, PALE_GREEN);
-            return;
-        }
-        if (type.equals("TRASH")) {
-            g.fill(x - 8, y + 3, x + 8, y + 20, BLACK);
-            g.fill(x - 11, y + 1, x + 11, y + 4, BLACK);
-            g.fill(x - 5, y - 1, x + 5, y + 1, BLACK);
-            g.fill(x - 6, y + 4, x + 6, y + 18, GREEN);
-            g.fill(x - 3, y + 7, x - 1, y + 16, BLACK);
-            g.fill(x + 2, y + 7, x + 4, y + 16, BLACK);
-            return;
-        }
-        g.fill(x - 10, y, x + 10, y + 18, BLACK);
-        g.fill(x - 8, y + 2, x + 8, y + 16, GREEN);
-    }
-
     private void renderWindow(GuiGraphics g, Window window, int l, int t, int mouseX, int mouseY, int layer) {
-        g.flush();
+        beginLayer(g);
         g.pose().pushPose();
         g.pose().translate(0.0F, 0.0F, layer * 10.0F);
         try {
@@ -803,16 +795,16 @@ public final class ComputerScreen extends Screen {
         try {
             if (window.type.equals("ARCHIVE")) session.archive.render(g, cx, cy, w - 16, h - 34, window.maximized);
             else if (window.type.equals("TASKS")) tasks.render(g, cx, cy, w - 16, h - 34);
+            else if (window.type.equals("DISKS")) session.disks.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("FILES")) session.files.render(g, cx, cy, w - 16, h - 34);
-            else if (window.type.equals("SETTINGS")) session.settings.render(g, cx, cy, h - 34);
+            else if (window.type.equals("SETTINGS")) session.settings.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("TERMINAL")) session.terminal.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("TEXT")) session.text.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("PAINT")) session.paint.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("ANTMAIL")) session.antmail.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("ANTAZON")) session.antazon.render(g, cx, cy, w - 16, h - 34);
-            else if (window.type.equals("GAMES")) games.render(g, window, cx, cy, mouseX, mouseY);
+            else if (window.type.equals("GAMES")) games.render(g, window, cx, cy, w - 16, h - 34, mouseX, mouseY);
             else if (window.type.equals("WALLPAPERS")) session.wallpaperPicker.render(g, cx, cy, h - 34);
-            else trash.render(g, cx, cy);
         } finally {
             g.disableScissor();
         }
@@ -821,11 +813,7 @@ public final class ComputerScreen extends Screen {
     int renderTaskItemRecipe(GuiGraphics g, String itemId, int x, int y, int w) {
         if (Minecraft.getInstance().level != null) {
             try {
-                var item = BuiltInRegistries.ITEM.getOptional(ResourceLocation.parse(itemId)).orElse(null);
-                if (item != null && Minecraft.getInstance().level.getRecipeManager().getRecipes().stream()
-                        .anyMatch(recipe -> recipe.value().getResultItem(Minecraft.getInstance().level.registryAccess()).is(item))) {
-                    return renderArchiveRecipe(g, itemId, x, y, w);
-                }
+                if (resolveArchiveRecipe(itemId) != null) return renderArchiveRecipe(g, itemId, x, y, w);
             } catch (RuntimeException ignored) { }
         }
         return wrap(g, "NO RECIPE FOUND", x, y, w, 0xFF87B787);
@@ -865,7 +853,7 @@ public final class ComputerScreen extends Screen {
 
     int renderArchiveRecipe(GuiGraphics g, String recipeId, int x, int y, int w) {
         int slot = 16;
-        int recipeWidth = slot * 3 + 24;
+        int recipeWidth = slot * 5 + 8;
         if (!renderArchiveRecipe(g, recipeId, x, y, Math.min(w, recipeWidth), slot)) {
             return wrap(g, "RECIPE // " + recipeId, x, y, w, PALE_GREEN);
         }
@@ -875,52 +863,159 @@ public final class ComputerScreen extends Screen {
     boolean renderArchiveRecipe(GuiGraphics g, String recipeId, int x, int y, int width, int slot) {
         if (Minecraft.getInstance().level == null) return false;
         try {
-            var recipeManager = Minecraft.getInstance().level.getRecipeManager();
-            ResourceLocation requestedId = ResourceLocation.parse(recipeId);
-            RecipeHolder<?> holder = recipeManager.byKey(requestedId).orElse(null);
-            if (holder == null) {
-                var requestedItem = BuiltInRegistries.ITEM.getOptional(requestedId).orElse(null);
-                if (requestedItem != null && requestedItem != Items.AIR) {
-                    holder = recipeManager.getRecipes().stream()
-                            .filter(candidate -> candidate.value().getResultItem(Minecraft.getInstance().level.registryAccess()).is(requestedItem))
-                            .findFirst().orElse(null);
-                }
-            }
+            RecipeHolder<?> holder = resolveArchiveRecipe(recipeId);
             if (holder == null) return false;
             var recipe = holder.value();
+            var access = Minecraft.getInstance().level.registryAccess();
             List<Ingredient> ingredients = recipe.getIngredients();
-            int actualSlot = Math.min(slot, Math.max(4, (width - 8) / 4));
-            int gridWidth = actualSlot * 3;
+            ResourceLocation typeId = BuiltInRegistries.RECIPE_TYPE.getKey(recipe.getType());
+            boolean gunBench = typeId != null && typeId.getNamespace().equals("scguns") && typeId.getPath().equals("gun_bench");
+            int columns = gunBench ? 4 : 3;
+            int actualSlot = Math.min(slot, Math.max(4, (width - 8) / (columns + 1)));
+            int gridWidth = actualSlot * columns;
             int outputX = x + gridWidth + 8;
             int outputY = y + actualSlot;
             int shapedWidth = recipe instanceof ShapedRecipe shaped ? shaped.getWidth() : 3;
-            int shapedHeight = recipe instanceof ShapedRecipe shaped ? shaped.getHeight() : Math.min(3, (ingredients.size() + 2) / 3);
-            for (int index = 0; index < 9; index++) {
-                int column = index % 3;
-                int row = index / 3;
+            int shapedHeight = recipe instanceof ShapedRecipe shaped ? shaped.getHeight() : 3;
+            for (int index = 0; index < columns * 3; index++) {
+                int column = index % columns;
+                int row = index / columns;
+                int ingredientIndex;
+                if (gunBench) ingredientIndex = row < 2 ? row * 4 + column : column == 0 ? 8 : column == 2 ? 9 : -2;
+                else if (recipe instanceof ShapedRecipe) ingredientIndex = column < shapedWidth && row < shapedHeight ? row * shapedWidth + column : -1;
+                else ingredientIndex = index;
+                if (ingredientIndex == -2) continue;
                 int cellX = x + column * actualSlot;
                 int cellY = y + row * actualSlot;
                 g.fill(cellX, cellY, cellX + actualSlot - 1, cellY + actualSlot - 1, 0xFF173817);
-                int ingredientIndex = recipe instanceof ShapedRecipe
-                        ? (column < shapedWidth && row < shapedHeight ? row * shapedWidth + column : -1)
-                        : index;
                 if (ingredientIndex >= 0 && ingredientIndex < ingredients.size()) {
                     ItemStack[] choices = ingredients.get(ingredientIndex).getItems();
-                    if (choices.length > 0) renderArchiveItem(g, choices[0], cellX, cellY, actualSlot);
+                    if (choices.length > 0) {
+                        ItemStack shown = choices[(int) ((System.currentTimeMillis() / 1000L) % choices.length)];
+                        renderArchiveItem(g, shown, cellX, cellY, actualSlot);
+                    }
                 }
             }
             g.fill(x + gridWidth + 2, y + actualSlot + actualSlot / 2 - 1, x + gridWidth + 6, y + actualSlot + actualSlot / 2 + 1, PALE_GREEN);
             g.fill(x + gridWidth + 5, y + actualSlot + actualSlot / 2 - 3, x + gridWidth + 7, y + actualSlot + actualSlot / 2 + 3, PALE_GREEN);
-            ItemStack result = recipe.getResultItem(Minecraft.getInstance().level.registryAccess());
-            if (!result.isEmpty()) {
-                g.fill(outputX, outputY, outputX + actualSlot - 1, outputY + actualSlot - 1, 0xFF173817);
-                renderArchiveItem(g, result, outputX, outputY, actualSlot);
+            List<ItemStack> results = archiveRecipeResults(recipe, access);
+            for (int index = 0; index < Math.min(2, results.size()); index++) {
+                int resultY = outputY + index * actualSlot;
+                g.fill(outputX, resultY, outputX + actualSlot - 1, resultY + actualSlot - 1, 0xFF173817);
+                renderArchiveItem(g, results.get(index), outputX, resultY, actualSlot);
+                renderArchiveStackCount(g, results.get(index), outputX, resultY, actualSlot);
             }
+            ItemStack station = archiveRecipeStation(recipe);
+            if (!station.isEmpty()) renderArchiveItem(g, station, outputX, y, actualSlot);
             return true;
         } catch (RuntimeException exception) {
             logArchivePreviewOnce("recipe.error." + recipeId, "Archive recipe preview failed id={} error={}", recipeId, exception.toString());
             return false;
         }
+    }
+
+    private static final Map<String, Optional<RecipeHolder<?>>> archiveResolvedRecipes = new HashMap<>();
+    private static final Map<Class<?>, Optional<java.lang.reflect.Method>> archiveResultMethods = new HashMap<>();
+    private static Object archiveRecipeLevel;
+    private static Object archiveRecipeManager;
+    private static Object archiveRecipeCollection;
+
+    RecipeHolder<?> resolveArchiveRecipe(String recipeId) {
+        var level = Minecraft.getInstance().level;
+        if (level == null) return null;
+        var recipeManager = level.getRecipeManager();
+        var recipeCollection = recipeManager.getRecipes();
+        if (archiveRecipeLevel != level || archiveRecipeManager != recipeManager || archiveRecipeCollection != recipeCollection) {
+            archiveRecipeLevel = level;
+            archiveRecipeManager = recipeManager;
+            archiveRecipeCollection = recipeCollection;
+            archiveResolvedRecipes.clear();
+        }
+        Optional<RecipeHolder<?>> cached = archiveResolvedRecipes.get(recipeId);
+        if (cached != null) return cached.orElse(null);
+        RecipeHolder<?> holder = null;
+        ResourceLocation requestedId = ResourceLocation.tryParse(recipeId);
+        if (requestedId != null) {
+            holder = recipeManager.byKey(requestedId).orElse(null);
+            if (holder == null) {
+                var requestedItem = BuiltInRegistries.ITEM.getOptional(requestedId).orElse(null);
+                if (requestedItem != null && requestedItem != Items.AIR) {
+                    var access = level.registryAccess();
+                    holder = recipeCollection.stream()
+                            .filter(candidate -> archiveRecipeResults(candidate.value(), access).stream().anyMatch(stack -> stack.is(requestedItem)))
+                            .min(java.util.Comparator.comparingInt(candidate -> archiveRecipePriority(candidate.value())))
+                            .orElse(null);
+                }
+            }
+        }
+        archiveResolvedRecipes.put(recipeId, Optional.ofNullable(holder));
+        return holder;
+    }
+
+    private static int archiveRecipePriority(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+        if (recipe.getType() == net.minecraft.world.item.crafting.RecipeType.CRAFTING) return 0;
+        ResourceLocation typeId = BuiltInRegistries.RECIPE_TYPE.getKey(recipe.getType());
+        if (typeId == null) return 3;
+        if (typeId.getNamespace().equals("scguns")) return 1;
+        if (typeId.getNamespace().equals("oritech")) return 2;
+        return 3;
+    }
+
+    static List<ItemStack> archiveRecipeResults(net.minecraft.world.item.crafting.Recipe<?> recipe, net.minecraft.core.RegistryAccess access) {
+        ItemStack direct;
+        try {
+            direct = recipe.getResultItem(access);
+        } catch (RuntimeException ignored) {
+            direct = ItemStack.EMPTY;
+        }
+        if (direct != null && !direct.isEmpty()) return List.of(direct);
+        java.lang.reflect.Method method = archiveResultMethods.computeIfAbsent(recipe.getClass(), type -> {
+            try {
+                return Optional.of(type.getMethod("getResults"));
+            } catch (NoSuchMethodException ignored) {
+                return Optional.empty();
+            }
+        }).orElse(null);
+        if (method == null) return List.of();
+        try {
+            if (method.invoke(recipe) instanceof List<?> list) {
+                List<ItemStack> stacks = new java.util.ArrayList<>();
+                for (Object value : list) if (value instanceof ItemStack stack && !stack.isEmpty()) stacks.add(stack);
+                return stacks;
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        return List.of();
+    }
+
+    private static ItemStack archiveRecipeStation(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+        if (recipe.getType() == net.minecraft.world.item.crafting.RecipeType.CRAFTING) return ItemStack.EMPTY;
+        ResourceLocation typeId = BuiltInRegistries.RECIPE_TYPE.getKey(recipe.getType());
+        if (typeId == null) return ItemStack.EMPTY;
+        List<String> candidates = switch (typeId.toString()) {
+            case "minecraft:smelting" -> List.of("minecraft:furnace");
+            case "minecraft:blasting" -> List.of("minecraft:blast_furnace");
+            case "minecraft:smoking" -> List.of("minecraft:smoker");
+            case "minecraft:campfire_cooking" -> List.of("minecraft:campfire");
+            case "minecraft:stonecutting" -> List.of("minecraft:stonecutter");
+            case "minecraft:smithing" -> List.of("minecraft:smithing_table");
+            default -> List.of(typeId + "_block", typeId.toString(), typeId.getNamespace() + ":" + typeId.getPath() + "_controller");
+        };
+        for (String candidate : candidates) {
+            ResourceLocation itemId = ResourceLocation.tryParse(candidate);
+            if (itemId == null) continue;
+            var item = BuiltInRegistries.ITEM.getOptional(itemId).orElse(null);
+            if (item != null && item != Items.AIR) return new ItemStack(item);
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private void renderArchiveStackCount(GuiGraphics g, ItemStack stack, int x, int y, int size) {
+        if (stack.getCount() <= 1) return;
+        String count = Integer.toString(stack.getCount());
+        g.pose().pushPose();
+        g.pose().translate(0.0F, 0.0F, 300.0F);
+        g.drawString(font, Component.literal(count), x + size - font.width(count), y + size - 8, 0xFFFFFFFF, true);
+        g.pose().popPose();
     }
 
     int renderArchivePreview(GuiGraphics g, String itemId, String entityId, String enchantmentId, int x, int y, int w) {
@@ -957,11 +1052,13 @@ public final class ComputerScreen extends Screen {
     }
 
     boolean renderArchiveAsset(GuiGraphics g, String itemId, String entityId, String enchantmentId, String potionId, int centerX, int centerY, int size, float rotation, float renderScale, boolean renderMobFromSpawnEgg) {
+        return renderArchiveAsset(g, itemId, entityId, enchantmentId, potionId, centerX, centerY, size, rotation, renderScale, renderMobFromSpawnEgg, 1.0F);
+    }
+
+    boolean renderArchiveAsset(GuiGraphics g, String itemId, String entityId, String enchantmentId, String potionId, int centerX, int centerY, int size, float rotation, float renderScale, boolean renderMobFromSpawnEgg, float previewScale) {
         if (archivePreviewLevel != Minecraft.getInstance().level) {
+            clearArchivePreviews();
             archivePreviewLevel = Minecraft.getInstance().level;
-            archiveEntityPreviews.clear();
-            unavailableArchiveEntities.clear();
-            archiveItemStacks.clear();
         }
         if (!itemId.isBlank()) {
             try {
@@ -975,10 +1072,9 @@ public final class ComputerScreen extends Screen {
                 if (!stack.isEmpty()) {
                     if (renderMobFromSpawnEgg && stack.getItem() instanceof SpawnEggItem spawnEgg) {
                         ResourceLocation spawnedEntity = BuiltInRegistries.ENTITY_TYPE.getKey(spawnEgg.getType(stack));
-                        if (renderArchiveAsset(g, "", spawnedEntity.toString(), "", potionId, centerX, centerY, size, rotation, renderScale)) return true;
+                        if (renderArchiveAsset(g, "", spawnedEntity.toString(), "", potionId, centerX, centerY, size, rotation, renderScale, true, previewScale)) return true;
                     }
-                    int iconSize = Math.min(32, Math.max(16, size - 4));
-                    renderArchiveItem(g, stack, centerX - iconSize / 2, centerY - iconSize / 2, iconSize);
+                    renderArchiveItemCentered(g, stack, centerX, centerY, size, previewScale);
                     if (LOG_ARCHIVE_PREVIEWS) logArchivePreviewOnce("item.render." + itemId, "Archive item preview rendered id={} descriptionId={} center=({}, {})", itemId, stack.getDescriptionId(), centerX, centerY);
                     return true;
                 }
@@ -989,10 +1085,13 @@ public final class ComputerScreen extends Screen {
             }
         }
         if (!enchantmentId.isBlank()) {
-            ItemStack stack = createArchiveEnchantedBook(enchantmentId);
+            ItemStack stack = archiveEnchantedBooks.get(enchantmentId);
+            if (stack == null) {
+                stack = createArchiveEnchantedBook(enchantmentId);
+                if (!stack.isEmpty()) archiveEnchantedBooks.put(enchantmentId, stack);
+            }
             if (!stack.isEmpty()) {
-                int iconSize = Math.min(32, Math.max(16, size - 4));
-                renderArchiveItem(g, stack, centerX - iconSize / 2, centerY - iconSize / 2, iconSize);
+                renderArchiveItemCentered(g, stack, centerX, centerY, size, previewScale);
                 logArchivePreviewOnce("enchantment.render." + enchantmentId, "Archive enchantment preview rendered id={}", enchantmentId);
                 return true;
             }
@@ -1000,12 +1099,16 @@ public final class ComputerScreen extends Screen {
         }
         if (!potionId.isBlank() && Minecraft.getInstance().level != null) {
             try {
-                ResourceLocation potionLocation = ResourceLocation.parse(potionId);
-                ResourceKey<Potion> potionKey = ResourceKey.create(Registries.POTION, potionLocation);
-                var potion = Minecraft.getInstance().level.registryAccess().lookupOrThrow(Registries.POTION).get(potionKey).orElse(null);
-                if (potion != null) {
-                    int iconSize = Math.min(32, Math.max(16, size - 4));
-                    renderArchiveItem(g, PotionContents.createItemStack(Items.POTION, potion), centerX - iconSize / 2, centerY - iconSize / 2, iconSize);
+                ItemStack potionStack = archivePotionStacks.get(potionId);
+                if (potionStack == null) {
+                    ResourceLocation potionLocation = ResourceLocation.parse(potionId);
+                    ResourceKey<Potion> potionKey = ResourceKey.create(Registries.POTION, potionLocation);
+                    var potion = Minecraft.getInstance().level.registryAccess().lookupOrThrow(Registries.POTION).get(potionKey).orElse(null);
+                    potionStack = potion == null ? ItemStack.EMPTY : PotionContents.createItemStack(Items.POTION, potion);
+                    archivePotionStacks.put(potionId, potionStack);
+                }
+                if (!potionStack.isEmpty()) {
+                    renderArchiveItemCentered(g, potionStack, centerX, centerY, size, previewScale);
                     return true;
                 }
             } catch (RuntimeException exception) {
@@ -1043,14 +1146,18 @@ public final class ComputerScreen extends Screen {
                     living.yHeadRotO = yaw;
                     living.tickCount = (int) (Minecraft.getInstance().level.getGameTime() & Integer.MAX_VALUE);
                     float largestDimension = Math.max(0.45F, Math.max(living.getBbWidth(), living.getBbHeight()));
-                    float entityRenderScale = Math.max(0.5F, Math.min(size, size * 0.52F * renderScale / largestDimension));
+                    float entityRenderScale = Math.max(0.5F, Math.min(size, size * 0.52F * renderScale / largestDimension)) * previewScale;
                     float entityScale = Math.max(0.01F, living.getScale());
                     Vector3f translation = new Vector3f(0.0F, living.getBbHeight() / 2.0F + 0.0625F * entityScale, 0.0F);
                     Quaternionf pose = new Quaternionf().rotateZ((float) Math.PI);
                     Quaternionf camera = new Quaternionf();
                     g.flush();
-                    enableComputerScissor(g, centerX - size / 2, centerY - size / 2, centerX + size / 2, centerY + size / 2);
-                    if (archiveGreenTint) g.setColor(0.0F, 1.0F, 0.0F, 1.0F);
+                    int previewSize = Math.max(1, Math.round(size * previewScale));
+                    enableComputerScissor(g, centerX - previewSize / 2, centerY - previewSize / 2, centerX + (previewSize + 1) / 2, centerY + (previewSize + 1) / 2);
+                    if (archiveGreenTint) {
+                        float[] tint = com.craisinlord.antos.content.client.ComputerTheme.active().tint();
+                        g.setColor(tint[0], tint[1], tint[2], 1.0F);
+                    }
                     try {
                         InventoryScreen.renderEntityInInventory(g, centerX, centerY, entityRenderScale / entityScale,
                                 translation, pose, camera, living);
@@ -1073,10 +1180,25 @@ public final class ComputerScreen extends Screen {
         renderArchiveItem(g, stack, x, y, 16);
     }
 
+    private void renderArchiveItemCentered(GuiGraphics g, ItemStack stack, int centerX, int centerY, int size, float previewScale) {
+        int baseSize = Math.min(32, Math.max(16, size - 4));
+        if (previewScale == 1.0F) {
+            renderArchiveItem(g, stack, centerX - baseSize / 2, centerY - baseSize / 2, baseSize);
+            return;
+        }
+        float iconSize = Math.max(0.01F, baseSize * previewScale);
+        renderArchiveItem(g, stack, centerX - iconSize / 2.0F, centerY - iconSize / 2.0F, iconSize);
+    }
+
     private void renderArchiveItem(GuiGraphics g, ItemStack stack, int x, int y, int size) {
+        renderArchiveItem(g, stack, (float) x, (float) y, (float) size);
+    }
+
+    private void renderArchiveItem(GuiGraphics g, ItemStack stack, float x, float y, float size) {
         if (archiveGreenTint) {
             g.flush();
-            g.setColor(0.0F, 1.0F, 0.0F, 1.0F);
+            float[] tint = com.craisinlord.antos.content.client.ComputerTheme.active().tint();
+            g.setColor(tint[0], tint[1], tint[2], 1.0F);
         }
         g.pose().pushPose();
         try {
@@ -1106,6 +1228,19 @@ public final class ComputerScreen extends Screen {
             logArchivePreviewOnce("enchantment.error." + enchantmentId, "Archive enchantment preview failed id={} error={}", enchantmentId, exception.toString());
             return ItemStack.EMPTY;
         }
+    }
+
+    private static void clearArchivePreviews() {
+        archiveEntityPreviews.clear();
+        unavailableArchiveEntities.clear();
+        archiveItemStacks.clear();
+        archiveEnchantedBooks.clear();
+        archivePotionStacks.clear();
+        archivePreviewLevel = null;
+        archiveResolvedRecipes.clear();
+        archiveRecipeLevel = null;
+        archiveRecipeManager = null;
+        archiveRecipeCollection = null;
     }
 
     private void logArchivePreviewOnce(String key, String message, Object... arguments) {
@@ -1192,15 +1327,43 @@ public final class ComputerScreen extends Screen {
         }
     }
 
-    int wrap(GuiGraphics g, String text, int x, int y, int width, int color) { return wrap(g, Component.literal(text), x, y, width, color); }
+    List<net.minecraft.util.FormattedCharSequence> wrapLines(String text, int width) {
+        return wrapLines(text, null, width);
+    }
+
+    List<net.minecraft.util.FormattedCharSequence> wrapLines(Component text, int width) {
+        return wrapLines(text, text, width);
+    }
+
+    private List<net.minecraft.util.FormattedCharSequence> wrapLines(Object key, Component component, int width) {
+        Object language = net.minecraft.locale.Language.getInstance();
+        if (wrapLanguage != language) {
+            wrapLanguage = language;
+            wrapCache.clear();
+        }
+        WrapKey wrapKey = new WrapKey(key, width);
+        List<net.minecraft.util.FormattedCharSequence> lines = wrapCache.get(wrapKey);
+        if (lines == null) {
+            lines = List.copyOf(font.split(component == null ? Component.literal((String) key) : component, width));
+            wrapCache.put(wrapKey, lines);
+        }
+        return lines;
+    }
+
+    private record WrapKey(Object text, int width) { }
+
+    int wrap(GuiGraphics g, String text, int x, int y, int width, int color) {
+        for (var line : wrapLines(text, width)) { g.drawString(font, line, x, y, color, false); y += 11; }
+        return y;
+    }
 
     int wrap(GuiGraphics g, Component text, int x, int y, int width, int color) {
-        for (var line : font.split(text, width)) { g.drawString(font, line, x, y, color, false); y += 11; }
+        for (var line : wrapLines(text, width)) { g.drawString(font, line, x, y, color, false); y += 11; }
         return y;
     }
 
     int wrapLimited(GuiGraphics g, String text, int x, int y, int width, int bottom, int color) {
-        for (var line : font.split(Component.literal(text), width)) {
+        for (var line : wrapLines(text, width)) {
             if (y + 11 > bottom) break;
             g.drawString(font, line, x, y, color, false);
             y += 11;
@@ -1209,7 +1372,7 @@ public final class ComputerScreen extends Screen {
     }
 
     void drawBottomWrapped(GuiGraphics g, String text, int x, int y, int h, int width, int color) {
-        List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(text), width);
+        List<net.minecraft.util.FormattedCharSequence> lines = wrapLines(text, width);
         int lineY = y + h - 16 - Math.max(0, lines.size() - 1) * 11;
         for (var line : lines) {
             g.drawString(font, line, x, lineY, color, false);
@@ -1273,6 +1436,7 @@ public final class ComputerScreen extends Screen {
                 session.windows.add(window);
                 return switch (window.type) {
                     case "TASKS" -> tasks.click(window, mouseX, mouseY, button, x, y, w, h);
+                    case "DISKS" -> session.disks.click(mouseX, mouseY, button);
                     case "ARCHIVE" -> session.archive.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "FILES" -> session.files.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "PAINT" -> session.paint.click(window, mouseX, mouseY, button, x, y, w, h);
@@ -1369,13 +1533,17 @@ public final class ComputerScreen extends Screen {
         tasks.drag(mouseX, mouseY, button);
         session.archive.drag(mouseY);
         session.settings.drag(mouseY);
+        session.disks.drag(mouseY);
         if (dragging != null) {
             int l = -WIDTH / 2;
             int t = -HEIGHT / 2;
             dragging.x = Math.max(12, Math.min(WIDTH - dragging.renderWidth - 12, (int) mouseX - l - this.dragX));
             dragging.y = Math.max(34, Math.min(HEIGHT - dragging.renderHeight - 12, (int) mouseY - t - this.dragY));
         }
-        if (activeWindow != null && activeWindow.type.equals("PAINT")) session.paint.drag(activeWindow, mouseX, mouseY, button);
+        if (activeWindow != null && activeWindow.type.equals("PAINT")) session.paint.drag(mouseX, mouseY, button);
+        if (activeWindow != null && activeWindow.type.equals("TEXT")) session.text.drag(mouseX, mouseY);
+        if (activeWindow != null && activeWindow.type.equals("FILES")) session.files.drag(mouseX, mouseY);
+        if (activeWindow != null && activeWindow.type.equals("TERMINAL")) session.terminal.drag(mouseX, mouseY);
         return true;
     }
 
@@ -1388,7 +1556,11 @@ public final class ComputerScreen extends Screen {
         tasks.release();
         session.archive.release();
         session.settings.release();
+        session.disks.release();
         session.paint.release(button);
+        session.text.release();
+        session.files.release(mouseX, mouseY);
+        session.terminal.release();
         return true;
     }
 
@@ -1400,7 +1572,10 @@ public final class ComputerScreen extends Screen {
         boolean handled = switch (activeWindow.type) {
             case "FILES" -> session.files.scroll(activeWindow, mouseX, mouseY, scrollY);
             case "TASKS" -> tasks.scroll(activeWindow, mouseX, mouseY, scrollY);
+            case "DISKS" -> session.disks.scroll(activeWindow, mouseX, mouseY, scrollY);
+            case "GAMES" -> games.scroll(activeWindow, mouseX, mouseY, scrollY);
             case "TEXT" -> session.text.scroll(activeWindow, mouseX, mouseY, scrollY);
+            case "PAINT" -> session.paint.scroll(activeWindow, mouseX, mouseY, scrollY);
             case "TERMINAL" -> session.terminal.scroll(activeWindow, mouseX, mouseY, scrollY);
             case "ANTMAIL" -> session.antmail.scroll(activeWindow, mouseX, mouseY, scrollY);
             case "ANTAZON" -> {
@@ -1426,9 +1601,12 @@ public final class ComputerScreen extends Screen {
         if (activeWindow == null) return true;
         switch (activeWindow.type) {
             case "TASKS" -> tasks.type(activeWindow, codePoint, modifiers);
+            case "DISKS" -> session.disks.type(codePoint);
             case "FILES" -> session.files.type(activeWindow, codePoint, modifiers);
             case "ARCHIVE" -> session.archive.type(activeWindow, codePoint, modifiers);
             case "TEXT" -> session.text.type(activeWindow, codePoint, modifiers);
+            case "PAINT" -> session.paint.type(activeWindow, codePoint, modifiers);
+            case "SETTINGS" -> session.settings.type(activeWindow, codePoint, modifiers);
             case "ANTMAIL" -> session.antmail.type(activeWindow, codePoint, modifiers);
             case "GAMES" -> games.type(activeWindow, codePoint, modifiers);
             case "TERMINAL" -> session.terminal.type(activeWindow, codePoint, modifiers);
@@ -1470,11 +1648,14 @@ public final class ComputerScreen extends Screen {
         }
         boolean handled = activeWindow != null && switch (activeWindow.type) {
             case "TASKS" -> tasks.key(activeWindow, keyCode, scanCode, modifiers);
+            case "DISKS" -> session.disks.key(keyCode, modifiers);
             case "GAMES" -> games.key(activeWindow, keyCode, scanCode, modifiers);
             case "FILES" -> session.files.key(activeWindow, keyCode, scanCode, modifiers);
             case "TERMINAL" -> session.terminal.key(activeWindow, keyCode, scanCode, modifiers);
             case "ANTMAIL" -> session.antmail.key(activeWindow, keyCode, scanCode, modifiers);
             case "TEXT" -> session.text.key(activeWindow, keyCode, scanCode, modifiers);
+            case "PAINT" -> session.paint.key(activeWindow, keyCode, scanCode, modifiers);
+            case "SETTINGS" -> session.settings.key(activeWindow, keyCode, scanCode, modifiers);
             case "ARCHIVE" -> session.archive.key(activeWindow, keyCode, scanCode, modifiers);
             case "ANTAZON" -> session.antazon.key(keyCode);
             default -> false;
@@ -1493,7 +1674,7 @@ public final class ComputerScreen extends Screen {
     List<ResourceLocation> workspaceDiskIds() {
         List<ResourceLocation> disks = new ArrayList<>();
         disks.add(ResourceLocation.fromNamespaceAndPath("antos", "introduction"));
-        disks.addAll(com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.installedDisks());
+        disks.addAll(com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.activatedDisks());
         return List.copyOf(disks);
     }
 
@@ -1502,6 +1683,7 @@ public final class ComputerScreen extends Screen {
     }
     void open(String type) {
         if (!AntOSSettings.appEnabled(type)) return;
+        if (type.equals("DISKS") && AntOSSettings.appEnabled("ANTAZON")) session.antazon.refreshListings();
         for (int index = 0; index < session.windows.size(); index++) {
             Window window = session.windows.get(index);
             if (!window.type.equals(type)) continue;
@@ -1510,7 +1692,7 @@ public final class ComputerScreen extends Screen {
             session.windows.add(window);
             activeWindow = window;
             if (type.equals("FILES")) ComputerNetworking.listFiles();
-              else if (type.equals("ANTAZON")) session.antazon.refresh();
+              else if (type.equals("ANTAZON")) session.antazon.refocus();
             return;
         }
         Window window = new Window(type, Component.translatable("computer.antos.app." + type.toLowerCase(Locale.ROOT) + ".window_title").getString(), 112 + session.windows.size() * 12, 52 + session.windows.size() * 10);
@@ -1554,6 +1736,13 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         super.onClose();
     }
 
+    @Override
+    public void removed() {
+        clearArchivePreviews();
+        wrapCache.clear();
+        super.removed();
+    }
+
     static final class Session {
         boolean authenticated;
         long lastUse;
@@ -1568,6 +1757,7 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         final TerminalApp terminal = new TerminalApp();
         final WallpapersApp wallpaperPicker = new WallpapersApp();
         final SettingsApp settings = new SettingsApp();
+        final DisksApp disks = new DisksApp();
         final TextEditorApp text = new TextEditorApp();
         final PaintApp paint = new PaintApp();
         final FileExplorerApp files = new FileExplorerApp();
@@ -1579,7 +1769,7 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         int onboardingStep;
 
         void attach(ComputerScreen screen) {
-            for (ComputerApp app : List.of(antazon, terminal, wallpaperPicker, settings, text, paint, files, archive, antmail)) app.attach(screen);
+            for (ComputerApp app : List.of(antazon, terminal, wallpaperPicker, settings, disks, text, paint, files, archive, antmail)) app.attach(screen);
         }
     }
 
@@ -1597,14 +1787,15 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         boolean minimized;
         boolean maximized;
         boolean gameOpen;
+        boolean programOpen;
         String gameId = "";
 
         Window(String type, String title, int x, int y) {
             this.type = type;
             this.title = title;
-            this.height = type.equals("ANTAZON") || type.equals("SETTINGS") ? 250 : 210;
+            this.height = type.equals("ANTAZON") || type.equals("SETTINGS") || type.equals("DISKS") || type.equals("GAMES") ? 250 : 210;
             this.renderHeight = this.height;
-            this.width = type.equals("TASKS") || type.equals("ANTAZON") ? 390 : 230;
+            this.width = type.equals("TASKS") || type.equals("ANTAZON") || type.equals("DISKS") || type.equals("GAMES") || type.equals("SETTINGS") ? 390 : type.equals("FILES") ? 300 : 230;
             this.renderWidth = this.width;
             this.x = x;
             this.y = y;

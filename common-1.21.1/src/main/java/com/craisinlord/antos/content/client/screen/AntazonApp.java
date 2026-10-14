@@ -4,6 +4,7 @@ import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
 import com.craisinlord.antos.content.client.AntazonClientState;
 import com.craisinlord.antos.content.client.ComputerTasksClientState;
+import com.craisinlord.antos.content.network.ComputerAccessPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -32,10 +33,10 @@ final class AntazonApp extends ComputerApp {
         if (state.walletRefreshTicks > 0 && --state.walletRefreshTicks == 0) ComputerNetworking.requestAntazonWallet();
         if (loggedIn && !state.prefetched && AntOSSettings.appEnabled("ANTAZON")) {
             state.prefetched = true;
-            ComputerNetworking.requestAntazon();
-            ComputerNetworking.requestAntazonWishlist();
-            ComputerNetworking.requestAntazonCart();
+            ComputerNetworking.requestAntazonBootstrap(ComputerAccessPayload.BOOTSTRAP_STATE | ComputerAccessPayload.BOOTSTRAP_WISHLIST
+                    | ComputerAccessPayload.BOOTSTRAP_CART);
         }
+        if (loggedIn && AntazonClientState.consumeBootstrapRetry()) refresh();
         if (loggedIn && windowOpen && --state.refreshTicks <= 0) {
             state.refreshTicks = 200;
             ComputerNetworking.requestAntazon();
@@ -187,7 +188,16 @@ final class AntazonApp extends ComputerApp {
     }
 
     private String number(long value) {
-        return String.format(Locale.ROOT, "%,d", value);
+        String digits = Long.toString(value);
+        int start = value < 0L ? 1 : 0;
+        int length = digits.length() - start;
+        if (length <= 3) return digits;
+        StringBuilder builder = new StringBuilder(digits.length() + length / 3);
+        builder.append(digits, 0, start);
+        int first = length % 3 == 0 ? 3 : length % 3;
+        builder.append(digits, start, start + first);
+        for (int index = start + first; index < digits.length(); index += 3) builder.append(',').append(digits, index, index + 3);
+        return builder.toString();
     }
 
     private int amountWidth(AntazonClientState.PaymentRow payment, long amount) {
@@ -502,7 +512,7 @@ final class AntazonApp extends ComputerApp {
             case "out_of_stock" -> "SOLD OUT";
             case "player_limit" -> "PURCHASE LIMIT REACHED";
             case "cooldown" -> "STILL ON COOLDOWN";
-            case "task_locked" -> "LOCKED // FINISH THE REQUIRED TASK FIRST";
+            case "task_locked" -> "LOCKED // MEET THE LISTING REQUIREMENTS FIRST";
             case "insufficient_payment", "payment_unavailable" -> "NOT ENOUGH TO PAY FOR THIS";
             case "crate_unavailable", "crate_required", "chest_required" -> "SELLING REQUIRES A SHIPPING CONTAINER NEARBY";
             case "delivery_unavailable" -> "DELIVERY UNAVAILABLE";
@@ -518,32 +528,69 @@ final class AntazonApp extends ComputerApp {
             case "crate_full" -> "THE SHIPPING CONTAINER IS FULL";
             case "cart_full" -> "YOUR CART IS FULL";
             case "invalid_response" -> "ANTAZON RESPONSE INVALID";
+            case "busy" -> "ANTAZON IS BUSY // TRY AGAIN IN A MOMENT";
             default -> "REQUEST FAILED";
         };
     }
 
-    private List<String> categories(List<AntazonClientState.ProductRow> products) {
+    private record CatalogView(List<AntazonClientState.ProductRow> source, List<AntazonClientState.ProductRow> products, List<String> categories,
+                               Map<String, Long> counts, long dealCount) { }
+
+    private record FilterKey(List<AntazonClientState.ProductRow> products, String search, String category, boolean deals, boolean stock,
+                             boolean afford, long wallet, String language, String productId, String variant, long timeBucket, int inventoryChanges) { }
+
+    private CatalogView catalogView;
+    private FilterKey filterKey;
+    private List<AntazonClientState.ProductRow> filteredProducts = List.of();
+
+    private CatalogView catalogView(List<AntazonClientState.ProductRow> source) {
+        if (catalogView != null && catalogView.source() == source) return catalogView;
+        List<AntazonClientState.ProductRow> products = source.stream()
+                .filter(product -> !product.hiddenUntilUnlocked() || !product.locked()).toList();
         List<String> categories = new ArrayList<>();
         categories.add("ALL");
         products.stream().map(product -> product.category().toUpperCase(Locale.ROOT)).distinct().sorted().forEach(categories::add);
-        return categories;
+        Map<String, Long> counts = new java.util.HashMap<>();
+        for (var product : products) counts.merge(product.category().toUpperCase(Locale.ROOT), 1L, Long::sum);
+        counts.put("ALL", (long) products.size());
+        long dealCount = products.stream().filter(AntazonClientState.ProductRow::onSale).count();
+        catalogView = new CatalogView(source, products, List.copyOf(categories), Map.copyOf(counts), dealCount);
+        return catalogView;
+    }
+
+    private long categoryCount(CatalogView view, String category) {
+        if (category.equals("ALL")) return view.products().size();
+        Long count = view.counts().get(category);
+        if (count != null && category.equals(category.toUpperCase(Locale.ROOT))) return count;
+        return view.products().stream().filter(product -> product.category().equalsIgnoreCase(category)).count();
     }
 
     private List<AntazonClientState.ProductRow> filterProducts(List<AntazonClientState.ProductRow> products) {
+        FilterKey key = new FilterKey(products, state.search, state.category, state.filterDeals, state.filterStock, state.filterAfford,
+                AntazonClientState.wallet(), Minecraft.getInstance().getLanguageManager().getSelected(), state.productId, state.selectedVariant,
+                gameTime() / 10L, Minecraft.getInstance().player == null ? 0 : Minecraft.getInstance().player.getInventory().getTimesChanged());
+        if (key.equals(filterKey)) return filteredProducts;
         String query = state.search.trim().toLowerCase(Locale.ROOT);
-        return products.stream()
-                .filter(product -> !product.hiddenUntilUnlocked() || !product.locked())
-                .filter(product -> state.category.equals("ALL") || product.category().equalsIgnoreCase(state.category))
-                .filter(product -> !state.filterDeals || product.onSale())
-                .filter(product -> !state.filterStock || blocker(product).isEmpty())
-                .filter(product -> !state.filterAfford || java.util.stream.IntStream.range(0, product.payments().size()).anyMatch(option -> affordable(product, option, 1)))
-                .filter(product -> query.isBlank()
-                        || name(product).toLowerCase(Locale.ROOT).contains(query)
-                        || product.category().toLowerCase(Locale.ROOT).contains(query)
-                        || product.tags().stream().anyMatch(tag -> tag.toLowerCase(Locale.ROOT).contains(query))
-                        || product.id().toLowerCase(Locale.ROOT).contains(query))
-                .sorted(java.util.Comparator.comparingInt((AntazonClientState.ProductRow product) -> blocker(product).isEmpty() ? 0 : 1))
-                .toList();
+        List<AntazonClientState.ProductRow> available = new ArrayList<>();
+        List<AntazonClientState.ProductRow> blocked = new ArrayList<>();
+        for (var product : products) {
+            if (product.hiddenUntilUnlocked() && product.locked()) continue;
+            if (!state.category.equals("ALL") && !product.category().equalsIgnoreCase(state.category)) continue;
+            if (state.filterDeals && !product.onSale()) continue;
+            boolean open = blocker(product).isEmpty();
+            if (state.filterStock && !open) continue;
+            if (state.filterAfford && java.util.stream.IntStream.range(0, product.payments().size()).noneMatch(option -> affordable(product, option, 1))) continue;
+            if (!query.isBlank()
+                    && !name(product).toLowerCase(Locale.ROOT).contains(query)
+                    && !product.category().toLowerCase(Locale.ROOT).contains(query)
+                    && product.tags().stream().noneMatch(tag -> tag.toLowerCase(Locale.ROOT).contains(query))
+                    && !product.id().toLowerCase(Locale.ROOT).contains(query)) continue;
+            (open ? available : blocked).add(product);
+        }
+        available.addAll(blocked);
+        filteredProducts = List.copyOf(available);
+        filterKey = key;
+        return filteredProducts;
     }
 
     private void renderCatalog(GuiGraphics g, int x, int y, int w, int h) {
@@ -551,8 +598,8 @@ final class AntazonApp extends ComputerApp {
             renderLoading(g, x, y + h / 2, w, "LOADING SUPPLIES");
             return;
         }
-        List<AntazonClientState.ProductRow> products = AntazonClientState.products().stream()
-                .filter(product -> !product.hiddenUntilUnlocked() || !product.locked()).toList();
+        CatalogView view = catalogView(AntazonClientState.products());
+        List<AntazonClientState.ProductRow> products = view.products();
         int top = y + 24;
         int chipWidth = 46;
         int searchWidth = w - chipWidth * 3 - 12;
@@ -561,13 +608,13 @@ final class AntazonApp extends ComputerApp {
             state.scroll = 0;
         });
         int chipX = x + searchWidth + 4;
-        long dealCount = products.stream().filter(AntazonClientState.ProductRow::onSale).count();
+        long dealCount = view.dealCount();
         chip(g, chipX, top, chipWidth, state.filterDeals, dealCount > 0 ? "DEALS " + dealCount : "DEALS", () -> { state.filterDeals = !state.filterDeals; state.scroll = 0; });
         chip(g, chipX + chipWidth + 4, top, chipWidth, state.filterStock, "IN STOCK", () -> { state.filterStock = !state.filterStock; state.scroll = 0; });
         chip(g, chipX + (chipWidth + 4) * 2, top, chipWidth, state.filterAfford, "AFFORDABLE", () -> { state.filterAfford = !state.filterAfford; state.scroll = 0; });
         int bodyTop = top + 22;
         int bodyBottom = y + h - 2;
-        List<String> categories = categories(products);
+        List<String> categories = view.categories();
         if (!categories.contains(state.category)) state.category = "ALL";
         int railWidth = w >= 300 ? 86 : 0;
         if (railWidth > 0) {
@@ -580,7 +627,7 @@ final class AntazonApp extends ComputerApp {
                 boolean selected = category.equals(state.category);
                 if (selected || screen.hovered(x, rowY, railWidth, 14)) g.fill(x, rowY, x + railWidth, rowY + 14, HOVER_FILL);
                 if (selected) g.fill(x, rowY, x + 2, rowY + 14, GREEN);
-                long count = category.equals("ALL") ? products.size() : products.stream().filter(product -> product.category().equalsIgnoreCase(category)).count();
+                long count = categoryCount(view, category);
                 String countLabel = Long.toString(count);
                 int countWidth = smallWidth(countLabel);
                 small(g, category, x + 6, rowY + 4, railWidth - countWidth - 12, selected ? GREEN : 0xFF87B787);
@@ -659,7 +706,7 @@ final class AntazonApp extends ComputerApp {
         List<String> meta = new ArrayList<>();
         meta.add(product.category().toUpperCase(Locale.ROOT));
         if (available) meta.add(stockLabel(product));
-        if (!product.reviews().isEmpty()) meta.add("★" + String.format(Locale.ROOT, "%.1f", product.rating()));
+        if (product.reviewCount() > 0) meta.add("★" + String.format(Locale.ROOT, "%.1f", product.rating()));
         if (product.payments().size() > 1) meta.add(product.payments().size() + " WAYS TO PAY");
         small(g, String.join(" · ", meta), textX, y + 15, Math.max(1, metaRight - textX), MUTED);
         g.fill(x, y + ROW - 1, x + w, y + ROW, DIVIDER);
@@ -752,10 +799,10 @@ final class AntazonApp extends ComputerApp {
             int textX = detailX + imageSize + 7;
             int textWidth = detailWidth - imageSize - 7;
             int textLine = screen.wrap(g, name(product), textX, line + 1, textWidth, GREEN);
-            if (product.reviews().isEmpty()) small(g, "NO REVIEWS YET", textX, textLine + 1, textWidth, MUTED);
+            if (product.reviewCount() == 0) small(g, "NO REVIEWS YET", textX, textLine + 1, textWidth, MUTED);
             else {
                 int starsEnd = drawStars(g, product.rating(), textX, textLine);
-                small(g, String.format(Locale.ROOT, "%.1f · %d REVIEW%s", product.rating(), product.reviews().size(), product.reviews().size() == 1 ? "" : "S"),
+                small(g, String.format(Locale.ROOT, "%.1f · %d REVIEW%s", product.rating(), product.reviewCount(), product.reviewCount() == 1 ? "" : "S"),
                         starsEnd + 4, textLine + 1, textWidth - (starsEnd - textX) - 4, MUTED);
             }
             textLine += 11;
@@ -802,7 +849,7 @@ final class AntazonApp extends ComputerApp {
             }
             if (product.locked()) {
                 line = screen.renderTaskSectionLabel(g, "HOW TO UNLOCK", detailX, line, detailWidth) + 2;
-                line = screen.wrap(g, product.unlockMode().equals("any") ? "Complete any of these tasks:" : "Complete these tasks:", detailX, line, detailWidth, PALE_GREEN) + 1;
+                line = screen.wrap(g, product.unlockMode().equals("any") ? "Meet any of these requirements:" : "Meet all of these requirements:", detailX, line, detailWidth, PALE_GREEN) + 1;
                 for (String taskId : product.unlockTasks()) {
                     var task = ComputerTasksClientState.get().stream()
                             .filter(row -> row.id().equals(taskId)).findFirst().orElse(null);
@@ -814,6 +861,18 @@ final class AntazonApp extends ComputerApp {
                     line = screen.wrap(g, prefix + title + (known ? "  >" : ""), detailX + 2, line, detailWidth - 4, known ? GREEN : MUTED);
                     if (known) clippedHit(detailX, rowY - 1, detailWidth, line - rowY, bodyTop, bodyBottom, () -> openTask(taskId));
                 }
+                for (String diskId : product.unlockDisks()) {
+                    boolean owned = collectedDisk(diskId);
+                    int rowY = line;
+                    line = screen.wrap(g, (owned ? "[X] " : "[ ] ") + "Requires the " + diskTitle(diskId) + " disk", detailX + 2, line, detailWidth - 4, owned ? GREEN : MUTED);
+                    if (com.craisinlord.antos.config.AntOSSettings.appEnabled("DISKS")) clippedHit(detailX, rowY - 1, detailWidth, line - rowY, bodyTop, bodyBottom, () -> {
+                        screen.open("DISKS");
+                        ResourceLocation id = ResourceLocation.tryParse(diskId);
+                        if (id != null) screen.session.disks.show(id);
+                    });
+                }
+                for (String hint : product.unlockCommands())
+                    line = screen.wrap(g, "[?] " + Component.translatable(hint).getString(), detailX + 2, line, detailWidth - 4, MUTED);
                 line += 4;
             }
             line = screen.renderTaskSectionLabel(g, "IN EVERY ORDER", detailX, line, detailWidth) + 2;
@@ -855,7 +914,7 @@ final class AntazonApp extends ComputerApp {
                 line = screen.wrap(g, description, detailX, line, detailWidth, PALE_GREEN) + 4;
             }
             line = screen.renderTaskSectionLabel(g, "REVIEWS", detailX, line, detailWidth) + 3;
-            if (product.reviews().isEmpty()) {
+            if (product.reviewCount() == 0) {
                 line = screen.wrap(g, "No reviews yet.", detailX, line, detailWidth, MUTED) + 2;
             } else {
                 g.pose().pushPose();
@@ -866,21 +925,23 @@ final class AntazonApp extends ComputerApp {
                 } finally {
                     g.pose().popPose();
                 }
-                small(g, product.reviews().size() + " REVIEW" + (product.reviews().size() == 1 ? "" : "S"), detailX, line + 16, 44, MUTED);
+                small(g, product.reviewCount() + " REVIEW" + (product.reviewCount() == 1 ? "" : "S"), detailX, line + 16, 44, MUTED);
                 int barX = detailX + 50;
                 int barWidth = Math.max(10, detailWidth - 74);
                 for (int stars = 5; stars >= 1; stars--) {
-                    int count = stars;
-                    long matching = product.reviews().stream().filter(review -> review.rating() == count).count();
+                    long matching = product.ratingCount(stars);
                     int barY = line + (5 - stars) * 8;
                     chartSmall(g, Integer.toString(stars), barX, barY, 8, MUTED);
                     g.fill(barX + 7, barY + 1, barX + 7 + barWidth, barY + 5, DARK_GREEN);
-                    int filled = (int) (barWidth * matching / Math.max(1, product.reviews().size()));
+                    int filled = (int) (barWidth * matching / Math.max(1, product.reviewCount()));
                     if (filled > 0) g.fill(barX + 7, barY + 1, barX + 7 + filled, barY + 5, GREEN);
                     chartSmall(g, Long.toString(matching), barX + barWidth + 10, barY, 14, MUTED);
                 }
                 line += 43;
-                for (var review : product.reviews()) {
+                AntazonClientState.ensureReviews(product);
+                List<AntazonClientState.ReviewRow> playerReviews = AntazonClientState.playerReviews(product);
+                for (int index = 0; index < product.reviews().size() + playerReviews.size(); index++) {
+                    var review = index < product.reviews().size() ? product.reviews().get(index) : playerReviews.get(index - product.reviews().size());
                     g.fill(detailX, line, detailX + detailWidth, line + 1, DIVIDER);
                     line += 4;
                     small(g, review.author().toUpperCase(Locale.ROOT) + (review.badge().isBlank() ? "" : " · " + review.badge()), detailX, line, detailWidth, MUTED);
@@ -889,6 +950,12 @@ final class AntazonApp extends ComputerApp {
                     g.drawString(font, screen.trimToWidth(Component.translatable(review.title()).getString(), detailX + detailWidth - starsEnd - 4), starsEnd + 4, line, GREEN, false);
                     line += 11;
                     line = screen.wrap(g, Component.translatable(review.body()).getString(), detailX, line, detailWidth, PALE_GREEN) + 3;
+                }
+                if (AntazonClientState.moreReviewsAvailable(product)) {
+                    if (line < bodyBottom + 120) AntazonClientState.loadMoreReviews(product);
+                    g.fill(detailX, line, detailX + detailWidth, line + 1, DIVIDER);
+                    small(g, "LOADING MORE REVIEWS" + ".".repeat((int) (System.currentTimeMillis() / 400L % 4L)), detailX, line + 4, detailWidth, MUTED);
+                    line += 14;
                 }
             }
             if (product.purchased() && !product.reviewed()) {
@@ -1558,7 +1625,7 @@ final class AntazonApp extends ComputerApp {
                 String itemCount = itemName(row.item()) + " x" + row.count()
                         + (row.returnedCount() > 0 && row.acceptedCount() > 0 ? " // SELL " + row.acceptedCount() : "");
                 g.drawString(font, screen.trimToWidth(itemCount, rowWidth - valueWidth - 32), x + 22, rowY + 4, row.sellable() ? PALE_GREEN : MUTED, false);
-                if (row.locked()) small(g, "LOCKED // " + taskTitles(row.unlockTasks()), x + 22, rowY + 15, rowWidth - 28, RED);
+                if (row.locked()) small(g, "LOCKED // " + requirementTitles(row.unlockTasks(), row.unlockDisks(), row.unlockCommands()), x + 22, rowY + 15, rowWidth - 28, RED);
                 else if (row.returnedCount() > 0) small(g, "DROP " + number(row.returnedCount()) + " HERE // " + number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, MUTED);
                 else if (row.limit() > 0) small(g, number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, row.overLimit() ? RED : MUTED);
                 g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, DIVIDER);
@@ -1597,7 +1664,7 @@ final class AntazonApp extends ComputerApp {
         int listTop = y + 21;
         var selected = AntazonClientState.prices().stream()
                 .filter(price -> price.item().equals(state.priceItem)).findFirst().orElse(null);
-        int taskRows = selected != null && selected.locked() ? Math.max(1, selected.unlockTasks().size()) : 0;
+        int taskRows = selected != null && selected.locked() ? Math.max(1, selected.unlockTasks().size() + selected.unlockDisks().size() + selected.unlockCommands().size()) : 0;
         int panelHeight = selected != null && selected.locked() ? Math.min(h / 2, 34 + taskRows * 11) : 24;
         int panelTop = y + h - panelHeight;
         if (prices.isEmpty()) {
@@ -1627,12 +1694,13 @@ final class AntazonApp extends ComputerApp {
                 String have = owned > 0 ? "YOU HAVE " + owned : "";
                 int haveWidth = have.isEmpty() ? 0 : smallWidth(have) + 8;
                 g.drawString(font, screen.trimToWidth(itemName(price.item()), rowWidth - eachWidth - haveWidth - 30), x + 22, rowY + 3, PALE_GREEN, false);
-                if (price.locked()) small(g, "LOCKED // " + taskTitles(price.unlockTasks()), x + 22, rowY + 14, rowWidth - 28, RED);
+                if (price.locked()) small(g, "LOCKED // " + requirementTitles(price.unlockTasks(), price.unlockDisks(), price.unlockCommands()), x + 22, rowY + 14, rowWidth - 28, RED);
                 else if (price.limit() > 0) small(g, number(price.remaining()) + " / " + number(price.limit()) + " LEFT " + resetLabel(price.limitReset()), x + 22, rowY + 14,
                         rowWidth - eachWidth - haveWidth - 30, MUTED);
                 if (!have.isEmpty()) small(g, have, x + rowWidth - eachWidth - haveWidth - 2, rowY + 6, haveWidth, MUTED);
                 hit(x, rowY, rowWidth, rowHeight - 1, () -> {
                     state.priceItem = price.item();
+                    state.priceRequirementsScroll = 0;
                     state.priceQuantity = Math.max(1, Math.min(64, Math.min(state.priceQuantity, Math.max(1, inventoryCount(price.item())))));
                 });
             }
@@ -1646,14 +1714,27 @@ final class AntazonApp extends ComputerApp {
         }
         if (selected.locked()) {
             small(g, "LOCKED // " + number(selected.value()) + " " + AntOSPlayerText.currencyName().toUpperCase(Locale.ROOT) + " EACH // "
-                    + (selected.unlockMode().equals("any") ? "COMPLETE ANY TASK:" : "COMPLETE THESE TASKS:"), x, panelTop + 5, w, RED);
-            int line = panelTop + 16;
+                    + (selected.unlockMode().equals("any") ? "MEET ANY REQUIREMENT:" : "MEET ALL REQUIREMENTS:"), x, panelTop + 5, w, RED);
+            List<net.minecraft.util.FormattedCharSequence> requirements = new ArrayList<>();
             for (String taskId : selected.unlockTasks()) {
                 var task = ComputerTasksClientState.get().stream().filter(row -> row.id().equals(taskId)).findFirst().orElse(null);
                 boolean known = task != null && task.visible();
                 String title = known ? AntOSPlayerText.apply(Component.translatable(task.title()).getString()) : taskId;
-                line = screen.wrap(g, (task != null && task.complete() ? "[X] " : "[ ] ") + title, x + 2, line, w - 4, known ? PALE_GREEN : MUTED) + 1;
+                requirements.addAll(font.split(Component.literal((task != null && task.complete() ? "[X] " : "[ ] ") + title), w - 9));
             }
+            for (String diskId : selected.unlockDisks()) requirements.addAll(font.split(Component.literal(
+                    (collectedDisk(diskId) ? "[X] " : "[ ] ") + "Requires the " + diskTitle(diskId) + " disk"), w - 9));
+            for (String hint : selected.unlockCommands()) requirements.addAll(font.split(Component.literal("[?] " + Component.translatable(hint).getString()), w - 9));
+            int bodyTop = panelTop + 16;
+            int bodyH = Math.max(1, y + h - bodyTop - 2);
+            int maximum = Math.max(0, requirements.size() * 11 - bodyH);
+            state.priceRequirementsScroll = Math.max(0, Math.min(maximum, state.priceRequirementsScroll));
+            screen.enableComputerScissor(g, x, bodyTop, x + w - 5, bodyTop + bodyH);
+            for (int i = 0; i < requirements.size(); i++) g.drawString(font, requirements.get(i), x + 2, bodyTop + i * 11 - state.priceRequirementsScroll, PALE_GREEN, false);
+            g.disableScissor();
+            scrollbar(g, x + w - 3, bodyTop, bodyH, bodyH, requirements.size() * 11, state.priceRequirementsScroll, maximum,
+                    value -> state.priceRequirementsScroll = value);
+            scrollArea(x, bodyTop, w, bodyH, delta -> state.priceRequirementsScroll = Math.max(0, Math.min(maximum, state.priceRequirementsScroll + delta * 11)));
             return;
         }
         int owned = inventoryCount(selected.item());
@@ -1828,6 +1909,24 @@ final class AntazonApp extends ComputerApp {
         };
     }
 
+    private String diskTitle(String value) {
+        ResourceLocation id = ResourceLocation.tryParse(value);
+        var disk = id == null ? null : com.craisinlord.antos.content.guide.ComputerGuideData.disk(id);
+        return disk == null ? Component.translatable("guide.antos.missing_disk_title").getString() : AntOSPlayerText.apply(Component.translatable(disk.titleKey()).getString());
+    }
+
+    private boolean collectedDisk(String value) {
+        ResourceLocation id = ResourceLocation.tryParse(value);
+        return id != null && com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.activatedDisks().contains(id);
+    }
+
+    private String requirementTitles(List<String> tasks, List<String> disks, List<String> commands) {
+        List<String> titles = new ArrayList<>();
+        if (!tasks.isEmpty()) titles.add(taskTitles(tasks));
+        disks.forEach(disk -> titles.add(diskTitle(disk) + " disk"));
+        commands.forEach(hint -> titles.add(Component.translatable(hint).getString()));
+        return String.join(", ", titles);
+    }
     private String taskTitles(List<String> tasks) {
         return String.join(", ", tasks.stream().map(taskId -> {
             var task = ComputerTasksClientState.get().stream().filter(row -> row.id().equals(taskId)).findFirst().orElse(null);
@@ -1836,16 +1935,27 @@ final class AntazonApp extends ComputerApp {
     }
 
     void refresh() {
-        ComputerNetworking.linkAntazonCrate();
-        ComputerNetworking.requestAntazon();
-        ComputerNetworking.requestAntazonWallet();
-        ComputerNetworking.requestAntazonSellState();
-        ComputerNetworking.requestAntazonWishlist();
-        ComputerNetworking.requestAntazonOrders();
-        ComputerNetworking.requestAntazonPrices();
-        ComputerNetworking.requestAntazonOnboarding();
-        ComputerNetworking.requestAntazonCart();
+        ComputerNetworking.requestAntazonBootstrap(ComputerAccessPayload.BOOTSTRAP_ALL);
         state.refreshTicks = 200;
+        state.lastRefresh = System.currentTimeMillis();
+    }
+
+    void refocus() {
+        if (System.currentTimeMillis() - state.lastRefresh >= 5000L) refresh();
+    }
+
+    void refreshListings() {
+        long now = System.currentTimeMillis();
+        if (now - state.lastRefresh < 5000L || now - state.lastListingsRefresh < 5000L) return;
+        state.lastListingsRefresh = now;
+        ComputerNetworking.requestAntazonBootstrap(ComputerAccessPayload.BOOTSTRAP_STATE | ComputerAccessPayload.BOOTSTRAP_PRICES);
+    }
+
+    void showPrices() {
+        state.mode = "sell";
+        state.priceGuide = true;
+        state.priceScroll = 0;
+        ComputerNetworking.requestAntazonPrices();
     }
 
     private static final class State {
@@ -1861,6 +1971,7 @@ final class AntazonApp extends ComputerApp {
         int ordersScroll;
         int sellScroll;
         int priceScroll;
+        int priceRequirementsScroll;
         int orderSelection = -1;
         int priceQuantity = 1;
         String priceItem = "";
@@ -1886,6 +1997,8 @@ final class AntazonApp extends ComputerApp {
         String reviewBody = "";
         boolean prefetched;
         int refreshTicks;
+        long lastRefresh;
+        long lastListingsRefresh;
         final Set<String> seenDeals = new HashSet<>();
         int walletRefreshTicks;
     }

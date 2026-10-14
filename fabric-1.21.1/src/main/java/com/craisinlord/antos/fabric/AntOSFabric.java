@@ -58,8 +58,12 @@ public final class AntOSFabric implements ModInitializer {
             FloppyTextureSync.tick(server);
             AntmailEventData.onTick(server);
             com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
+            com.craisinlord.antos.content.computer.ComputerPrograms.tick(server);
         });
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> FieldGuideCompat.shutdown());
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            FieldGuideCompat.shutdown();
+            com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
+        });
         AntOS.LOGGER.info("AntOS initialized");
     }
 

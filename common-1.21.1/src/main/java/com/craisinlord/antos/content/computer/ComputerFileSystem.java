@@ -26,6 +26,7 @@ public final class ComputerFileSystem {
     private static final String CONTENTS_TAG = "Contents";
     private final Map<String, ComputerFile> nodes = new LinkedHashMap<>();
     private int totalBytes;
+    private int revision;
 
     public ComputerFileSystem() {
         reset();
@@ -38,6 +39,11 @@ public final class ComputerFileSystem {
         nodes.put(PICTURES, ComputerFile.directory(PICTURES));
         nodes.put(SYSTEM, ComputerFile.directory(SYSTEM));
         totalBytes = 0;
+        revision++;
+    }
+
+    public int revision() {
+        return revision;
     }
 
     public ComputerFile get(String path) {
@@ -58,6 +64,7 @@ public final class ComputerFileSystem {
         int slash = normalized.lastIndexOf('/');
         if (slash > 0 && !nodesDirectory(normalized.substring(0, slash))) return Result.failure("missing_directory");
         nodes.put(normalized, ComputerFile.directory(normalized));
+        revision++;
         return Result.ok();
     }
 
@@ -71,6 +78,7 @@ public final class ComputerFileSystem {
         if (totalBytes + size > MAX_TOTAL_SIZE) return Result.failure("storage_limit");
         nodes.put(normalized, ComputerFile.text(normalized, contents));
         totalBytes += size;
+        revision++;
         return Result.ok();
     }
 
@@ -85,6 +93,7 @@ public final class ComputerFileSystem {
         if (replacement > MAX_TOTAL_SIZE) return Result.failure("storage_limit");
         nodes.put(normalized, ComputerFile.text(normalized, contents));
         totalBytes = replacement;
+        revision++;
         return Result.ok();
     }
 
@@ -125,6 +134,7 @@ public final class ComputerFileSystem {
             nodes.remove(from);
             nodes.put(to, ComputerFile.text(to, file.contents()));
         }
+        revision++;
         return Result.ok();
     }
 
@@ -138,6 +148,24 @@ public final class ComputerFileSystem {
         }
         nodes.remove(normalized);
         totalBytes -= file.contents().length();
+        revision++;
+        return Result.ok();
+    }
+
+    public Result deleteTree(String path) {
+        String normalized = normalize(path);
+        if (normalized.isEmpty() || ROOT.equals(normalized)) return Result.failure("invalid_path");
+        if (isProtected(normalized)) return Result.failure("protected");
+        ComputerFile file = nodes.get(normalized);
+        if (file == null) return Result.failure("not_found");
+        List<String> removed = nodes.keySet().stream()
+                .filter(key -> key.equals(normalized) || key.startsWith(normalized + "/"))
+                .toList();
+        for (String key : removed) {
+            ComputerFile node = nodes.remove(key);
+            if (node != null) totalBytes -= node.contents().length();
+        }
+        revision++;
         return Result.ok();
     }
 
@@ -186,6 +214,7 @@ public final class ComputerFileSystem {
                 }
             }
         }
+        revision++;
     }
 
     private Result validateTextPath(String path, String contents) {

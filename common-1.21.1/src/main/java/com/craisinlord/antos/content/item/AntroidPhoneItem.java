@@ -64,10 +64,26 @@ public final class AntroidPhoneItem extends Item implements GeoItem {
     public boolean overrideOtherStackedOnMe(ItemStack phone, ItemStack carried, Slot slot, ClickAction action, Player player, SlotAccess access) {
         if (action != ClickAction.SECONDARY || !carried.is(AntOSObjects.FLOPPY_DISK.get())) return false;
         if (player instanceof ServerPlayer serverPlayer) insertDisk(serverPlayer, phone, carried);
+        else if (player.level().isClientSide && player.isCreative() && slot.container == player.getInventory()
+                && com.craisinlord.antos.content.network.PhoneDiskInsertPayload.creativeInventoryOpen()) {
+            ResourceLocation diskId = carried.get(AntOSObjects.FLOPPY_DISK_COMPONENT.get());
+            if (diskId != null) {
+                boolean spent = FloppyDiskItem.redeemed(carried);
+                com.craisinlord.antos.content.network.PhoneDiskInsertPayload.send(slot.getContainerSlot(), diskId, spent);
+                if (consumable(diskId) && !spent || !pendingDisks(phone).contains(diskId)
+                        && !com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.installedDisks().contains(diskId)) {
+                    carried.shrink(1);
+                }
+            }
+        }
         return true;
     }
 
     public static boolean insertDisk(ServerPlayer player, ItemStack phone, ItemStack floppy) {
+        return insertDisk(player, phone, floppy, FloppyDiskItem.redeemed(floppy));
+    }
+
+    public static boolean insertDisk(ServerPlayer player, ItemStack phone, ItemStack floppy, boolean spent) {
         ResourceLocation diskId = floppy.get(AntOSObjects.FLOPPY_DISK_COMPONENT.get());
         if (diskId == null) {
             player.displayClientMessage(net.minecraft.network.chat.Component.literal("This floppy has no disk data."), true);
@@ -78,32 +94,29 @@ public final class AntroidPhoneItem extends Item implements GeoItem {
             return false;
         }
         List<ResourceLocation> pending = pendingDisks(phone);
-        if (pending.contains(diskId)) {
+        if (pending.contains(diskId) && !consumable(diskId) || pending.size() >= 64) {
             player.displayClientMessage(net.minecraft.network.chat.Component.literal("That disk is already queued on this phone."), true);
             return false;
         }
         ComputerWorkspaceData.AccountInfo account = AnternetAccountHandler.session(player);
         if (account == null) {
-            if (!pending.contains(diskId)) pending.add(diskId);
+            if (spent && consumable(diskId)) {
+                player.displayClientMessage(net.minecraft.network.chat.Component.translatable("computer.antos.disks.redeemed_needs_sign_in"), true);
+                return false;
+            }
+            pending.add(diskId);
             writePendingDisks(phone, pending);
             floppy.shrink(1);
             player.displayClientMessage(net.minecraft.network.chat.Component.literal("Disk queued on this phone. Sign in to Anternet to sync it."), true);
             return true;
         }
-        ComputerWorkspaceData data = ComputerWorkspaceData.access(player.serverLevel().getServer());
-        if (data.profileDisks(account.accountId()).contains(diskId)) {
-            player.displayClientMessage(net.minecraft.network.chat.Component.literal("That disk is already installed on your Anternet profile."), true);
-            return false;
-        }
-        if (!installProfileDisk(player, account, diskId)) {
-            player.displayClientMessage(net.minecraft.network.chat.Component.literal("The disk could not be installed. It was not consumed."), true);
-            return false;
-        }
+        var result = com.craisinlord.antos.content.computer.ComputerDisks.install(player,
+                new com.craisinlord.antos.content.computer.AccountWorkspace(player, account), diskId, spent);
+        if (result == com.craisinlord.antos.content.computer.ComputerDisks.InstallResult.ALREADY_INSTALLED) return false;
+        if (result != com.craisinlord.antos.content.computer.ComputerDisks.InstallResult.INSTALLED) return false;
         floppy.shrink(1);
-        player.displayClientMessage(net.minecraft.network.chat.Component.literal("Disk installed to your Anternet profile."), true);
         return true;
     }
-
     public static int syncPendingDisks(ServerPlayer player, ComputerWorkspaceData.AccountInfo account) {
         int installed = 0;
         for (ItemStack phone : player.getInventory().items) installed += syncPhone(player, phone, account);
@@ -119,55 +132,40 @@ public final class AntroidPhoneItem extends Item implements GeoItem {
         if (!(phone.getItem() instanceof AntroidPhoneItem)) return 0;
         List<ResourceLocation> pending = pendingDisks(phone);
         if (pending.isEmpty()) return 0;
-        ComputerWorkspaceData data = ComputerWorkspaceData.access(player.serverLevel().getServer());
         List<ResourceLocation> remaining = new ArrayList<>();
         int installed = 0;
         for (ResourceLocation diskId : pending) {
-            if (data.profileDisks(account.accountId()).contains(diskId)) continue;
-            if (ComputerGuideData.disk(diskId) != null && installProfileDisk(player, account, diskId)) installed++;
-            else remaining.add(diskId);
+            var result = com.craisinlord.antos.content.computer.ComputerDisks.install(player,
+                    new com.craisinlord.antos.content.computer.AccountWorkspace(player, account), diskId);
+            if (result == com.craisinlord.antos.content.computer.ComputerDisks.InstallResult.INSTALLED) installed++;
+            else if (result == com.craisinlord.antos.content.computer.ComputerDisks.InstallResult.ALREADY_INSTALLED) {
+                ItemStack duplicate = new ItemStack(AntOSObjects.FLOPPY_DISK.get());
+                duplicate.set(AntOSObjects.FLOPPY_DISK_COMPONENT.get(), diskId);
+                if (!player.getInventory().add(duplicate) && player.drop(duplicate, false) == null) remaining.add(diskId);
+                else player.displayClientMessage(net.minecraft.network.chat.Component.translatable("computer.antos.disks.duplicate_returned"), true);
+            } else remaining.add(diskId);
         }
         writePendingDisks(phone, remaining);
         return installed;
     }
-
-    private static boolean installProfileDisk(ServerPlayer player, ComputerWorkspaceData.AccountInfo account, ResourceLocation diskId) {
-        ComputerWorkspaceData data = ComputerWorkspaceData.access(player.serverLevel().getServer());
-        if (data.account(account.accountId()) == null || ComputerGuideData.disk(diskId) == null) return false;
-        if (data.profileDisks(account.accountId()).contains(diskId)) return true;
-        var snapshot = data.workspaceSnapshot(account.workspaceId());
-        if (snapshot == null) snapshot = new CompoundTag();
-        ComputerTaskProgress progress = new ComputerTaskProgress();
-        progress.load(snapshot.getCompound("TaskProgress"));
-        ComputerDesktopState desktop = new ComputerDesktopState();
-        desktop.load(snapshot.getCompound("Desktop"));
-        ComputerGuideData.Disk disk = ComputerGuideData.disk(diskId);
-        disk.tasks().forEach(progress::grant);
-        disk.entries().forEach(progress::unlockArchiveEntry);
-        if (!disk.wallpaper().isBlank()) {
-            try {
-                ResourceLocation wallpaperId = ResourceLocation.parse(disk.wallpaper());
-                if (ComputerGuideData.wallpaper(wallpaperId) != null) desktop.unlockWallpaper(wallpaperId);
-            } catch (RuntimeException ignored) { }
-        }
-        snapshot.put("TaskProgress", progress.save());
-        snapshot.put("Desktop", desktop.save());
-        if (!data.saveWorkspaceSnapshot(account.workspaceId(), snapshot)) return false;
-        return data.addProfileDisk(account.accountId(), diskId) || data.profileDisks(account.accountId()).contains(diskId);
-    }
-
+    @SuppressWarnings("deprecation")
     private static List<ResourceLocation> pendingDisks(ItemStack phone) {
         CustomData customData = phone.get(DataComponents.CUSTOM_DATA);
         if (customData == null) return new ArrayList<>();
-        ListTag tag = customData.copyTag().getList(PENDING_DISKS_TAG, Tag.TAG_STRING);
+        ListTag tag = customData.getUnsafe().getList(PENDING_DISKS_TAG, Tag.TAG_STRING);
         List<ResourceLocation> pending = new ArrayList<>();
         for (int index = 0; index < tag.size(); index++) {
             try {
                 ResourceLocation id = ResourceLocation.parse(tag.getString(index));
-                if (!pending.contains(id)) pending.add(id);
+                if (!pending.contains(id) || consumable(id)) pending.add(id);
             } catch (RuntimeException ignored) { }
         }
         return pending;
+    }
+
+    private static boolean consumable(ResourceLocation diskId) {
+        ComputerGuideData.Disk disk = ComputerGuideData.disk(diskId);
+        return disk != null && disk.features().consumable();
     }
 
     private static void writePendingDisks(ItemStack phone, List<ResourceLocation> pending) {

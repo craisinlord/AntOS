@@ -1,4 +1,7 @@
 {
+  "shape": "diamond",
+  "size": 1.0,
+  "icon_scale": 1.0,
   "title": "task.examplemod.field_basics.title",
   "description": "task.examplemod.field_basics.description",
   "program": "examplemod:meadow_research",

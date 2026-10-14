@@ -30,8 +30,24 @@ public final class ComputerTasks {
     private static final java.util.Set<String> OVERSIZED_TASK_STATES = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final java.util.Set<ResourceLocation> OVERSIZED_ITEM_TAGS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final java.util.Set<ResourceLocation> MISSING_ITEM_TAGS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Map<ResourceLocation, TagItems> TAG_ITEMS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicLong TAG_EPOCH = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong EVALUATION_EPOCH = new java.util.concurrent.atomic.AtomicLong();
+    private static final Map<java.util.UUID, MergedProgress> MERGED_PROGRESS = new java.util.HashMap<>();
+    private static final Map<ServerPlayer, EncodedState> ENCODED_STATES = new java.util.WeakHashMap<>();
+    private static final Map<ServerPlayer, Map<String, String>> SENT_DEFINITIONS = new java.util.WeakHashMap<>();
+    private static int mergedProgressTick = Integer.MIN_VALUE;
+    private static volatile Dependents dependents;
     private ComputerTasks() { }
 
+
+    public static void serverStopped() {
+        synchronized (MERGED_PROGRESS) { MERGED_PROGRESS.clear(); }
+        synchronized (ENCODED_STATES) { ENCODED_STATES.clear(); }
+        synchronized (SENT_DEFINITIONS) { SENT_DEFINITIONS.clear(); }
+        TAG_ITEMS.clear();
+        ComputerLocationObjectives.serverStopped();
+    }
     public static boolean giveRewardPool(ServerPlayer player, ResourceLocation poolId) {
         if (player == null || ComputerGuideData.taskRewardPool(poolId) == null) return false;
         List<ItemStack> stacks = new java.util.ArrayList<>();
@@ -133,7 +149,7 @@ public final class ComputerTasks {
         if (workspaceId != null) progress.mergeFrom(ComputerWorkspaceData.access(player.server).progress(workspaceId));
         if (progress.isComplete(taskId) || progress.objectiveCount(taskId, objectiveId) >= objective.count()) return LocationResult.DONE;
         for (ComputerGuideData.Task candidate : ComputerGuideData.tasks()) {
-            if (candidate.requires().isEmpty() && candidate.availability().equals("automatic")) progress.grant(candidate.id());
+            if (!candidate.hasPrerequisites() && candidate.availability().equals("automatic")) progress.grant(candidate.id());
         }
         if (!available(task, progress)) return LocationResult.UNAVAILABLE;
         boolean changed = progress.setObjectiveCount(taskId, objectiveId, objective.count());
@@ -143,6 +159,7 @@ public final class ComputerTasks {
 
     public static boolean resetTaskProgress(ComputerWorkspace computer) {
         boolean changed = computer.taskProgress().clearTaskProgress();
+        invalidateEvaluations();
         if (changed) {
             computer.setChanged();
             computer.saveWorkspaceProgress();
@@ -163,13 +180,42 @@ public final class ComputerTasks {
 
     public static boolean isTaskComplete(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId) {
         if (player == null || computer == null || taskId == null || task(taskId) == null) return false;
+        return mergedProgress(player, computer).isComplete(taskId);
+    }
+
+    public static void invalidateEvaluations() {
+        EVALUATION_EPOCH.incrementAndGet();
+    }
+
+    private static ComputerTaskProgress mergedProgress(ServerPlayer player, ComputerWorkspace computer) {
         ComputerTaskProgress progress = computer.taskProgress();
         var account = accountForProgress(player);
-        if (account != null) progress.mergeFrom(ComputerWorkspaceData.access(player.server).effectiveProgress(account.accountId(), progress));
+        java.util.UUID accountId = account == null ? null : account.accountId();
         java.util.UUID workspaceId = computer.workspaceId();
-        if (workspaceId != null) progress.mergeFrom(ComputerWorkspaceData.access(player.server).progress(workspaceId));
-        return progress.isComplete(taskId);
+        int tick = player.server.getTickCount();
+        long epoch = EVALUATION_EPOCH.get();
+        synchronized (MERGED_PROGRESS) {
+            if (mergedProgressTick != tick) {
+                MERGED_PROGRESS.clear();
+                mergedProgressTick = tick;
+            }
+            MergedProgress cached = MERGED_PROGRESS.get(player.getUUID());
+            if (cached != null && cached.computer() == computer && cached.progress() == progress && cached.revision() == progress.revision()
+                    && cached.epoch() == epoch && java.util.Objects.equals(cached.accountId(), accountId)
+                    && java.util.Objects.equals(cached.workspaceId(), workspaceId)) return progress;
+        }
+        ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
+        if (account != null) progress.mergeFrom(data.effectiveProgress(accountId, progress));
+        if (workspaceId != null) progress.mergeFrom(data.progress(workspaceId));
+        synchronized (MERGED_PROGRESS) {
+            if (mergedProgressTick == tick) MERGED_PROGRESS.put(player.getUUID(),
+                    new MergedProgress(computer, progress, progress.revision(), epoch, accountId, workspaceId));
+        }
+        return progress;
     }
+
+    private record MergedProgress(ComputerWorkspace computer, ComputerTaskProgress progress, int revision, long epoch,
+                                  java.util.UUID accountId, java.util.UUID workspaceId) { }
 
     public static void synchronizeSharedProgress(ServerPlayer player, ComputerWorkspace computer) {
         if (player == null || computer == null) return;
@@ -178,6 +224,7 @@ public final class ComputerTasks {
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
         boolean changed = computer.taskProgress().mergeFrom(data.effectiveProgress(account.accountId(), computer.taskProgress()));
         data.mergeTeamProgress(account.accountId(), computer.taskProgress());
+        invalidateEvaluations();
         if (changed) {
             computer.setChanged();
             computer.saveWorkspaceProgress();
@@ -185,18 +232,26 @@ public final class ComputerTasks {
     }
 
     public static String updateAndEncode(ServerPlayer player, ComputerWorkspace computer) {
-        return updateAndEncode(player, computer, "");
+        return updateAndEncode(player, computer, "", false);
     }
 
     public static String updateAndEncode(ServerPlayer player, ComputerWorkspace computer, String known) {
+        return updateAndEncode(player, computer, known, true);
+    }
+
+    private static String updateAndEncode(ServerPlayer player, ComputerWorkspace computer, String known, boolean clientRequest) {
         ComputerTaskProgress progress = computer.taskProgress();
         evaluateProgress(player, computer, progress, false);
         String[] knownHashes = (known == null ? "" : known).split("\u0000", -1);
         String knownDefinitions = knownHashes.length > 0 ? knownHashes[0] : "";
         String knownState = knownHashes.length > 1 ? knownHashes[1] : "";
         EncodedDefinitions definitions = definitions();
-        String state = encodeState(player, progress);
-        String stateHash = hash(state);
+        String workspaceKey = String.valueOf(computer.workspaceId());
+        if (!clientRequest && knownDefinitions.isEmpty() && definitions.hash().equals(sentDefinitions(player, workspaceKey)))
+            knownDefinitions = definitions.hash();
+        EncodedState encodedState = encodeState(player, computer, progress);
+        String state = encodedState.state();
+        String stateHash = encodedState.hash();
         boolean sendDefinitions = !knownDefinitions.equals(definitions.hash());
         boolean sendState = sendDefinitions || !knownState.equals(stateHash);
         StringBuilder encoded = new StringBuilder(64 + (sendDefinitions ? definitions.json().length() : 0) + (sendState ? state.length() : 0));
@@ -205,13 +260,36 @@ public final class ComputerTasks {
         if (sendState) encoded.append(",\"state\":").append(state);
         encoded.append('}');
         if (encoded.length() + 64 > com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS) {
-            String workspaceKey = String.valueOf(computer.workspaceId());
             if (OVERSIZED_TASK_STATES.add(workspaceKey)) AntOS.LOGGER.error("Task snapshot for Anternet workspace {} exceeds the network payload limit; reduce task/objective definitions",
                     workspaceKey);
+            forgetSentDefinitions(player, workspaceKey);
             JsonObject error = new JsonObject(); error.add("tasks", new JsonArray()); error.addProperty("error", "task_snapshot_too_large");
             return error.toString();
         }
+        if (clientRequest) rememberSentDefinitions(player, workspaceKey, definitions.hash());
         return encoded.toString();
+    }
+
+    private static String sentDefinitions(ServerPlayer player, String workspaceKey) {
+        synchronized (SENT_DEFINITIONS) {
+            Map<String, String> sent = SENT_DEFINITIONS.get(player);
+            return sent == null ? null : sent.get(workspaceKey);
+        }
+    }
+
+    private static void rememberSentDefinitions(ServerPlayer player, String workspaceKey, String hash) {
+        synchronized (SENT_DEFINITIONS) {
+            Map<String, String> sent = SENT_DEFINITIONS.computeIfAbsent(player, ignored -> new java.util.HashMap<>());
+            if (sent.size() >= 16 && !sent.containsKey(workspaceKey)) sent.clear();
+            sent.put(workspaceKey, hash);
+        }
+    }
+
+    private static void forgetSentDefinitions(ServerPlayer player, String workspaceKey) {
+        synchronized (SENT_DEFINITIONS) {
+            Map<String, String> sent = SENT_DEFINITIONS.get(player);
+            if (sent != null) sent.remove(workspaceKey);
+        }
     }
 
     private static String hash(String value) {
@@ -220,7 +298,7 @@ public final class ComputerTasks {
 
     private record EncodedDefinitions(List<ComputerGuideData.Task> tasks, List<ComputerGuideData.TaskCategory> categories,
                                       List<ComputerGuideData.TaskGroup> groups, Map<ResourceLocation, ComputerGuideData.RewardPool> pools,
-                                      String json, String hash) { }
+                                      List<ComputerGuideData.TaskLink> links, String json, String hash) { }
 
     private static volatile EncodedDefinitions encodedDefinitions;
 
@@ -229,8 +307,10 @@ public final class ComputerTasks {
         List<ComputerGuideData.TaskCategory> categories = ComputerGuideData.taskCategories();
         List<ComputerGuideData.TaskGroup> groups = ComputerGuideData.taskGroups();
         Map<ResourceLocation, ComputerGuideData.RewardPool> pools = ComputerGuideData.taskRewardPools();
+        List<ComputerGuideData.TaskLink> links = ComputerGuideData.taskLinks();
         EncodedDefinitions cached = encodedDefinitions;
-        if (cached != null && cached.tasks() == tasks && cached.categories() == categories && cached.groups() == groups && cached.pools() == pools) return cached;
+        if (cached != null && cached.tasks() == tasks && cached.categories() == categories && cached.groups() == groups && cached.pools() == pools
+                && cached.links() == links) return cached;
         JsonObject root = new JsonObject(); JsonArray rows = new JsonArray();
         for (ComputerGuideData.Task task : tasks) {
             JsonObject row = new JsonObject(); row.addProperty("id", task.id().toString());
@@ -238,9 +318,19 @@ public final class ComputerTasks {
             row.addProperty("program", task.program()); row.addProperty("category", task.category());
             row.addProperty("has_position", task.hasPosition()); row.addProperty("x", task.x()); row.addProperty("y", task.y());
             row.addProperty("has_rewards", !task.rewards().isEmpty());
+            String iconTexture = "";
             String iconItem = task.iconItem();
             String iconEntity = iconItem.isBlank() ? task.iconEntity() : "";
             if (iconItem.isBlank() && iconEntity.isBlank()) for (ComputerGuideData.Objective objective : task.objectives()) {
+                if (objective.type().equals("disk_installed")) {
+                    var disk = objective.targetCategory().isBlank() ? ComputerDiskData.disk(ResourceLocation.parse(objective.target())) : null;
+                    ResourceLocation categoryId = disk != null ? disk.category() : ResourceLocation.tryParse(objective.targetCategory());
+                    var category = categoryId == null ? null : ComputerGuideData.category(categoryId);
+                    ResourceLocation texture = category == null ? ResourceLocation.fromNamespaceAndPath("antos", "item/floppy_disk/floppy_disk") : category.texture();
+                    iconTexture = texture.getNamespace() + ":textures/" + texture.getPath() + ".png";
+                    iconItem = "antos:floppy_disk";
+                    break;
+                }
                 if (objective.type().equals("item")) { iconItem = objective.target(); break; }
                 if (isKillObjective(objective)) { iconEntity = objective.target(); break; }
             }
@@ -250,8 +340,14 @@ public final class ComputerTasks {
                 }
             }
             if (iconItem.isBlank() && iconEntity.isBlank()) iconItem = "minecraft:paper";
+            row.addProperty("icon_texture", iconTexture);
             row.addProperty("icon_item", iconItem);
             row.addProperty("icon_entity", iconEntity);
+            row.addProperty("shape", task.appearance().shape().name().toLowerCase(java.util.Locale.ROOT));
+            row.addProperty("size", task.appearance().size());
+            row.addProperty("icon_scale", task.appearance().iconScale());
+            row.addProperty("line_axis", task.appearance().lineAxis().name().toLowerCase(java.util.Locale.ROOT));
+            row.addProperty("line_bend", task.appearance().lineBend());
             row.addProperty("green_tint", task.greenTint());
             row.addProperty("render_mob_from_spawn_egg", task.renderMobFromSpawnEgg());
             JsonArray rewards = new JsonArray();
@@ -260,7 +356,10 @@ public final class ComputerTasks {
             }
             row.add("rewards", rewards);
             JsonArray prerequisites = new JsonArray(); task.requires().forEach(id -> prerequisites.add(id.toString())); row.add("requires", prerequisites);
+            JsonArray anyPrerequisites = new JsonArray(); task.requiresAny().forEach(id -> anyPrerequisites.add(id.toString())); row.add("requires_any", anyPrerequisites);
+            JsonArray connections = new JsonArray(); task.connects().forEach(id -> connections.add(id.toString())); row.add("connects", connections);
             JsonArray archiveEntries = new JsonArray(); task.archiveEntries().forEach(id -> archiveEntries.add(id.toString())); row.add("archive_entries", archiveEntries);
+            JsonArray showcase = new JsonArray(); task.showcase().forEach(showcase::add); row.add("showcase", showcase);
             int total = 0;
             for (ComputerGuideData.Objective objective : task.objectives()) if (!objective.optional()) total++;
             row.addProperty("total", total);
@@ -321,8 +420,32 @@ public final class ComputerTasks {
             groupRows.add(groupRow);
         }
         root.add("groups", groupRows);
+        JsonArray linkRows = new JsonArray();
+        for (ComputerGuideData.TaskLink link : links) {
+            JsonObject linkRow = new JsonObject();
+            linkRow.addProperty("id", link.id().toString());
+            linkRow.addProperty("title", link.titleKey());
+            linkRow.addProperty("description", link.descriptionKey());
+            linkRow.addProperty("category", link.category());
+            linkRow.addProperty("link_category", link.linkCategory() == null ? "" : link.linkCategory().toString());
+            linkRow.addProperty("link_group", link.linkGroup() == null ? "" : link.linkGroup().toString());
+            linkRow.addProperty("has_position", link.hasPosition()); linkRow.addProperty("x", link.x()); linkRow.addProperty("y", link.y());
+            linkRow.addProperty("icon_item", link.iconItem());
+            linkRow.addProperty("icon_entity", link.iconEntity());
+            if (link.greenTint() != null) linkRow.addProperty("green_tint", link.greenTint());
+            if (link.renderMobFromSpawnEgg() != null) linkRow.addProperty("render_mob_from_spawn_egg", link.renderMobFromSpawnEgg());
+            linkRow.addProperty("shape", link.appearance().shape().name().toLowerCase(java.util.Locale.ROOT));
+            linkRow.addProperty("size", link.appearance().size());
+            linkRow.addProperty("icon_scale", link.appearance().iconScale());
+            linkRow.addProperty("line_axis", link.appearance().lineAxis().name().toLowerCase(java.util.Locale.ROOT));
+            linkRow.addProperty("line_bend", link.appearance().lineBend());
+            JsonArray linkRequires = new JsonArray(); link.requires().forEach(id -> linkRequires.add(id.toString())); linkRow.add("requires", linkRequires);
+            JsonArray linkConnects = new JsonArray(); link.connects().forEach(id -> linkConnects.add(id.toString())); linkRow.add("connects", linkConnects);
+            linkRows.add(linkRow);
+        }
+        root.add("links", linkRows);
         String json = root.toString();
-        EncodedDefinitions result = new EncodedDefinitions(tasks, categories, groups, pools, json, hash(json));
+        EncodedDefinitions result = new EncodedDefinitions(tasks, categories, groups, pools, links, json, hash(json));
         encodedDefinitions = result;
         return result;
     }
@@ -354,11 +477,53 @@ public final class ComputerTasks {
         return row;
     }
 
-    private static String encodeState(ServerPlayer player, ComputerTaskProgress progress) {
+    private record EncodedState(List<ComputerGuideData.Task> tasks, java.util.UUID workspaceId, java.util.UUID accountId,
+                                ComputerTaskProgress progress, ComputerWorkspaceData.TeamInfo team,
+                                List<ComputerWorkspaceData.TeamInviteInfo> invites, java.util.BitSet claimed,
+                                Map<Item, Integer> inventory, long tagEpoch, String state, String hash) {
+        boolean matches(List<ComputerGuideData.Task> currentTasks, java.util.UUID currentWorkspace, java.util.UUID currentAccount,
+                        ComputerTaskProgress currentProgress, ComputerWorkspaceData.TeamInfo currentTeam,
+                        List<ComputerWorkspaceData.TeamInviteInfo> currentInvites, java.util.BitSet currentClaimed,
+                        Map<Item, Integer> currentInventory, long currentTagEpoch) {
+            return tasks == currentTasks && tagEpoch == currentTagEpoch && java.util.Objects.equals(workspaceId, currentWorkspace)
+                    && java.util.Objects.equals(accountId, currentAccount) && java.util.Objects.equals(team, currentTeam)
+                    && invites.equals(currentInvites) && claimed.equals(currentClaimed) && inventory.equals(currentInventory)
+                    && progress.sameContent(currentProgress);
+        }
+    }
+
+    private static EncodedState encodeState(ServerPlayer player, ComputerWorkspace computer, ComputerTaskProgress progress) {
         var account = accountForProgress(player);
         ComputerWorkspaceData accountData = ComputerWorkspaceData.access(player.server);
-        JsonObject root = new JsonObject(); JsonArray rows = new JsonArray();
+        List<ComputerGuideData.Task> tasks = ComputerGuideData.tasks();
+        java.util.UUID accountId = account == null ? null : account.accountId();
         var team = account == null ? null : accountData.team(account.accountId());
+        List<ComputerWorkspaceData.TeamInviteInfo> invitations = account == null ? List.of() : accountData.invitations(account.accountId());
+        java.util.BitSet claimedTasks = new java.util.BitSet(tasks.size());
+        if (account != null) for (int index = 0; index < tasks.size(); index++) {
+            ComputerGuideData.Task task = tasks.get(index);
+            if (hasClaimableRewards(task) && accountData.hasClaimedTaskReward(account.accountId(), task.id())) claimedTasks.set(index);
+        }
+        ItemCounts counts = new ItemCounts(player);
+        Map<Item, Integer> inventory = counts.snapshot();
+        validateTagCache(player);
+        long tagEpoch = TAG_EPOCH.get();
+        java.util.UUID workspaceId = computer.workspaceId();
+        EncodedState cached;
+        synchronized (ENCODED_STATES) { cached = ENCODED_STATES.get(player); }
+        if (cached != null && cached.matches(tasks, workspaceId, accountId, progress, team, invitations, claimedTasks, inventory, tagEpoch)
+                && tagEpoch == TAG_EPOCH.get()) return cached;
+        String state = encodeState(player, progress, tasks, account, team, invitations, claimedTasks, counts);
+        EncodedState result = new EncodedState(tasks, workspaceId, accountId, progress.copy(), team, List.copyOf(invitations), claimedTasks,
+                inventory, TAG_EPOCH.get() == tagEpoch ? tagEpoch : -1L, state, hash(state));
+        synchronized (ENCODED_STATES) { ENCODED_STATES.put(player, result); }
+        return result;
+    }
+
+    private static String encodeState(ServerPlayer player, ComputerTaskProgress progress, List<ComputerGuideData.Task> tasks,
+                                      ComputerWorkspaceData.AccountInfo account, ComputerWorkspaceData.TeamInfo team,
+                                      List<ComputerWorkspaceData.TeamInviteInfo> invitations, java.util.BitSet claimedTasks, ItemCounts counts) {
+        JsonObject root = new JsonObject(); JsonArray rows = new JsonArray();
         if (team == null) root.add("team", com.google.gson.JsonNull.INSTANCE);
         else {
             JsonObject teamRow = new JsonObject();
@@ -371,17 +536,18 @@ public final class ComputerTasks {
             root.add("team", teamRow);
         }
         JsonArray invites = new JsonArray();
-        if (account != null) for (var invite : accountData.invitations(account.accountId())) {
+        if (account != null) for (var invite : invitations) {
             JsonObject inviteRow = new JsonObject(); inviteRow.addProperty("id", invite.id().toString());
             inviteRow.addProperty("owner_name", invite.ownerName()); inviteRow.addProperty("inviter_name", invite.inviterName());
             invites.add(inviteRow);
         }
         root.add("team_invites", invites);
-        for (ComputerGuideData.Task task : ComputerGuideData.tasks()) {
+        for (int taskIndex = 0; taskIndex < tasks.size(); taskIndex++) {
+            ComputerGuideData.Task task = tasks.get(taskIndex);
             JsonObject row = new JsonObject(); row.addProperty("id", task.id().toString());
             boolean complete = progress.isComplete(task.id());
             boolean rewardsClaimable = hasClaimableRewards(task);
-            boolean claimed = rewardsClaimable && account != null && accountData.hasClaimedTaskReward(account.accountId(), task.id());
+            boolean claimed = rewardsClaimable && account != null && claimedTasks.get(taskIndex);
             row.addProperty("complete", complete); row.addProperty("visible", visible(task, progress));
             row.addProperty("available", complete || available(task, progress));
             row.addProperty("claimable", complete && rewardsClaimable && account != null && !claimed);
@@ -389,7 +555,7 @@ public final class ComputerTasks {
             int done = 0;
             JsonArray objectiveProgress = new JsonArray();
             for (ComputerGuideData.Objective objective : task.objectives()) {
-                ObjectiveView view = objectiveView(player, progress, task, objective);
+                ObjectiveView view = objectiveView(player, progress, task, objective, counts);
                 if (view.complete() && !objective.optional()) done++;
                 if (objective.type().equals("item_tag") && objective.tagMode().equals("all")) {
                     JsonObject objectiveState = new JsonObject();
@@ -428,7 +594,7 @@ public final class ComputerTasks {
         }
         boolean eventChanged = false;
         for (ComputerGuideData.Task task : ComputerGuideData.tasks()) {
-            if (task.requires().isEmpty() && task.availability().equals("automatic")) progress.grant(task.id());
+            if (!task.hasPrerequisites() && task.availability().equals("automatic")) progress.grant(task.id());
         }
         for (ComputerGuideData.Task task : ComputerGuideData.tasks()) {
             if (progress.isComplete(task.id()) || !available(task, progress)) continue;
@@ -460,17 +626,25 @@ public final class ComputerTasks {
             progressChanged |= progress.mergeFrom(ComputerWorkspaceData.access(player.server).progress(workspaceId));
         }
         for (ComputerGuideData.Task task : ComputerGuideData.tasks()) {
-            if (task.requires().isEmpty() && task.availability().equals("automatic")) progressChanged |= progress.grant(task.id());
+            if (!task.hasPrerequisites() && task.availability().equals("automatic")) progressChanged |= progress.grant(task.id());
         }
         boolean changed;
         List<ResourceLocation> newlyCompleted = new java.util.ArrayList<>();
         java.util.Map<ComputerGuideData.Objective, Integer> liveProgress = new java.util.IdentityHashMap<>();
         List<ComputerGuideData.Task> tasks = ComputerGuideData.tasks();
+        Dependents taskDependents = dependents(tasks);
+        ItemCounts counts = new ItemCounts(player);
+        boolean[] pending = new boolean[tasks.size()];
+        java.util.Arrays.fill(pending, true);
         int passes = 0;
         do {
             changed = false;
-            for (ComputerGuideData.Task task : tasks) {
+            for (int taskIndex = 0; taskIndex < tasks.size(); taskIndex++) {
+                if (!pending[taskIndex]) continue;
+                ComputerGuideData.Task task = tasks.get(taskIndex);
                 if (progress.isComplete(task.id()) || !available(task, progress)) continue;
+                pending[taskIndex] = false;
+                int revisionBefore = progress.revision();
                 boolean requiredDone = true;
                 boolean anyRequired = false;
                 for (ComputerGuideData.Objective objective : task.objectives()) {
@@ -480,13 +654,17 @@ public final class ComputerTasks {
                         boolean priorItemProgressComplete = objective.type().equals("item") && objective.consume()
                                 && progress.objectiveCount(task.id(), objective.id()) >= objective.count();
                         ObjectiveView view = allTag
-                                ? evaluateAllTagObjective(player, progress, task, objective, sharedTeamProgress, objective.consume())
-                                : evaluateObjective(player, progress, task, objective, liveProgress, sharedTeamProgress);
+                                ? evaluateAllTagObjective(player, progress, task, objective, sharedTeamProgress, objective.consume(), counts)
+                                : evaluateObjective(player, progress, task, objective, liveProgress, sharedTeamProgress, counts);
                         if (view.changed()) {
                             changed = true;
                             progressChanged = true;
                         }
-                        if (view.consumedItems()) liveProgress.clear();
+                        if (view.consumedItems()) {
+                            liveProgress.clear();
+                            counts.invalidate();
+                            java.util.Arrays.fill(pending, true);
+                        }
                         if (progress.setObjectiveCount(task.id(), objective.id(), view.progress())) {
                             changed = true;
                             progressChanged = true;
@@ -496,14 +674,15 @@ public final class ComputerTasks {
                             if (progress.isObjectiveConsumed(task.id(), objective.id())) {
                                 objectiveComplete = true;
                             } else {
-                                boolean liveComplete = evaluateObjective(player, progress, task, objective, liveProgress, false).liveComplete();
-                                if (!liveComplete || !consumeObjectiveItems(player, objective)) objectiveComplete = false;
+                                boolean liveComplete = evaluateObjective(player, progress, task, objective, liveProgress, false, counts).liveComplete();
+                                if (!liveComplete || !consumeObjectiveItems(player, objective, counts)) objectiveComplete = false;
                                 else {
                                     if (progress.markObjectiveConsumed(task.id(), objective.id())) {
                                         changed = true;
                                         progressChanged = true;
                                     }
                                     liveProgress.clear();
+                                    java.util.Arrays.fill(pending, true);
                                 }
                             }
                         }
@@ -524,14 +703,17 @@ public final class ComputerTasks {
                     progressChanged = true;
                     unlockArchiveRewards(computer, task);
                     newlyCompleted.add(task.id());
+                    for (int dependent : taskDependents.of(task.id())) pending[dependent] = true;
                 }
+                if (progress.revision() != revisionBefore) pending[taskIndex] = true;
             }
         } while (changed && ++passes < tasks.size() + 1);
         if (progressChanged) {
             computer.setChanged();
             computer.saveWorkspaceProgress();
         }
-        if (account != null) ComputerWorkspaceData.access(player.server).mergeTeamProgress(account.accountId(), progress);
+        boolean teamChanged = account != null && ComputerWorkspaceData.access(player.server).mergeTeamProgress(account.accountId(), progress);
+        if (progressChanged || teamChanged) invalidateEvaluations();
         for (ResourceLocation taskId : newlyCompleted) ComputerTaskCompletionEvents.fire(player, taskId);
     }
 
@@ -544,27 +726,26 @@ public final class ComputerTasks {
     }
 
     private static void deliverRewards(ServerPlayer player, ComputerWorkspace computer, ComputerGuideData.Task task, Map<Integer, String> choices) {
-        if (task.rewards().isEmpty()) return;
+        deliverRewards(player, task.id(), task.rewards(), choices);
+    }
+    public static List<ComputerGuideData.TaskReward> deliverRewards(ServerPlayer player, ResourceLocation sourceId, List<ComputerGuideData.TaskReward> rewards, Map<Integer, String> choices) {
+        if (rewards.isEmpty()) return List.of();
+        List<ComputerGuideData.TaskReward> receipt = new java.util.ArrayList<>();
         List<ItemStack> stacks = new java.util.ArrayList<>();
-        for (int rewardIndex = 0; rewardIndex < task.rewards().size(); rewardIndex++) {
-            ComputerGuideData.TaskReward reward = task.rewards().get(rewardIndex);
+        for (int rewardIndex = 0; rewardIndex < rewards.size(); rewardIndex++) {
+            ComputerGuideData.TaskReward reward = rewards.get(rewardIndex);
             switch (reward.type()) {
                 case "item" -> {
-                    Item item = BuiltInRegistries.ITEM.get(reward.itemId());
-                    if (item == null || item == net.minecraft.world.item.Items.AIR) continue;
-                    int remaining = reward.count();
-                    while (remaining > 0) {
-                        int amount = Math.min(item.getDefaultMaxStackSize(), remaining);
-                        stacks.add(new ItemStack(item, amount));
-                        remaining -= amount;
-                    }
+                    addRewardItem(reward.itemId(), reward.count(), stacks, 108);
                 }
-                case "experience" -> player.giveExperiencePoints(reward.experiencePoints());
-                case "experience_levels" -> player.giveExperienceLevels(reward.count());
+                case "experience" -> { player.giveExperiencePoints(reward.experiencePoints()); receipt.add(reward); }
+                case "experience_levels" -> { player.giveExperienceLevels(reward.count()); receipt.add(reward); }
                 case "antcoins" -> {
                     var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
-                    if (account != null) com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server)
-                            .credit(account.accountId(), reward.antcoins());
+                    if (account != null) {
+                        com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).credit(account.accountId(), reward.antcoins());
+                        receipt.add(reward);
+                    }
                 }
                 case "item_pool" -> {
                     String selected = choices.get(rewardIndex);
@@ -578,32 +759,39 @@ public final class ComputerTasks {
                 case "choice" -> {
                     int optionIndex = selectedChoiceIndex(choices.get(rewardIndex));
                     if (optionIndex >= 0 && optionIndex < reward.options().size())
-                        deliverChoiceOption(player, task, reward.options().get(optionIndex), stacks);
+                        deliverChoiceOption(player, sourceId, reward.options().get(optionIndex), stacks);
                 }
                 case "advancement" -> {
                     var advancement = player.serverLevel().getServer().getAdvancements().get(reward.target());
                     if (advancement == null) {
-                        AntOS.LOGGER.warn("Task {} rewards missing advancement {}", task.id(), reward.target());
+                        AntOS.LOGGER.warn("Task {} rewards missing advancement {}", sourceId, reward.target());
                     } else {
                         advancement.value().criteria().keySet().forEach(criterion ->
                                 player.getAdvancements().award(advancement, criterion));
+                        receipt.add(reward);
                     }
                 }
                 case "effect" -> {
                     var effect = BuiltInRegistries.MOB_EFFECT.getHolder(reward.target()).orElse(null);
                     if (effect == null) {
-                        AntOS.LOGGER.warn("Task {} rewards missing status effect {}", task.id(), reward.target());
+                        AntOS.LOGGER.warn("Task {} rewards missing status effect {}", sourceId, reward.target());
                     } else {
                         player.addEffect(new MobEffectInstance(effect, reward.durationTicks(), reward.amplifier()));
+                        receipt.add(reward);
                     }
                 }
                 case "archive" -> {
                 }
-                case "mail" -> deliverMailReward(player, task, reward);
+                case "mail" -> { if (deliverMailReward(player, sourceId, reward)) receipt.add(reward); }
             }
         }
-        if (stacks.isEmpty()) return;
-        dropRewardCrate(player, stacks);
+        if (!stacks.isEmpty()) {
+            Map<ResourceLocation, Integer> items = new java.util.LinkedHashMap<>();
+            for (ItemStack stack : stacks) items.merge(BuiltInRegistries.ITEM.getKey(stack.getItem()), stack.getCount(), Integer::sum);
+            items.forEach((item, count) -> receipt.add(new ComputerGuideData.TaskReward("item", item, count, 0, null, "", "", "", 0, 0, null, "", 0L)));
+            dropRewardCrate(player, stacks);
+        }
+        return List.copyOf(receipt);
     }
 
     private static int selectedChoiceIndex(String selection) {
@@ -611,7 +799,7 @@ public final class ComputerTasks {
         try { return Integer.parseInt(selection.substring("option:".length())); } catch (RuntimeException ignored) { return -1; }
     }
 
-    private static void deliverChoiceOption(ServerPlayer player, ComputerGuideData.Task task,
+    private static void deliverChoiceOption(ServerPlayer player, ResourceLocation sourceId,
                                             ComputerGuideData.RewardOption option, List<ItemStack> stacks) {
         for (ComputerGuideData.TaskReward reward : option.rewards()) {
             switch (reward.type()) {
@@ -628,14 +816,14 @@ public final class ComputerTasks {
                 case "advancement" -> {
                     var advancement = player.serverLevel().getServer().getAdvancements().get(reward.target());
                     if (advancement != null) advancement.value().criteria().keySet().forEach(criterion -> player.getAdvancements().award(advancement, criterion));
-                    else AntOS.LOGGER.warn("Task {} choice {} rewards missing advancement {}", task.id(), option.id(), reward.target());
+                    else AntOS.LOGGER.warn("Task {} choice {} rewards missing advancement {}", sourceId, option.id(), reward.target());
                 }
                 case "effect" -> {
                     var effect = BuiltInRegistries.MOB_EFFECT.getHolder(reward.target()).orElse(null);
                     if (effect != null) player.addEffect(new MobEffectInstance(effect, reward.durationTicks(), reward.amplifier()));
-                    else AntOS.LOGGER.warn("Task {} choice {} rewards missing status effect {}", task.id(), option.id(), reward.target());
+                    else AntOS.LOGGER.warn("Task {} choice {} rewards missing status effect {}", sourceId, option.id(), reward.target());
                 }
-                case "mail" -> deliverMailReward(player, task, reward);
+                case "mail" -> deliverMailReward(player, sourceId, reward);
             }
         }
     }
@@ -712,25 +900,33 @@ public final class ComputerTasks {
         level.addFreshEntity(drop);
     }
 
-    private static void deliverMailReward(ServerPlayer player, ComputerGuideData.Task task, ComputerGuideData.TaskReward reward) {
+    private static boolean deliverMailReward(ServerPlayer player, ResourceLocation sourceId, ComputerGuideData.TaskReward reward) {
+        if (reward.target() != null) {
+            var status = com.craisinlord.antos.content.antmail.AntmailEventData.sendDefinition(player, reward.target());
+            return status == com.craisinlord.antos.content.antmail.AntmailDeliveryResult.Status.DELIVERED
+                    || status == com.craisinlord.antos.content.antmail.AntmailDeliveryResult.Status.QUEUED;
+        }
         AntmailServerData data = AntmailServerData.access(player.server);
         AntmailAddress recipient = data.deliveryAddressFor(player);
         if (recipient == null) {
             AntOS.LOGGER.warn("Task {} mail reward could not be delivered because player {} has no Antmail profile",
-                    task.id(), player.getGameProfile().getName());
-            return;
+                    sourceId, player.getGameProfile().getName());
+            return false;
         }
         try {
             AntmailAddress sender = AntmailAddress.ofUsername(reward.sender());
             AntmailMessage message = AntmailMessage.create(sender, recipient, reward.subject(), reward.body(),
-                    player.serverLevel().getGameTime(), List.of(), task.id().toString());
+                    player.serverLevel().getGameTime(), List.of(), sourceId.toString());
             var result = data.deliver(player.server, message);
             if (result.status() == com.craisinlord.antos.content.antmail.AntmailDeliveryResult.Status.MAILBOX_FULL
                     || result.status() == com.craisinlord.antos.content.antmail.AntmailDeliveryResult.Status.FAILED) {
-                AntOS.LOGGER.warn("Task {} mail reward could not be delivered to {}: {}", task.id(), recipient, result.detail());
+                AntOS.LOGGER.warn("Content {} mail reward could not be delivered to {}: {}", sourceId, recipient, result.detail());
+                return false;
             }
+            return true;
         } catch (RuntimeException exception) {
-            AntOS.LOGGER.warn("Task {} has an invalid mail reward", task.id(), exception);
+            AntOS.LOGGER.warn("Content {} has an invalid mail reward", sourceId, exception);
+            return false;
         }
     }
 
@@ -759,30 +955,35 @@ public final class ComputerTasks {
 
     private static boolean available(ComputerGuideData.Task task, ComputerTaskProgress progress) {
         if (progress.isGranted(task.id())) return true;
-        if (task.requires().isEmpty()) return task.availability().equals("automatic");
-        for (ResourceLocation required : task.requires()) if (!progress.isComplete(required)) return false;
-        return true;
+        if (!task.hasPrerequisites()) return task.availability().equals("automatic");
+        return task.prerequisitesMet(progress::isComplete);
     }
 
     private static boolean visible(ComputerGuideData.Task task, ComputerTaskProgress progress) {
         if (task.invisibleUntilCompleted() && !progress.isComplete(task.id())) return false;
-        if (task.hideUntilDependenciesComplete()) {
-            for (ResourceLocation required : task.requires()) if (!progress.isComplete(required)) return false;
-        }
+        if (task.hideUntilDependenciesComplete() && !task.prerequisitesMet(progress::isComplete)) return false;
         return true;
     }
 
-    private static int objectiveProgress(ServerPlayer player, ComputerGuideData.Objective objective) {
+    private static int objectiveProgress(ServerPlayer player, ComputerGuideData.Objective objective, ItemCounts counts) {
         try {
             ResourceLocation target = ResourceLocation.parse(objective.target());
+            if (objective.type().equals("disk_installed") || objective.type().equals("program_ending") || objective.type().equals("terminal_command")) {
+                var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+                if (account == null) return 0;
+                DiskProfileState state = ComputerWorkspaceData.access(player.server).diskState(account.accountId());
+                if (objective.type().equals("terminal_command")) return state.commandRun(target) ? 1 : 0;
+                if (objective.type().equals("program_ending")) return state.endingCount(target, objective.ending());
+                return objective.targetCategory().isBlank() ? state.activated(target) ? 1 : 0 : state.categoryCount(target);
+            }
             if (objective.type().equals("item")) {
                 Item item = BuiltInRegistries.ITEM.get(target);
-                return player.getInventory().countItem(item);
+                return counts.count(item);
             }
             if (objective.type().equals("item_tag")) {
                 List<Item> items = itemTagItems(player, target);
                 int total = 0;
-                for (Item item : items) total += player.getInventory().countItem(item);
+                for (Item item : items) total += counts.count(item);
                 return total;
             }
             if (objective.type().equals("advancement")) {
@@ -816,7 +1017,7 @@ public final class ComputerTasks {
     }
 
     private static ObjectiveView objectiveView(ServerPlayer player, ComputerTaskProgress progress,
-                                                ComputerGuideData.Task task, ComputerGuideData.Objective objective) {
+                                                ComputerGuideData.Task task, ComputerGuideData.Objective objective, ItemCounts counts) {
         boolean complete = progress.isObjectiveSatisfied(task.id(), objective.id());
         int progressValue = progress.objectiveCount(task.id(), objective.id());
         int goal = objectiveProgressGoal(player, objective);
@@ -831,7 +1032,7 @@ public final class ComputerTasks {
                 ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
                 boolean consumed = progress.isObjectiveItemConsumed(task.id(), objective.id(), id);
                 int value = consumed ? objective.count() : objective.sticky() ? progress.objectiveItemCount(task.id(), objective.id(), id)
-                        : player.getInventory().countItem(item);
+                        : counts.count(item);
                 if (value >= objective.count() && (!objective.consume() || consumed)) progressValue++;
             }
             goal = items.size();
@@ -848,7 +1049,7 @@ public final class ComputerTasks {
     private static ObjectiveView evaluateObjective(ServerPlayer player, ComputerTaskProgress progress,
                                                     ComputerGuideData.Task task, ComputerGuideData.Objective objective,
                                                     java.util.Map<ComputerGuideData.Objective, Integer> liveProgress,
-                                                    boolean sharedTeamProgress) {
+                                                    boolean sharedTeamProgress, ItemCounts counts) {
         if (objective.type().equals("item_tag") && objective.tagMode().equals("any")
                 && itemTagItems(player, ResourceLocation.tryParse(objective.target())).isEmpty()) {
             return new ObjectiveView(progress.objectiveCount(task.id(), objective.id()), objective.count(), false, false, false);
@@ -859,18 +1060,18 @@ public final class ComputerTasks {
             boolean changed = false;
             for (Item item : items) {
                 ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
-                int live = player.getInventory().countItem(item);
+                int live = counts.count(item);
                 int value = objective.sticky() ? Math.max(live, progress.objectiveItemCount(task.id(), objective.id(), id)) : live;
                 if (sharedTeamProgress && objective.sticky()) value = Math.max(value, progress.objectiveItemCount(task.id(), objective.id(), id));
                 if (objective.sticky()) changed |= progress.setObjectiveItemCount(task.id(), objective.id(), id, value);
                 if (value >= objective.count()) met++;
             }
-            boolean liveComplete = !items.isEmpty() && items.stream().allMatch(item -> player.getInventory().countItem(item) >= objective.count());
+            boolean liveComplete = !items.isEmpty() && items.stream().allMatch(item -> counts.count(item) >= objective.count());
             return new ObjectiveView(met, items.size(), !items.isEmpty() && met == items.size(), liveComplete, changed);
         }
         int live = isEventDrivenObjective(objective.type())
                 ? progress.objectiveCount(task.id(), objective.id())
-                : liveProgress.computeIfAbsent(objective, value -> objectiveProgress(player, value));
+                : liveProgress.computeIfAbsent(objective, value -> objectiveProgress(player, value, counts));
         int current = objective.sticky() ? Math.max(live, progress.objectiveCount(task.id(), objective.id())) : live;
         if (sharedTeamProgress && objective.sticky()) current = Math.max(current, progress.objectiveCount(task.id(), objective.id()));
         int value = Math.min(objective.count(), current);
@@ -880,7 +1081,7 @@ public final class ComputerTasks {
 
     private static ObjectiveView evaluateAllTagObjective(ServerPlayer player, ComputerTaskProgress progress,
                                                           ComputerGuideData.Task task, ComputerGuideData.Objective objective,
-                                                          boolean sharedTeamProgress, boolean consume) {
+                                                          boolean sharedTeamProgress, boolean consume, ItemCounts counts) {
         List<Item> items = itemTagItems(player, ResourceLocation.tryParse(objective.target()));
         int met = 0;
         boolean changed = false;
@@ -888,12 +1089,14 @@ public final class ComputerTasks {
         for (Item item : items) {
             ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(item);
             boolean itemConsumed = progress.isObjectiveItemConsumed(task.id(), objective.id(), itemId);
-            int live = player.getInventory().countItem(item);
+            int live = counts.count(item);
             int previous = progress.objectiveItemCount(task.id(), objective.id(), itemId);
             int value = Math.min(objective.count(), objective.sticky() ? Math.max(live, previous) : live);
             if (sharedTeamProgress && objective.sticky()) value = Math.max(value, previous);
             if (consume && !itemConsumed && live >= objective.count()) {
-                if (consumeItem(player, item, objective.count())) {
+                boolean consumedItem = consumeItem(player, item, objective.count());
+                counts.invalidate();
+                if (consumedItem) {
                     itemConsumed = true;
                     value = objective.count();
                     consumedItems = true;
@@ -922,16 +1125,111 @@ public final class ComputerTasks {
         var tag = registry.get(TagKey.create(Registries.ITEM, tagId));
         if (tag.isEmpty()) {
             if (MISSING_ITEM_TAGS.add(tagId)) AntOS.LOGGER.warn("AntOS task references missing item tag {}", tagId);
+            if (TAG_ITEMS.put(tagId, TagItems.MISSING) != TagItems.MISSING) TAG_EPOCH.incrementAndGet();
             return List.of();
         }
+        net.minecraft.core.HolderSet.Named<Item> holders = tag.get();
+        TagItems cached = TAG_ITEMS.get(tagId);
+        if (cached != null && cached.matches(holders)) return cached.items();
         List<Item> items = tag.stream()
                 .flatMap(holderSet -> holderSet.stream().map(holder -> holder.value()))
                 .distinct().sorted(java.util.Comparator.comparing(item -> BuiltInRegistries.ITEM.getKey(item).toString())).toList();
         if (items.size() > 128) {
             if (OVERSIZED_ITEM_TAGS.add(tagId)) AntOS.LOGGER.warn("AntOS task item tag {} contains {} items; objectives using tags are limited to 128 members", tagId, items.size());
-            return List.of();
+            items = List.of();
         }
+        TAG_ITEMS.put(tagId, TagItems.of(holders, items));
+        TAG_EPOCH.incrementAndGet();
         return items;
+    }
+
+    private static void validateTagCache(ServerPlayer player) {
+        if (TAG_ITEMS.isEmpty()) return;
+        var registry = player.registryAccess().lookupOrThrow(Registries.ITEM);
+        for (Map.Entry<ResourceLocation, TagItems> entry : TAG_ITEMS.entrySet()) {
+            var tag = registry.get(TagKey.create(Registries.ITEM, entry.getKey()));
+            if (tag.isEmpty() ? entry.getValue() != TagItems.MISSING : !entry.getValue().matches(tag.get())) {
+                TAG_ITEMS.remove(entry.getKey(), entry.getValue());
+                TAG_EPOCH.incrementAndGet();
+            }
+        }
+    }
+
+    private record TagItems(net.minecraft.core.HolderSet.Named<Item> source, List<net.minecraft.core.Holder<Item>> holders, List<Item> items) {
+        static final TagItems MISSING = new TagItems(null, List.of(), List.of());
+
+        static TagItems of(net.minecraft.core.HolderSet.Named<Item> source, List<Item> items) {
+            List<net.minecraft.core.Holder<Item>> holders = new java.util.ArrayList<>(source.size());
+            for (int index = 0; index < source.size(); index++) holders.add(source.get(index));
+            return new TagItems(source, holders, items);
+        }
+
+        boolean matches(net.minecraft.core.HolderSet.Named<Item> current) {
+            if (current != source || current.size() != holders.size()) return false;
+            for (int index = 0; index < holders.size(); index++) if (current.get(index) != holders.get(index)) return false;
+            return true;
+        }
+    }
+
+    private static final class ItemCounts {
+        private final ServerPlayer player;
+        private Map<Item, Integer> counts;
+
+        private ItemCounts(ServerPlayer player) {
+            this.player = player;
+        }
+
+        int count(Item item) {
+            return counts().getOrDefault(item, 0);
+        }
+
+        void invalidate() {
+            counts = null;
+        }
+
+        Map<Item, Integer> snapshot() {
+            return Map.copyOf(counts());
+        }
+
+        private Map<Item, Integer> counts() {
+            if (counts == null) {
+                Map<Item, Integer> values = new java.util.HashMap<>();
+                var inventory = player.getInventory();
+                for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+                    ItemStack stack = inventory.getItem(slot);
+                    values.merge(stack.getItem(), stack.getCount(), Integer::sum);
+                }
+                counts = values;
+            }
+            return counts;
+        }
+    }
+
+    private record Dependents(List<ComputerGuideData.Task> source, Map<ResourceLocation, int[]> byRequirement) {
+        int[] of(ResourceLocation taskId) {
+            int[] result = byRequirement.get(taskId);
+            return result == null ? new int[0] : result;
+        }
+    }
+
+    private static Dependents dependents(List<ComputerGuideData.Task> tasks) {
+        Dependents current = dependents;
+        if (current != null && current.source() == tasks) return current;
+        Map<ResourceLocation, List<Integer>> indices = new java.util.HashMap<>();
+        for (int index = 0; index < tasks.size(); index++) {
+            for (ResourceLocation required : tasks.get(index).prerequisites()) indices.computeIfAbsent(required, ignored -> new java.util.ArrayList<>()).add(index);
+        }
+        Map<ResourceLocation, int[]> byRequirement = new java.util.HashMap<>();
+        indices.forEach((id, values) -> byRequirement.put(id, values.stream().mapToInt(Integer::intValue).toArray()));
+        current = new Dependents(tasks, Map.copyOf(byRequirement));
+        dependents = current;
+        return current;
+    }
+
+    private static boolean consumeObjectiveItems(ServerPlayer player, ComputerGuideData.Objective objective, ItemCounts counts) {
+        boolean consumed = consumeObjectiveItems(player, objective);
+        counts.invalidate();
+        return consumed;
     }
 
     private static boolean consumeObjectiveItems(ServerPlayer player, ComputerGuideData.Objective objective) {

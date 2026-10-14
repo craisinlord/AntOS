@@ -22,26 +22,35 @@ public record AntmailAnternetPayload(int action, String first, String second, St
     public static final int PERMANENT_DELETE = 11;
     public static final int UNARCHIVE = 12;
     public static final int UPDATE_PROFILE = 13;
+    public static final int MAX_FIELD_CHARS = 65536;
     public static final Type<AntmailAnternetPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "antmail_anternet"));
     public static final StreamCodec<RegistryFriendlyByteBuf, AntmailAnternetPayload> STREAM_CODEC = StreamCodec.of(
             (buf, payload) -> {
                 ByteBufCodecs.VAR_INT.encode(buf, payload.action());
-                ByteBufCodecs.stringUtf8(65536).encode(buf, payload.first());
-                ByteBufCodecs.stringUtf8(65536).encode(buf, payload.second());
-                ByteBufCodecs.stringUtf8(65536).encode(buf, payload.third());
-                ByteBufCodecs.stringUtf8(65536).encode(buf, payload.fourth());
-                ByteBufCodecs.stringUtf8(65536).encode(buf, payload.fifth());
+                ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).encode(buf, payload.first());
+                ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).encode(buf, payload.second());
+                ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).encode(buf, payload.third());
+                ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).encode(buf, payload.fourth());
+                ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).encode(buf, payload.fifth());
                 ByteBufCodecs.VAR_LONG.encode(buf, payload.number());
                 ByteBufCodecs.VAR_LONG.encode(buf, payload.version());
             },
             buf -> new AntmailAnternetPayload(
                     ByteBufCodecs.VAR_INT.decode(buf),
-                    ByteBufCodecs.stringUtf8(65536).decode(buf),
-                    ByteBufCodecs.stringUtf8(65536).decode(buf),
-                    ByteBufCodecs.stringUtf8(65536).decode(buf),
-                    ByteBufCodecs.stringUtf8(65536).decode(buf),
-                    ByteBufCodecs.stringUtf8(65536).decode(buf),
+                    ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).decode(buf),
+                    ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).decode(buf),
+                    ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).decode(buf),
+                    ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).decode(buf),
+                    ByteBufCodecs.stringUtf8(MAX_FIELD_CHARS).decode(buf),
                     ByteBufCodecs.VAR_LONG.decode(buf),
                     ByteBufCodecs.VAR_LONG.decode(buf)));
+    public boolean fits() {
+        return fits(first) && fits(second) && fits(third) && fits(fourth) && fits(fifth);
+    }
+
+    private static boolean fits(String value) {
+        return value != null && value.length() <= MAX_FIELD_CHARS;
+    }
+
     @Override public Type<AntmailAnternetPayload> type() { return TYPE; }
 }

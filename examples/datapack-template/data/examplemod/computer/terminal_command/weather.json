@@ -1,0 +1,10 @@
+{
+  "command": "weather",
+  "hidden": false,
+  "usage": "weather",
+  "description": "terminal.examplemod.weather.description",
+  "output": [
+    "terminal.examplemod.weather.line1",
+    { "text": "terminal.examplemod.weather.line2", "style": "highlight" }
+  ]
+}

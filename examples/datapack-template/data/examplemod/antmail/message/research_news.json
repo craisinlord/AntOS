@@ -1,0 +1,8 @@
+{
+  "sender": "fieldoffice@antmail.com",
+  "sender_display": "Research Bulletin",
+  "subject": "Your weekly lab update",
+  "body": "Hello {player}, the lab's bee has been promoted to head of research. Thank you for subscribing.",
+  "once": false,
+  "trigger": { "type": "random", "pool": "examplemod:research_news" }
+}

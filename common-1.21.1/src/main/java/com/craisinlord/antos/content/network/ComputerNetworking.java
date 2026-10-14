@@ -17,14 +17,34 @@ public final class ComputerNetworking {
     }
 
     private static void send(int action, String value) {
-        if (profileActionAllowed(action)) sender.accept(new AnternetComputerPayload(action, value));
+        if (!profileActionAllowed(action)) return;
+        if (value.length() > ComputerAccessPayload.MAX_VALUE_CHARS) {
+            rejectOversized(action, value);
+            return;
+        }
+        sender.accept(new AnternetComputerPayload(action, value));
+    }
+
+    private static void rejectOversized(int action, String value) {
+        String target = switch (action) {
+            case ComputerAccessPayload.FILE_CREATE, ComputerAccessPayload.FILE_SAVE -> {
+                int separator = value.indexOf('\0');
+                yield separator < 0 ? "" : value.substring(0, separator);
+            }
+            default -> null;
+        };
+        if (target == null) return;
+        com.craisinlord.antos.content.client.ComputerAccessClientState.update(new ComputerAccessResultPayload(
+                ComputerAccessResultPayload.INVALID, true, true, action + "\0file_limit\0" + target));
     }
 
     private static boolean profileActionAllowed(int action) {
         return switch (action) {
-            case ComputerAccessPayload.OPEN, ComputerAccessPayload.CLOSE, ComputerAccessPayload.LOGOUT, ComputerAccessPayload.EJECT,
+            case ComputerAccessPayload.DECRYPT_DISK, ComputerAccessPayload.PROGRAM_START, ComputerAccessPayload.PROGRAM_ACTION, ComputerAccessPayload.PROGRAM_STATE,
+                    ComputerAccessPayload.OPEN, ComputerAccessPayload.CLOSE, ComputerAccessPayload.LOGOUT, ComputerAccessPayload.EJECT,
                     ComputerAccessPayload.FILE_LIST, ComputerAccessPayload.FILE_OPEN, ComputerAccessPayload.FILE_CREATE,
                     ComputerAccessPayload.FILE_SAVE, ComputerAccessPayload.FILE_DELETE, ComputerAccessPayload.FILE_MOVE,
+                    ComputerAccessPayload.FILE_CREATE_DIRECTORY, ComputerAccessPayload.FILE_DELETE_TREE,
                     ComputerAccessPayload.TERMINAL_COMMAND, ComputerAccessPayload.DESKTOP_STATE,
                     ComputerAccessPayload.DESKTOP_WALLPAPER, ComputerAccessPayload.TASK_STATE,
                     ComputerAccessPayload.ARCHIVE_VIEWED, ComputerAccessPayload.LOCATE_STRUCTURE,
@@ -38,6 +58,7 @@ public final class ComputerNetworking {
                     ComputerAccessPayload.ANTAZON_ONBOARDING, ComputerAccessPayload.ANTAZON_ONBOARDING_COMPLETE,
                     ComputerAccessPayload.ANTAZON_ONBOARDING_RESET,
                     ComputerAccessPayload.ANTAZON_CART, ComputerAccessPayload.ANTAZON_CHECKOUT,
+                    ComputerAccessPayload.ANTAZON_REVIEWS, ComputerAccessPayload.ANTAZON_BOOTSTRAP,
                     ComputerAccessPayload.TASK_CLAIM_REWARD, ComputerAccessPayload.TEAM_CREATE,
                     ComputerAccessPayload.TEAM_INVITE, ComputerAccessPayload.TEAM_ACCEPT_INVITE,
                     ComputerAccessPayload.TEAM_DECLINE_INVITE, ComputerAccessPayload.TEAM_LEAVE,
@@ -62,6 +83,24 @@ public final class ComputerNetworking {
         send(ComputerAccessPayload.EJECT, diskId.toString());
     }
 
+    public static void decryptDisk(ResourceLocation diskId, String password, boolean terminal) {
+        com.google.gson.JsonObject request = new com.google.gson.JsonObject();
+        request.addProperty("disk", diskId.toString());
+        request.addProperty("password", password);
+        request.addProperty("terminal", terminal);
+        send(ComputerAccessPayload.DECRYPT_DISK, request.toString());
+    }
+
+    public static void startProgram(ResourceLocation program) { send(ComputerAccessPayload.PROGRAM_START, program.toString()); }
+    public static void requestProgramState() { send(ComputerAccessPayload.PROGRAM_STATE, ""); }
+    public static void chooseProgram(String run, int sequence, int choice) {
+        com.google.gson.JsonObject request = new com.google.gson.JsonObject();
+        request.addProperty("run", run);
+        request.addProperty("sequence", sequence);
+        request.addProperty("choice", choice);
+        send(ComputerAccessPayload.PROGRAM_ACTION, request.toString());
+    }
+
     public static void listFiles() {
         send(ComputerAccessPayload.FILE_LIST, "");
     }
@@ -80,6 +119,14 @@ public final class ComputerNetworking {
 
     public static void deleteFile(String path) {
         send(ComputerAccessPayload.FILE_DELETE, path);
+    }
+
+    public static void createDirectory(String path) {
+        send(ComputerAccessPayload.FILE_CREATE_DIRECTORY, path);
+    }
+
+    public static void deleteTree(String path) {
+        send(ComputerAccessPayload.FILE_DELETE_TREE, path);
     }
 
     public static void moveFile(String source, String destination) {
@@ -140,6 +187,14 @@ public final class ComputerNetworking {
 
     public static void requestAntazon() {
         send(ComputerAccessPayload.ANTAZON_STATE, com.craisinlord.antos.content.client.AntazonClientState.catalogVersion());
+    }
+
+    public static void requestAntazonBootstrap(int parts) {
+        send(ComputerAccessPayload.ANTAZON_BOOTSTRAP, com.craisinlord.antos.content.client.AntazonClientState.catalogVersion() + "\0" + parts);
+    }
+
+    public static void requestAntazonReviews(String productId, int offset) {
+        send(ComputerAccessPayload.ANTAZON_REVIEWS, productId + "\0" + Math.max(0, offset));
     }
 
     public static void requestAntazonWallet() {

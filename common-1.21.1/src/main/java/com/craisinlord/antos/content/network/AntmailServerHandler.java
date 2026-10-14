@@ -22,6 +22,9 @@ public final class AntmailServerHandler {
     private static final int MAX_RESULT_DATA_CHARS = AntmailAnternetResultPayload.MAX_DATA_CHARS;
     private static BiConsumer<ServerPlayer, AntmailAnternetResultPayload> resultSender = (player, payload) -> { };
     private static volatile boolean resultSenderConfigured;
+    private static final double BUCKET_CAPACITY = 20.0D;
+    private static final double BUCKET_REFILL_PER_NANO = 10.0D / 1_000_000_000L;
+    private static final java.util.Map<UUID, Limiter> LIMITERS = new java.util.concurrent.ConcurrentHashMap<>();
 
     private AntmailServerHandler() {
     }
@@ -33,6 +36,16 @@ public final class AntmailServerHandler {
 
     public static void handle(ServerPlayer player, AntmailAnternetPayload payload) {
         if (payload.first().length() > 65536 || payload.second().length() > 65536 || payload.third().length() > 65536 || payload.fourth().length() > 65536 || payload.fifth().length() > 65536) return;
+        if (!limiter(player).tryAcquire(cost(payload.action()))) {
+            if (payload.action() == AntmailAnternetPayload.UPDATE_PROFILE) {
+                result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "profile_rate_limited", "");
+            } else if (payload.action() != AntmailAnternetPayload.STATE) {
+                String messageId = payload.action() == AntmailAnternetPayload.SEND ? UUID.randomUUID().toString()
+                        : payload.first().length() <= 64 ? payload.first() : "";
+                result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", messageId, "rate_limited", "");
+            }
+            return;
+        }
         var account = AnternetAccountHandler.session(player);
         if (account == null) {
             result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "unauthorized", "");
@@ -61,6 +74,43 @@ public final class AntmailServerHandler {
             case AntmailAnternetPayload.UNARCHIVE -> handleUnarchive(player, payload.first(), parseFolder(payload.second(), 0));
             case AntmailAnternetPayload.UPDATE_PROFILE -> handleProfileUpdate(player, payload.first(), payload.second());
             default -> result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "invalid_action", "");
+        }
+    }
+
+    private static int cost(int action) {
+        return switch (action) {
+            case AntmailAnternetPayload.STATE, AntmailAnternetPayload.MESSAGE, AntmailAnternetPayload.READ -> 1;
+            case AntmailAnternetPayload.SEND, AntmailAnternetPayload.RETRY -> 5;
+            case AntmailAnternetPayload.UPDATE_PROFILE -> 4;
+            default -> 2;
+        };
+    }
+
+    private static Limiter limiter(ServerPlayer player) {
+        long now = System.nanoTime();
+        if (LIMITERS.size() > 256) LIMITERS.values().removeIf(limiter -> limiter.idleSince(now) > 300_000_000_000L);
+        return LIMITERS.computeIfAbsent(player.getUUID(), ignored -> new Limiter(now));
+    }
+
+    private static final class Limiter {
+        private double tokens = BUCKET_CAPACITY;
+        private long refilledAt;
+
+        private Limiter(long now) {
+            refilledAt = now;
+        }
+
+        synchronized long idleSince(long now) {
+            return now - refilledAt;
+        }
+
+        synchronized boolean tryAcquire(int cost) {
+            long now = System.nanoTime();
+            tokens = Math.min(BUCKET_CAPACITY, tokens + (now - refilledAt) * BUCKET_REFILL_PER_NANO);
+            refilledAt = now;
+            if (tokens < cost) return false;
+            tokens -= cost;
+            return true;
         }
     }
 
@@ -423,12 +473,25 @@ public final class AntmailServerHandler {
         while (true) {
             var snapshot = mailbox.toPageTag(folder, page, query, unreadOnly, attachmentsOnly, draftAttachments, maxRows);
             data.appendProfiles(snapshot, address);
-            String encoded = AntmailWire.encodeTag(snapshot);
-            if (encoded.length() <= MAX_RESULT_DATA_CHARS) return encoded;
+            String encoded = encodeOrNull(snapshot);
+            if (encoded != null && encoded.length() <= MAX_RESULT_DATA_CHARS) return encoded;
             int rows = snapshot.getInt("PageSize");
-            if (draftAttachments) draftAttachments = false;
-            else if (rows > 0) maxRows = rows / 2;
-            else throw new IllegalArgumentException("Antmail snapshot does not fit the result packet");
+            if (draftAttachments) {
+                draftAttachments = false;
+            } else if (rows > 0) {
+                int estimate = encoded == null ? rows / 2 : (int) (rows * (MAX_RESULT_DATA_CHARS * 0.9D / encoded.length()));
+                maxRows = Math.max(0, Math.min(rows - 1, estimate));
+            } else {
+                throw new IllegalArgumentException("Antmail snapshot does not fit the result packet");
+            }
+        }
+    }
+
+    private static String encodeOrNull(net.minecraft.nbt.CompoundTag snapshot) {
+        try {
+            return AntmailWire.encodeTag(snapshot);
+        } catch (IllegalArgumentException exception) {
+            return null;
         }
     }
 

@@ -1,0 +1,12 @@
+{
+  "title": "task.examplemod.vault_breaker.title",
+  "description": "task.examplemod.vault_breaker.description",
+  "program": "examplemod:meadow_research",
+  "category": "examplemod:meadow_research",
+  "sort_order": 70,
+  "availability": "automatic",
+  "objectives": [
+    { "id": "vault", "type": "terminal_command", "target": "examplemod:vault", "description": "Open the lab vault from the Terminal" }
+  ],
+  "rewards": [{ "type": "experience", "points": 10 }]
+}

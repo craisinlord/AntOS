@@ -11,14 +11,14 @@ public final class TerminalCommandParser {
 
     public static ParseResult parse(String input) {
         if (input == null) {
-            return ParseResult.error("ERROR: EMPTY INPUT");
+            return ParseResult.error(TerminalText.of("error.empty_input"));
         }
         if (input.length() > MAX_INPUT_LENGTH) {
-            return ParseResult.error("ERROR: COMMAND TOO LONG");
+            return ParseResult.error(TerminalText.of("error.command_too_long"));
         }
         String trimmed = input.trim();
         if (trimmed.isEmpty()) {
-            return ParseResult.error("ERROR: EMPTY INPUT");
+            return ParseResult.error(TerminalText.of("error.empty_input"));
         }
         List<String> tokens = new ArrayList<>();
         StringBuilder token = new StringBuilder();
@@ -52,13 +52,13 @@ public final class TerminalCommandParser {
             token.append('\\');
         }
         if (quote != null) {
-            return ParseResult.error("ERROR: UNTERMINATED QUOTE");
+            return ParseResult.error(TerminalText.of("error.unterminated_quote"));
         }
         if (!token.isEmpty()) {
             tokens.add(token.toString());
         }
         if (tokens.isEmpty()) {
-            return ParseResult.error("ERROR: EMPTY INPUT");
+            return ParseResult.error(TerminalText.of("error.empty_input"));
         }
         return ParseResult.success(new TerminalCommand(tokens.get(0), tokens.subList(1, tokens.size()), input));
     }

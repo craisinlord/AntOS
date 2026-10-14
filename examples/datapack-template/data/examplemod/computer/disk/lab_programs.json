@@ -1,0 +1,11 @@
+{
+  "category": "examplemod:research",
+  "title": "guide.examplemod.disk.lab_programs.title",
+  "description": "guide.examplemod.disk.lab_programs.description",
+  "files": [
+    { "path": "Disks/Lab/readme.txt", "source": "examplemod:lab/readme.txt" },
+    { "path": "Disks/Lab/map.paint", "source": "examplemod:disk_files/lab/map.json" }
+  ],
+  "programs": ["examplemod:lab_quiz", "examplemod:lab_escape"],
+  "subscribe": ["examplemod:research_news", "examplemod:lab_tip"]
+}

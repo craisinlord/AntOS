@@ -8,6 +8,11 @@ import com.craisinlord.antos.content.client.screen.ComputerScreen;
 import com.craisinlord.antos.content.client.game.AntOSComputerGames;
 import com.craisinlord.antos.content.client.renderer.ComputerRenderer;
 import com.craisinlord.antos.content.client.renderer.RewardDropRenderer;
+import com.craisinlord.antos.content.client.renderer.TaskShapeRenderer;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import java.io.IOException;
+import net.minecraft.client.renderer.ShaderInstance;
+import net.neoforged.neoforge.client.event.RegisterShadersEvent;
 import com.craisinlord.antos.content.network.AntmailNetworking;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 import com.craisinlord.antos.neoforge.AntOSNeoForgeContent;
@@ -41,6 +46,9 @@ public final class AntOSNeoForgeClient {
             AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
             FloppyDiskModelProperties.register(AntOSNeoForgeContent.FLOPPY_DISK.get());
             ComputerNetworking.setSender(PacketDistributor::sendToServer);
+            com.craisinlord.antos.content.network.PhoneDiskInsertPayload.setSender(PacketDistributor::sendToServer);
+            com.craisinlord.antos.content.network.PhoneDiskInsertPayload.setCreativeInventoryCheck(
+                    () -> net.minecraft.client.Minecraft.getInstance().screen instanceof CreativeModeInventoryScreen);
             com.craisinlord.antos.content.network.AnternetAccountNetworking.setSender(PacketDistributor::sendToServer);
             AntmailNetworking.setSender(payload -> {
                 if (payload instanceof CustomPacketPayload packet) PacketDistributor.sendToServer(packet);
@@ -63,5 +71,11 @@ public final class AntOSNeoForgeClient {
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(AntOSNeoForgeContent.COMPUTER_BLOCK_ENTITY.get(), ComputerRenderer::new);
         event.registerEntityRenderer(AntOSNeoForgeContent.REWARD_DROP_ENTITY.get(), RewardDropRenderer::new);
+    }
+
+    @SubscribeEvent
+    public static void registerShaders(RegisterShadersEvent event) throws IOException {
+        event.registerShader(new ShaderInstance(event.getResourceProvider(), TaskShapeRenderer.SHADER_ID,
+                DefaultVertexFormat.POSITION_TEX), TaskShapeRenderer::setShader);
     }
 }

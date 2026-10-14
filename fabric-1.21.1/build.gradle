@@ -61,6 +61,84 @@ tasks.register('accountTest', JavaExec) {
     mainClass = 'com.craisinlord.antos.content.computer.ComputerWorkspaceDataAccountTest'
 }
 
+tasks.register('taskAppearanceTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs task appearance parsing and shape geometry tests.'
+    dependsOn 'compileTaskShapeTests'
+    classpath = files(layout.buildDirectory.dir('classes/java/taskShapeTest')) + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.guide.TaskAppearanceTest'
+}
+
+tasks.register('compileTaskShapeTests', JavaCompile) {
+    source files('../common-1.21.1/src/main/java/com/craisinlord/antos/content/guide/TaskAppearance.java',
+            '../common-1.21.1/src/main/java/com/craisinlord/antos/content/client/renderer/TaskShapeRenderer.java',
+            '../common-1.21.1/src/test/java/com/craisinlord/antos/content/guide/TaskAppearanceTest.java',
+            '../common-1.21.1/src/test/java/com/craisinlord/antos/content/client/renderer/TaskShapeShaderTest.java')
+    classpath = sourceSets.main.compileClasspath
+    destinationDirectory = layout.buildDirectory.dir('classes/java/taskShapeTest')
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+configurations { taskShapeTestNatives }
+def shapeTestOs = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
+def shapeTestNative = shapeTestOs.contains('win') ? 'natives-windows' : shapeTestOs.contains('mac') ? 'natives-macos' : 'natives-linux'
+if (System.getProperty('os.arch').toLowerCase(java.util.Locale.ROOT).contains('aarch64')) shapeTestNative += '-arm64'
+dependencies {
+    taskShapeTestNatives "org.lwjgl:lwjgl:3.3.3:${shapeTestNative}"
+    taskShapeTestNatives "org.lwjgl:lwjgl-glfw:3.3.3:${shapeTestNative}"
+    taskShapeTestNatives "org.lwjgl:lwjgl-opengl:3.3.3:${shapeTestNative}"
+}
+
+tasks.register('taskShapeShaderTest', JavaExec) {
+    group = 'verification'
+    description = 'Compiles and renders task shape shaders in a hidden OpenGL context.'
+    dependsOn 'compileTaskShapeTests'
+    classpath = files(layout.buildDirectory.dir('classes/java/taskShapeTest')) + sourceSets.main.compileClasspath + configurations.taskShapeTestNatives + files('../common-1.21.1/src/main/resources')
+    mainClass = 'com.craisinlord.antos.content.client.renderer.TaskShapeShaderTest'
+    args layout.buildDirectory.file('task-shapes-preview.png').get().asFile.absolutePath
+}
+
+tasks.register('diskCollectionTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies disk collection persistence, profile isolation, and old save migration.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.computer.DiskCollectionTest'
+    workingDir = layout.buildDirectory.dir('disk-stage-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
+tasks.register('diskDefinitionTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies backward compatible disk definitions and Library metadata.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.guide.DiskDefinitionTest'
+    workingDir = layout.buildDirectory.dir('disk-stage-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
+tasks.register('antazonDiskUnlockTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies mixed task and disk requirements and unlock notification transitions.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.antazon.AntazonDiskUnlockTest'
+    workingDir = layout.buildDirectory.dir('disk-stage-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+tasks.register('diskEngineTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies disk activation, files, encryption, programs, and subscriptions.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.computer.DiskEngineTest'
+    args rootProject.projectDir.absolutePath
+    workingDir = layout.buildDirectory.dir('disk-stage-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
 processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') { expand 'version': project.version }

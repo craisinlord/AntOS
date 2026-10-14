@@ -44,8 +44,8 @@ public final class AntmailNetworking {
         sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.MESSAGE, messageId.toString(), "", "", "", "", 0L, 0L));
     }
 
-    public static void send(String recipient, String subject, String body, List<AntmailAttachment> attachments) {
-        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), "", 0L, 0L));
+    public static boolean send(String recipient, String subject, String body, List<AntmailAttachment> attachments) {
+        return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), "", 0L, 0L));
     }
 
     public static void markRead(UUID messageId) {
@@ -60,8 +60,8 @@ public final class AntmailNetworking {
         sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.DELETE, messageId.toString(), Boolean.toString(sent), "", "", "", 0L, 0L));
     }
 
-    public static void saveDraft(AntmailDraft draft) {
-        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.DRAFT, Integer.toString(AntmailDraftPayload.SAVE), AntmailWire.encodeTag(draft.toTag()), "", "", "", 0L, 0L));
+    public static boolean saveDraft(AntmailDraft draft) {
+        return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.DRAFT, Integer.toString(AntmailDraftPayload.SAVE), AntmailWire.encodeTag(draft.toTag()), "", "", "", 0L, 0L));
     }
 
     public static void deleteDraft(UUID draftId) {
@@ -96,15 +96,25 @@ public final class AntmailNetworking {
         sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.UNARCHIVE, messageId.toString(), Integer.toString(folder), "", "", "", 0L, 0L));
     }
 
-    public static void updateProfile(String displayName, String avatarItem) {
-        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.UPDATE_PROFILE, displayName, avatarItem, "", "", "", 0L, 0L));
+    public static boolean updateProfile(String displayName, String avatarItem) {
+        return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.UPDATE_PROFILE, displayName, avatarItem, "", "", "", 0L, 0L));
     }
 
-    private static void sendPayload(Object payload) {
+    public static boolean fits(String recipient, String subject, String body, List<AntmailAttachment> attachments) {
+        return new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), "", 0L, 0L).fits();
+    }
+
+    private static boolean sendPayload(Object payload) {
+        if (payload instanceof AntmailAnternetPayload anternetPayload && !anternetPayload.fits()) {
+            AntmailDebug.error("Refusing to send oversized Antmail request action=" + anternetPayload.action(), new IllegalStateException("payload_too_large"));
+            return false;
+        }
         if (!senderConfigured) {
             if (senderErrorLogged.compareAndSet(false, true)) AntmailDebug.error("Network sender is not configured; dropping " + payload.getClass().getSimpleName(), new IllegalStateException("AntmailNetworking.setSender was not called"));
+            return false;
         }
-        else sender.accept(payload);
+        sender.accept(payload);
+        return true;
     }
 }
 

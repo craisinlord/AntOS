@@ -1,0 +1,13 @@
+{
+  "title": "task.examplemod.disk_collector.title",
+  "description": "task.examplemod.disk_collector.description",
+  "program": "examplemod:meadow_research",
+  "category": "examplemod:meadow_research",
+  "sort_order": 50,
+  "availability": "automatic",
+  "objectives": [
+    { "id": "lab", "type": "disk_installed", "target": "examplemod:lab_programs", "description": "Install the lab programs disk" },
+    { "id": "research", "type": "disk_installed", "target_category": "examplemod:research", "count": 2, "description": "Activate two research disks" }
+  ],
+  "rewards": [{ "type": "antcoins", "amount": 20 }]
+}

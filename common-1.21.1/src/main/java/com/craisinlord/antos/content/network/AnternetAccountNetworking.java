@@ -35,8 +35,8 @@ public final class AnternetAccountNetworking {
         sender.accept(new AnternetAccountPayload(AnternetAccountPayload.FACE_ID_UNLINK, "", ""));
     }
 
-    public static void changePassword(String newPassword) {
-        sender.accept(new AnternetAccountPayload(AnternetAccountPayload.CHANGE_PASSWORD, "", newPassword));
+    public static void changePassword(String currentPassword, String newPassword) {
+        sender.accept(new AnternetAccountPayload(AnternetAccountPayload.CHANGE_PASSWORD, currentPassword, newPassword));
     }
 
     public static void logout() {

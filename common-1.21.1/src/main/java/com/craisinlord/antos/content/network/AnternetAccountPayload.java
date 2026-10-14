@@ -19,7 +19,7 @@ public record AnternetAccountPayload(int action, String username, String passwor
     public static final Type<AnternetAccountPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "anternet_account"));
     public static final StreamCodec<RegistryFriendlyByteBuf, AnternetAccountPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, AnternetAccountPayload::action,
-            ByteBufCodecs.stringUtf8(64), AnternetAccountPayload::username,
+            ByteBufCodecs.stringUtf8(128), AnternetAccountPayload::username,
             ByteBufCodecs.stringUtf8(256), AnternetAccountPayload::password,
             AnternetAccountPayload::new
     );

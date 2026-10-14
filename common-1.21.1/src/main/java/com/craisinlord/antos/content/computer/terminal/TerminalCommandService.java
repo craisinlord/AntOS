@@ -9,7 +9,7 @@ import java.util.Optional;
 public final class TerminalCommandService {
     private static final int MAX_ARGUMENT_LENGTH = 128;
     private static final List<String> COMMANDS = List.of(
-            "help", "clear", "pwd", "ls", "cd", "mkdir", "touch", "cat", "write", "rm", "rmdir", "mv", "open"
+            "help", "clear", "pwd", "ls", "cd", "mkdir", "touch", "cat", "write", "rm", "rmdir", "mv", "open", "decrypt"
     );
 
     public TerminalResult execute(TerminalFileSystem fileSystem, String workingDirectory, String input) {
@@ -20,7 +20,7 @@ public final class TerminalCommandService {
         }
         TerminalCommand command = parsed.command();
         if (command.arguments().stream().anyMatch(argument -> argument.length() > MAX_ARGUMENT_LENGTH)) {
-            return TerminalResult.error(currentDirectory, "ERROR: ARGUMENT TOO LONG");
+            return TerminalResult.error(currentDirectory, TerminalText.of("error.argument_too_long"));
         }
         return switch (command.name().toLowerCase(Locale.ROOT)) {
             case "help" -> help(currentDirectory, command);
@@ -36,40 +36,28 @@ public final class TerminalCommandService {
             case "rmdir" -> removeDirectory(fileSystem, currentDirectory, command);
             case "mv" -> move(fileSystem, currentDirectory, command);
             case "open" -> open(fileSystem, currentDirectory, command);
-            default -> TerminalResult.error(currentDirectory, "ERROR: INVALID COMMAND: " + command.name());
+            default -> TerminalResult.error(currentDirectory, TerminalText.of("error.invalid_command", command.name()));
         };
     }
 
     private TerminalResult help(String workingDirectory, TerminalCommand command) {
         if (command.arguments().isEmpty()) {
-            return TerminalResult.success(workingDirectory,
-                    "AVAILABLE COMMANDS",
-                    "HELP CLEAR PWD LS CD MKDIR TOUCH CAT WRITE RM RMDIR MV OPEN");
+            List<String> lines = new ArrayList<>();
+            lines.add(TerminalText.of("help.header"));
+            for (String name : COMMANDS) lines.add(TerminalText.of("help.row", name));
+            return new TerminalResult(TerminalResult.Status.SUCCESS, lines, workingDirectory, false, null);
         }
         if (command.arguments().size() != 1) {
-            return usage(workingDirectory, "help [command]");
+            return usage(workingDirectory, "help");
         }
-        return switch (command.arguments().get(0).toLowerCase(Locale.ROOT)) {
-            case "help" -> TerminalResult.success(workingDirectory, "HELP [COMMAND] // SHOW COMMAND HELP");
-            case "clear" -> TerminalResult.success(workingDirectory, "CLEAR // CLEAR TERMINAL OUTPUT");
-            case "pwd" -> TerminalResult.success(workingDirectory, "PWD // PRINT WORKING DIRECTORY");
-            case "ls" -> TerminalResult.success(workingDirectory, "LS [PATH] // LIST DIRECTORY CONTENTS");
-            case "cd" -> TerminalResult.success(workingDirectory, "CD [PATH] // CHANGE WORKING DIRECTORY");
-            case "mkdir" -> TerminalResult.success(workingDirectory, "MKDIR <PATH> // CREATE DIRECTORY");
-            case "touch" -> TerminalResult.success(workingDirectory, "TOUCH <PATH> // CREATE EMPTY TEXT FILE");
-            case "cat" -> TerminalResult.success(workingDirectory, "CAT <PATH> // PRINT TEXT FILE");
-            case "write" -> TerminalResult.success(workingDirectory, "WRITE <PATH> [TEXT] // REPLACE TEXT FILE CONTENTS");
-            case "rm" -> TerminalResult.success(workingDirectory, "RM <PATH> // DELETE TEXT FILE");
-            case "rmdir" -> TerminalResult.success(workingDirectory, "RMDIR <PATH> // DELETE EMPTY DIRECTORY");
-            case "mv" -> TerminalResult.success(workingDirectory, "MV <SOURCE> <DESTINATION> // MOVE OR RENAME");
-            case "open" -> TerminalResult.success(workingDirectory, "OPEN <PATH> // OPEN TEXT FILE IN ANTTEXT");
-            default -> TerminalResult.error(workingDirectory, "ERROR: NO HELP FOR " + command.arguments().get(0));
-        };
+        String name = command.arguments().get(0).toLowerCase(Locale.ROOT);
+        if (!COMMANDS.contains(name)) return TerminalResult.error(workingDirectory, TerminalText.of("error.no_help", command.arguments().get(0)));
+        return TerminalResult.success(workingDirectory, TerminalText.of("help.row", name));
     }
 
     private TerminalResult list(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() > 1) {
-            return usage(workingDirectory, "ls [path]");
+            return usage(workingDirectory, "ls");
         }
         String path = command.arguments().isEmpty() ? workingDirectory : command.arguments().get(0);
         Optional<TerminalFileSystem.Entry> entry = find(fileSystem, path, workingDirectory);
@@ -82,15 +70,15 @@ public final class TerminalCommandService {
         List<TerminalFileSystem.Entry> entries = new ArrayList<>(fileSystem.list(path, workingDirectory));
         entries.sort(Comparator.comparing(TerminalFileSystem.Entry::isDirectory).reversed().thenComparing(TerminalFileSystem.Entry::name));
         if (entries.isEmpty()) {
-            return TerminalResult.success(workingDirectory, "DIRECTORY EMPTY");
+            return TerminalResult.success(workingDirectory, TerminalText.of("ls.empty"));
         }
         return new TerminalResult(TerminalResult.Status.SUCCESS, entries.stream()
-                .map(value -> (value.isDirectory() ? "[DIR] " : "      ") + value.name()).toList(), workingDirectory, false, null);
+                .map(value -> TerminalText.of(value.isDirectory() ? "ls.directory" : "ls.file", value.name())).toList(), workingDirectory, false, null);
     }
 
     private TerminalResult changeDirectory(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() > 1) {
-            return usage(workingDirectory, "cd [path]");
+            return usage(workingDirectory, "cd");
         }
         String path = command.arguments().isEmpty() ? TerminalFileSystem.ROOT_PATH : command.arguments().get(0);
         Optional<TerminalFileSystem.Entry> entry = find(fileSystem, path, workingDirectory);
@@ -102,25 +90,25 @@ public final class TerminalCommandService {
 
     private TerminalResult createDirectory(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() != 1) {
-            return usage(workingDirectory, "mkdir <path>");
+            return usage(workingDirectory, "mkdir");
         }
         return fileSystem.createDirectory(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory, "MADE DIRECTORY " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
-                : TerminalResult.error(workingDirectory, "ERROR: CANNOT CREATE DIRECTORY");
+                ? TerminalResult.success(workingDirectory, TerminalText.of("mkdir.success", displayPath(fileSystem, command.arguments().get(0), workingDirectory)))
+                : TerminalResult.error(workingDirectory, TerminalText.of("mkdir.failed"));
     }
 
     private TerminalResult createFile(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() != 1) {
-            return usage(workingDirectory, "touch <path>");
+            return usage(workingDirectory, "touch");
         }
         return fileSystem.createFile(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory, "MADE FILE " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
-                : TerminalResult.error(workingDirectory, "ERROR: CANNOT CREATE FILE");
+                ? TerminalResult.success(workingDirectory, TerminalText.of("touch.success", displayPath(fileSystem, command.arguments().get(0), workingDirectory)))
+                : TerminalResult.error(workingDirectory, TerminalText.of("touch.failed"));
     }
 
     private TerminalResult readFile(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() != 1) {
-            return usage(workingDirectory, "cat <path>");
+            return usage(workingDirectory, "cat");
         }
         Optional<String> contents = fileSystem.readText(command.arguments().get(0), workingDirectory);
         return contents.map(value -> TerminalResult.success(workingDirectory, value.split("\\R", -1)))
@@ -129,40 +117,40 @@ public final class TerminalCommandService {
 
     private TerminalResult writeFile(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() < 1 || command.arguments().size() > 2) {
-            return usage(workingDirectory, "write <path> [text]");
+            return usage(workingDirectory, "write");
         }
         String contents = command.arguments().size() == 2 ? command.arguments().get(1) : "";
         return fileSystem.writeText(command.arguments().get(0), workingDirectory, contents)
-                ? TerminalResult.success(workingDirectory, "WROTE FILE " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
-                : TerminalResult.error(workingDirectory, "ERROR: CANNOT WRITE FILE");
+                ? TerminalResult.success(workingDirectory, TerminalText.of("write.success", displayPath(fileSystem, command.arguments().get(0), workingDirectory)))
+                : TerminalResult.error(workingDirectory, TerminalText.of("write.failed"));
     }
 
     private TerminalResult removeFile(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() != 1) {
-            return usage(workingDirectory, "rm <path>");
+            return usage(workingDirectory, "rm");
         }
         return fileSystem.deleteFile(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory, "DELETED FILE " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
-                : TerminalResult.error(workingDirectory, "ERROR: CANNOT DELETE FILE");
+                ? TerminalResult.success(workingDirectory, TerminalText.of("rm.success", displayPath(fileSystem, command.arguments().get(0), workingDirectory)))
+                : TerminalResult.error(workingDirectory, TerminalText.of("rm.failed"));
     }
 
     private TerminalResult removeDirectory(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() != 1) {
-            return usage(workingDirectory, "rmdir <path>");
+            return usage(workingDirectory, "rmdir");
         }
         return fileSystem.deleteEmptyDirectory(command.arguments().get(0), workingDirectory)
-                ? TerminalResult.success(workingDirectory, "DELETED DIRECTORY " + displayPath(fileSystem, command.arguments().get(0), workingDirectory))
-                : TerminalResult.error(workingDirectory, "ERROR: DIRECTORY NOT EMPTY OR NOT FOUND");
+                ? TerminalResult.success(workingDirectory, TerminalText.of("rmdir.success", displayPath(fileSystem, command.arguments().get(0), workingDirectory)))
+                : TerminalResult.error(workingDirectory, TerminalText.of("rmdir.failed"));
     }
 
     private TerminalResult move(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() != 2) {
-            return usage(workingDirectory, "mv <source> <destination>");
+            return usage(workingDirectory, "mv");
         }
         return fileSystem.move(command.arguments().get(0), command.arguments().get(1), workingDirectory)
-                ? TerminalResult.success(workingDirectory, "MOVED " + displayPath(fileSystem, command.arguments().get(0), workingDirectory)
-                        + " TO " + displayPath(fileSystem, command.arguments().get(1), workingDirectory))
-                : TerminalResult.error(workingDirectory, "ERROR: CANNOT MOVE PATH");
+                ? TerminalResult.success(workingDirectory, TerminalText.of("mv.success", displayPath(fileSystem, command.arguments().get(0), workingDirectory),
+                        displayPath(fileSystem, command.arguments().get(1), workingDirectory)))
+                : TerminalResult.error(workingDirectory, TerminalText.of("mv.failed"));
     }
 
     private String displayPath(TerminalFileSystem fileSystem, String path, String workingDirectory) {
@@ -175,7 +163,7 @@ public final class TerminalCommandService {
 
     private TerminalResult open(TerminalFileSystem fileSystem, String workingDirectory, TerminalCommand command) {
         if (command.arguments().size() != 1) {
-            return usage(workingDirectory, "open <path>");
+            return usage(workingDirectory, "open");
         }
         Optional<TerminalFileSystem.Entry> entry = find(fileSystem, command.arguments().get(0), workingDirectory);
         if (entry.isEmpty() || entry.get().isDirectory()) {
@@ -203,15 +191,15 @@ public final class TerminalCommandService {
     }
 
     private TerminalResult missing(String workingDirectory, String path) {
-        return TerminalResult.error(workingDirectory, "ERROR: PATH NOT FOUND: " + path);
+        return TerminalResult.error(workingDirectory, TerminalText.of("error.path_not_found", path));
     }
 
-    private TerminalResult usage(String workingDirectory, String usage) {
-        return TerminalResult.error(workingDirectory, "USAGE: " + usage);
+    private TerminalResult usage(String workingDirectory, String command) {
+        return TerminalResult.error(workingDirectory, TerminalText.of("error.usage", TerminalText.PREFIX + "help.usage." + command));
     }
 
     private TerminalResult requireArguments(String workingDirectory, TerminalCommand command, int count, TerminalResult result) {
-        return command.arguments().size() == count ? result : usage(workingDirectory, command.name() + " requires " + count + " arguments");
+        return command.arguments().size() == count ? result : usage(workingDirectory, command.name());
     }
 }
 

@@ -65,6 +65,31 @@ public final class ComputerTaskProgress {
                 || !consumedObjectiveItems.isEmpty();
     }
 
+    public ComputerTaskProgress copy() {
+        ComputerTaskProgress copy = new ComputerTaskProgress();
+        copy.granted.addAll(granted);
+        copy.completed.addAll(completed);
+        copy.unlockedArchiveEntries.addAll(unlockedArchiveEntries);
+        objectiveCounts.forEach((taskId, counts) -> copy.objectiveCounts.put(taskId, new LinkedHashMap<>(counts)));
+        objectiveItemCounts.forEach((taskId, objectives) -> {
+            Map<String, Map<ResourceLocation, Integer>> objectiveCopy = new LinkedHashMap<>();
+            objectives.forEach((objectiveId, items) -> objectiveCopy.put(objectiveId, new LinkedHashMap<>(items)));
+            copy.objectiveItemCounts.put(taskId, objectiveCopy);
+        });
+        copy.satisfiedObjectives.addAll(satisfiedObjectives);
+        copy.consumedObjectives.addAll(consumedObjectives);
+        copy.consumedObjectiveItems.addAll(consumedObjectiveItems);
+        return copy;
+    }
+
+    public boolean sameContent(ComputerTaskProgress other) {
+        if (other == this) return true;
+        return other != null && granted.equals(other.granted) && completed.equals(other.completed)
+                && unlockedArchiveEntries.equals(other.unlockedArchiveEntries) && objectiveCounts.equals(other.objectiveCounts)
+                && objectiveItemCounts.equals(other.objectiveItemCounts) && satisfiedObjectives.equals(other.satisfiedObjectives)
+                && consumedObjectives.equals(other.consumedObjectives) && consumedObjectiveItems.equals(other.consumedObjectiveItems);
+    }
+
     public boolean mergeFrom(ComputerTaskProgress other) {
         if (other == null) return false;
         boolean changed = touched(granted.addAll(other.granted));

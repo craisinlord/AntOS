@@ -1,0 +1,24 @@
+{
+  "command": "sudo",
+  "aliases": ["doas"],
+  "arguments": ["open", "vault"],
+  "hidden": true,
+  "hint": "terminal.examplemod.vault.hint",
+  "requires": { "disks": ["examplemod:lab_secret"] },
+  "typing": true,
+  "typing_speed": 45,
+  "locked_output": [
+    { "text": "terminal.examplemod.vault.denied", "style": "error", "typing": false }
+  ],
+  "output": [
+    { "text": "terminal.examplemod.vault.line1", "style": "system" },
+    { "text": "terminal.examplemod.vault.line2", "style": "system", "delay": 600 },
+    { "text": "terminal.examplemod.vault.line3", "style": "highlight", "delay": 900, "typing_speed": 20 },
+    { "text": "terminal.examplemod.vault.line4", "delay": 400 }
+  ],
+  "once": true,
+  "files": [{ "path": "Vault/manifest.txt", "source": "examplemod:vault/manifest.txt" }],
+  "programs": ["examplemod:lab_quiz"],
+  "rewards": [{ "type": "antcoins", "amount": 50 }],
+  "open": "/Vault/manifest.txt"
+}

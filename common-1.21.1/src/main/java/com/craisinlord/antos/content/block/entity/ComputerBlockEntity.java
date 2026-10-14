@@ -56,30 +56,62 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     private java.util.UUID workspaceOwner;
     private java.util.UUID workspaceId;
     private boolean lastActive;
+    private boolean neighborSignal;
+    private boolean neighborSignalKnown;
+    private long neighborSignalCheckedAt;
 
     public ComputerBlockEntity(BlockPos pos, BlockState state, Supplier<? extends BlockEntityType<ComputerBlockEntity>> type) {
         super(type.get(), pos, state);
     }
 
     public static void tick(Level level, BlockPos pos, BlockState state, ComputerBlockEntity computer) {
-        boolean active = computer.isActive();
-        if (!level.isClientSide && state.getValue(ComputerBlock.ACTIVE) != active) {
+        if (level.isClientSide) {
+            boolean active = state.getValue(ComputerBlock.ACTIVE);
+            if (active != computer.lastActive) {
+                computer.lastActive = active;
+                computer.triggerAnim("transitions", active ? "turn_on" : "turn_off");
+            }
+            return;
+        }
+        boolean powered = computer.neighborSignal(level, pos);
+        boolean active = powered || computer.isAuthenticated();
+        if (state.getValue(ComputerBlock.ACTIVE) != active) {
             level.setBlock(pos, state.setValue(ComputerBlock.ACTIVE, active), 3);
         }
         if (active != computer.lastActive) {
             computer.lastActive = active;
             computer.triggerAnim("transitions", active ? "turn_on" : "turn_off");
         }
-        if (!level.isClientSide && computer.activeUntil > 0L && level.getGameTime() >= computer.activeUntil && !level.hasNeighborSignal(pos)) {
+        if (computer.activeUntil > 0L && level.getGameTime() >= computer.activeUntil && !powered) {
             computer.activeUntil = 0L;
             computer.setChanged();
             level.sendBlockUpdated(pos, state, state, 3);
         }
-        if (!level.isClientSide && computer.authenticated && (computer.activeUser == null ||
-                (level instanceof net.minecraft.server.level.ServerLevel serverLevel && serverLevel.getServer().getPlayerList().getPlayer(computer.activeUser) == null))) {
+        if (computer.authenticated && (computer.activeUser == null || level.getGameTime() % 20L == 0L
+                && level instanceof net.minecraft.server.level.ServerLevel serverLevel && serverLevel.getServer().getPlayerList().getPlayer(computer.activeUser) == null)) {
             computer.clearAuthentication();
             level.sendBlockUpdated(pos, state, state, 3);
         }
+    }
+
+    private boolean neighborSignal(Level level, BlockPos pos) {
+        long now = level.getGameTime();
+        if (!neighborSignalKnown || now - neighborSignalCheckedAt >= 20L || now < neighborSignalCheckedAt) {
+            neighborSignal = level.hasNeighborSignal(pos);
+            neighborSignalKnown = true;
+            neighborSignalCheckedAt = now;
+        }
+        return neighborSignal;
+    }
+
+    public void invalidateNeighborSignal() {
+        neighborSignalKnown = false;
+    }
+
+    @Override
+    public void setRemoved() {
+        super.setRemoved();
+        if (level != null && !level.isClientSide) com.craisinlord.antos.content.network.AnternetAccountHandler.forgetDevice(this);
     }
 
     public boolean insert(ItemStack stack, Player player) {
@@ -104,36 +136,20 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
             desktopState.load(snapshot.getCompound(DESKTOP_TAG));
             taskProgress.load(snapshot.getCompound(TASK_PROGRESS_TAG));
         }
-        boolean alreadyInstalled = accountData.profileDisks(workspaceOwner).contains(diskId);
-        if (alreadyInstalled) {
-            activate();
-            return true;
-        }
-        accountData.addProfileDisk(workspaceOwner, diskId);
-        for (ResourceLocation taskId : disk.tasks()) taskProgress.grant(taskId);
-        for (ResourceLocation entryId : disk.entries()) taskProgress.unlockArchiveEntry(entryId);
-        if (!disk.wallpaper().isBlank()) {
-            try {
-                ResourceLocation wallpaperId = ResourceLocation.parse(disk.wallpaper());
-                if (ComputerGuideData.wallpaper(wallpaperId) != null) desktopState.unlockWallpaper(wallpaperId);
-            } catch (RuntimeException ignored) {
-            }
-        }
-        stack.shrink(1);
+        var result = com.craisinlord.antos.content.computer.ComputerDisks.install(serverPlayer, this, diskId,
+                com.craisinlord.antos.content.item.FloppyDiskItem.redeemed(stack));
+        if (result == com.craisinlord.antos.content.computer.ComputerDisks.InstallResult.INVALID) return false;
+        if (result == com.craisinlord.antos.content.computer.ComputerDisks.InstallResult.INSTALLED) stack.shrink(1);
         activate();
         setChanged();
-        saveAccountWorkspace();
-        com.craisinlord.antos.content.network.ComputerAccessHandler.sendArchive(serverPlayer, this);
-        if (level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
+        level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         return true;
     }
 
     public void activate() {
         if (level != null && !level.isClientSide) {
             activeUntil = Math.max(activeUntil, level.getGameTime() + 40L);
-            if (!getBlockState().getValue(ComputerBlock.ACTIVE)) {
+            if (!getBlockState().getValue(ComputerBlock.ACTIVE) && isActive()) {
                 level.setBlock(worldPosition, getBlockState().setValue(ComputerBlock.ACTIVE, true), 3);
             }
             setChanged();
@@ -142,7 +158,9 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     }
 
     public boolean isActive() {
-        return level != null && (level.hasNeighborSignal(worldPosition) || isAuthenticated());
+        if (level == null) return false;
+        if (level.isClientSide) return getBlockState().getValue(ComputerBlock.ACTIVE);
+        return neighborSignal(level, worldPosition) || isAuthenticated();
     }
 
     @Override
@@ -162,7 +180,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         List<ResourceLocation> installed = List.of();
         if (level instanceof net.minecraft.server.level.ServerLevel serverLevel && workspaceOwner != null) {
             ComputerWorkspaceData data = ComputerWorkspaceData.access(serverLevel.getServer());
-            if (data.account(workspaceOwner) != null) installed = data.profileDisks(workspaceOwner);
+            if (data.account(workspaceOwner) != null) installed = data.profileDisks(workspaceOwner).stream().filter(data.activatedDisks(workspaceOwner)::contains).toList();
         }
         java.util.ArrayList<ResourceLocation> ids = new java.util.ArrayList<>(installed.size() + 1);
         ids.add(INTRODUCTION_DISK);
@@ -314,10 +332,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         if (workspaceId != null && level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
             ComputerWorkspaceData data = ComputerWorkspaceData.access(serverLevel.getServer());
             if (workspaceOwner != null && data.account(workspaceOwner) != null) {
-                CompoundTag snapshot = data.workspaceSnapshot(workspaceId);
-                if (snapshot == null) snapshot = new CompoundTag();
-                snapshot.put(TASK_PROGRESS_TAG, taskProgress.save());
-                data.saveWorkspaceSnapshot(workspaceId, snapshot);
+                data.saveWorkspaceSection(workspaceId, TASK_PROGRESS_TAG, taskProgress.save());
             } else {
                 data.save(workspaceId, taskProgress);
             }
@@ -449,9 +464,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     }
 
     private static ItemStack diskStack(ResourceLocation diskId) {
-        ItemStack stack = new ItemStack(AntOSObjects.FLOPPY_DISK.get());
-        stack.set(AntOSObjects.FLOPPY_DISK_COMPONENT.get(), diskId);
-        return stack;
+        return com.craisinlord.antos.content.item.FloppyDiskItem.ejectedCopy(diskId);
     }
 
     @Override
@@ -464,7 +477,7 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
         fileSystem.load(tag, registries);
         desktopState.load(tag.getCompound(DESKTOP_TAG));
         taskProgress.load(tag.getCompound(TASK_PROGRESS_TAG));
-        authenticated = false;
+        authenticated = level != null && level.isClientSide && tag.getBoolean(AUTHENTICATED_TAG);
         authenticatedUntil = 0L;
         activeUser = null;
     }

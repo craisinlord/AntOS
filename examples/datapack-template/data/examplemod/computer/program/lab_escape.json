@@ -1,0 +1,39 @@
+{
+  "type": "adventure",
+  "title": "program.examplemod.lab_escape.title",
+  "start": "intro",
+  "nodes": {
+    "intro": {
+      "text": "You wake up in a quiet laboratory. A locked door stands beside a narrow maintenance vent.",
+      "choices": [
+        { "text": "Enter the vent", "goto": "vent", "requires_no_flag": "has_key" },
+        { "text": "Unlock the door", "goto": "win", "requires_flag": "has_key" },
+        { "text": "Take the elevator", "goto": "lost" }
+      ]
+    },
+    "vent": {
+      "text": "A brass key hangs from a forgotten cable. You take it and crawl back to the lab.",
+      "set_flags": ["has_key"],
+      "choices": [
+        { "text": "Keep the key and return", "goto": "intro" },
+        { "text": "Drop the key", "goto": "drop" }
+      ]
+    },
+    "drop": {
+      "text": "You leave the key beside the vent. Perhaps you will need it later.",
+      "clear_flags": ["has_key"],
+      "choices": [{ "text": "Return to the laboratory", "goto": "intro" }]
+    },
+    "win": {
+      "text": "Fresh air! The exit terminal flashes the password for the encrypted lab disk.",
+      "ending": "escaped",
+      "password": "redstone",
+      "rewards": [{ "type": "antcoins", "amount": 50 }]
+    },
+    "lost": {
+      "text": "The elevator descends into another laboratory. Your escape will have to wait.",
+      "ending": "detour",
+      "rewards": [{ "type": "experience", "points": 5 }]
+    }
+  }
+}

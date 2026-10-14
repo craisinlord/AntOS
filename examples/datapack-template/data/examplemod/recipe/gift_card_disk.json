@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": ["minecraft:paper", "minecraft:emerald"],
+  "result": {
+    "id": "antos:floppy_disk",
+    "count": 1,
+    "components": { "antos:floppy_disk": "examplemod:gift_card" }
+  }
+}

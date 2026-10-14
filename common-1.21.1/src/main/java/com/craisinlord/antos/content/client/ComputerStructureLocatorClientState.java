@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ComputerStructureLocatorClientState {
     private static final Map<String, String> RESULTS = new ConcurrentHashMap<>();
     private static final Map<String, Boolean> CUSTOM_LOCATOR = new ConcurrentHashMap<>();
+    private static final String LOCATE_PREFIX = ComputerAccessPayload.LOCATE_STRUCTURE + "\0";
 
     private ComputerStructureLocatorClientState() {
     }
@@ -26,18 +27,15 @@ public final class ComputerStructureLocatorClientState {
     }
 
     public static void update(ComputerAccessResultPayload payload) {
+        if (!payload.data().startsWith(LOCATE_PREFIX)) return;
         String[] envelope = payload.data().split("\u0000", 3);
         if (envelope.length != 3) return;
-        try {
-            if (Integer.parseInt(envelope[0]) != ComputerAccessPayload.LOCATE_STRUCTURE) return;
-        } catch (NumberFormatException ignored) {
-            return;
-        }
 
         boolean customLocator = CUSTOM_LOCATOR.getOrDefault(ComputerWorkspaceClientKey.of(), false);
         String message = switch (envelope[1]) {
             case "not_found" -> customLocator ? "NOTHING FOUND WITHIN RANGE" : "NO STRUCTURE FOUND WITHIN RANGE";
             case "dimension_unavailable" -> "TARGET DIMENSION UNAVAILABLE";
+            case "busy" -> "LOCATOR BUSY // TRY AGAIN IN A FEW SECONDS";
             default -> "LOCATOR UNAVAILABLE";
         };
         RESULTS.put(ComputerWorkspaceClientKey.of(), payload.result() == ComputerAccessResultPayload.SUCCESS

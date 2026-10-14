@@ -1,0 +1,8 @@
+{
+  "item": "antos:floppy_disk",
+  "value": 10,
+  "unlock_disks": ["examplemod:broker_license"],
+  "unlock_mode": "all",
+  "hidden_until_unlocked": false,
+  "notify_on_unlock": true
+}

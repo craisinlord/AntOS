@@ -15,6 +15,8 @@ public final class BlockleRenderer {
     private static final int YELLOW = 0xFFB59F3B;
     private static final int GREEN = 0xFF538D4E;
     private static final int PALE = 0xFFB8FFB8;
+    private static ResourceLocation answerStackId;
+    private static ItemStack answerStack = ItemStack.EMPTY;
 
     private BlockleRenderer() {
     }
@@ -22,6 +24,17 @@ public final class BlockleRenderer {
     public static void render(GuiGraphics graphics, Font font, int x, int y, int width, int height,
                               List<String> guesses, List<String> colors, String input, String status, String phase,
                               ResourceLocation answerId) {
+        com.craisinlord.antos.content.client.ComputerTheme.pause();
+        try {
+            renderBoard(graphics, font, x, y, width, height, guesses, colors, input, status, phase, answerId);
+        } finally {
+            com.craisinlord.antos.content.client.ComputerTheme.resume();
+        }
+    }
+
+    private static void renderBoard(GuiGraphics graphics, Font font, int x, int y, int width, int height,
+                                    List<String> guesses, List<String> colors, String input, String status, String phase,
+                                    ResourceLocation answerId) {
         graphics.drawString(font, Component.literal("BLOCKLE"), x, y, 0xFF65FF65, false);
         int cell = 18;
         int gap = 3;
@@ -50,7 +63,10 @@ public final class BlockleRenderer {
         if (phase.equals("PLAYING") && input.length() < 5) message = input.length() + "/5 LETTERS";
         graphics.drawString(font, Component.literal(message), x, y + 145, PALE, false);
         if (!phase.equals("PLAYING") && answerId != null) {
-            ItemStack answerStack = BuiltInRegistries.ITEM.getOptional(answerId).map(ItemStack::new).orElse(ItemStack.EMPTY);
+            if (!answerId.equals(answerStackId)) {
+                answerStack = BuiltInRegistries.ITEM.getOptional(answerId).map(ItemStack::new).orElse(ItemStack.EMPTY);
+                answerStackId = answerId;
+            }
             if (!answerStack.isEmpty()) {
                 graphics.setColor(0.35F, 1.0F, 0.35F, 1.0F);
                 graphics.renderItem(answerStack, x + width - 28, y + 137);

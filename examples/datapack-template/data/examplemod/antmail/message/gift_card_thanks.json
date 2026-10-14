@@ -1,0 +1,7 @@
+{
+  "sender": "fieldoffice@antmail.com",
+  "sender_display": "Field Office",
+  "subject": "Gift card redeemed",
+  "body": "{player}, your gift card has credited 100 AntCoins to this profile. Enjoy the supplies!",
+  "trigger": { "type": "manual" }
+}

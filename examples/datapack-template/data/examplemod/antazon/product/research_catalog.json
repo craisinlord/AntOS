@@ -1,0 +1,14 @@
+{
+  "name": "antazon.examplemod.research_catalog.name",
+  "description": "antazon.examplemod.research_catalog.description",
+  "category": "field_research",
+  "thumbnail": { "item": "minecraft:compass" },
+  "quantity": 1,
+  "payments": [ { "type": "antcoins", "resource": "antcoins", "amount": 30 } ],
+  "unlock_tasks": ["examplemod:field_basics"],
+  "unlock_disks": ["examplemod:field_notes"],
+  "unlock_mode": "all",
+  "hidden_until_unlocked": false,
+  "notify_on_unlock": true,
+  "rewards": [ { "item": "minecraft:compass", "count": 1 } ]
+}

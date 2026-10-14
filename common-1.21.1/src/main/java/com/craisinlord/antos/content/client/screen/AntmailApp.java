@@ -45,6 +45,12 @@ final class AntmailApp extends ComputerApp {
     final State state = new State();
     private java.util.UUID detailRequestedId;
     private long detailRequestedAt;
+    private String wrappedBodyText;
+    private boolean wrappedBodyCorrupted;
+    private int wrappedBodyWidth = -1;
+    private net.minecraft.client.gui.Font wrappedBodyFont;
+    private net.minecraft.locale.Language wrappedBodyLanguage;
+    private List<net.minecraft.util.FormattedCharSequence> wrappedBodyLines = List.of();
 
     void screenOpened(boolean loggedIn) {
         state.pickingAttachment = false;
@@ -62,12 +68,14 @@ final class AntmailApp extends ComputerApp {
     void tick(boolean loggedIn) {
         AntmailAnternetResultPayload mailResult = AntmailClientState.get();
         syncPaintAttachment();
+        screen.session.text.sync();
+        int refreshInterval = 40;
         if (loggedIn && AntmailClientState.consumeRefreshRequest()) {
             requestState();
-            state.refreshTicks = 40;
+            state.refreshTicks = refreshInterval;
         } else if (loggedIn && --state.refreshTicks <= 0) {
             requestState();
-            state.refreshTicks = 40;
+            state.refreshTicks = refreshInterval;
         }
         if (loggedIn && AntmailClientState.getMailbox() == null) state.stateWaitTicks++;
         else state.stateWaitTicks = 0;
@@ -344,7 +352,7 @@ final class AntmailApp extends ComputerApp {
                     float bodyTextScale = 0.85F;
                     int bodyLineAdvance = 9;
                     int bodyWrapWidth = Math.max(1, (int) ((navWidth - 16) / bodyTextScale));
-                    List<net.minecraft.util.FormattedCharSequence> bodyLines = font.split(AntmailGlitchText.body(localizedBody, corrupted, PALE_GREEN), bodyWrapWidth);
+                    List<net.minecraft.util.FormattedCharSequence> bodyLines = wrapBody(localizedBody, corrupted, bodyWrapWidth);
                     int contentHeight = bodyLines.size() * bodyLineAdvance + (message.attachments().isEmpty() ? 0 : 6);
                     for (AntmailAttachment attachment : message.attachments()) {
                         contentHeight += attachment instanceof AntmailAttachment.Render render
@@ -567,6 +575,7 @@ final class AntmailApp extends ComputerApp {
                 }
             }
             if (state.moreOpen) {
+                screen.beginLayer(g);
                 int menuWidth = Math.max(88, font.width("MY PROFILE") + 14);
                 int menuX = Math.max(x, Math.min(moreX, x + navWidth - menuWidth));
                 g.fill(menuX, y + 20, menuX + menuWidth, y + 76, BLACK);
@@ -577,6 +586,7 @@ final class AntmailApp extends ComputerApp {
             }
             if (state.undoId != null && System.currentTimeMillis() < state.undoUntil
                     && !state.mode.equals("compose") && !state.mode.equals("message")) {
+                screen.beginLayer(g);
                 drawAction(g, x, y + h - 34, 48, "UNDO", GREEN);
             }
         }
@@ -623,6 +633,18 @@ final class AntmailApp extends ComputerApp {
         if (!displayStatus.isEmpty() && !state.mode.equals("compose") && !state.mode.equals("profile")) {
             screen.drawBottomWrapped(g, displayStatus, x, y, h, 208, PALE_GREEN);
         }
+    }
+
+    private List<net.minecraft.util.FormattedCharSequence> wrapBody(String text, boolean corrupted, int width) {
+        if (width != wrappedBodyWidth || corrupted != wrappedBodyCorrupted || font != wrappedBodyFont || net.minecraft.locale.Language.getInstance() != wrappedBodyLanguage || !text.equals(wrappedBodyText)) {
+            wrappedBodyLines = font.split(AntmailGlitchText.body(text, corrupted, PALE_GREEN), width);
+            wrappedBodyText = text;
+            wrappedBodyCorrupted = corrupted;
+            wrappedBodyWidth = width;
+            wrappedBodyLanguage = net.minecraft.locale.Language.getInstance();
+            wrappedBodyFont = font;
+        }
+        return wrappedBodyLines;
     }
 
     private static AntmailComposeLayout composeLayout(int y, int height, int width) {
@@ -1724,6 +1746,10 @@ final class AntmailApp extends ComputerApp {
             return;
         }
         List<AntmailAttachment> attachments = composeAttachments();
+        if (!AntmailNetworking.fits(state.recipient, state.subject, state.body, attachments)) {
+            state.status = Component.translatable("computer.antos.status.message_too_large").getString();
+            return;
+        }
         state.sendBaseline = AntmailClientState.get();
         AntmailNetworking.send(state.recipient, state.subject, state.body, attachments);
         if (state.attachCoins) com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonWallet();
@@ -1789,7 +1815,7 @@ final class AntmailApp extends ComputerApp {
             if (mailbox == null) return;
             AntmailDraft draft = new AntmailDraft(state.draftId, AntmailAddress.parse(mailbox.address().fullAddress()),
                     state.recipient.isBlank() ? null : AntmailAddress.parse(state.recipient), state.subject, state.body, composeAttachments());
-            AntmailNetworking.saveDraft(draft);
+            if (!AntmailNetworking.saveDraft(draft)) state.status = Component.translatable("computer.antos.status.message_too_large").getString();
         } catch (RuntimeException ignored) {
             state.status = Component.translatable("computer.antos.status.draft_save_error").getString();
         }

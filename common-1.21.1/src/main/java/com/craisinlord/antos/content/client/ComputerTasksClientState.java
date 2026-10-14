@@ -4,6 +4,7 @@ import com.craisinlord.antos.content.network.ComputerAccessPayload;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 import com.google.gson.JsonObject;
+import com.craisinlord.antos.content.guide.TaskAppearance;
 import com.google.gson.JsonParser;
 import java.util.List;
 import java.util.Map;
@@ -105,7 +106,19 @@ public final class ComputerTasksClientState {
                     row.has("icon_entity") ? row.get("icon_entity").getAsString() : "",
                     !row.has("green_tint") || !row.get("green_tint").isJsonPrimitive() || row.get("green_tint").getAsBoolean(),
                     !row.has("render_mob_from_spawn_egg") || !row.get("render_mob_from_spawn_egg").isJsonPrimitive() || row.get("render_mob_from_spawn_egg").getAsBoolean(),
-                    List.copyOf(objectives), List.copyOf(rewards)));
+                    TaskAppearance.parse(row), List.copyOf(objectives), List.copyOf(rewards), row.has("icon_texture") ? row.get("icon_texture").getAsString() : "",
+                    strings(row, "connects"), strings(row, "showcase"), strings(row, "requires_any")));
+        }
+        java.util.ArrayList<LinkDefinition> links = new java.util.ArrayList<>();
+        if (root.has("links") && root.get("links").isJsonArray()) for (var element : root.getAsJsonArray("links")) {
+            var row = element.getAsJsonObject();
+            links.add(new LinkDefinition(row.get("id").getAsString(), row.get("title").getAsString(), row.get("description").getAsString(),
+                    row.get("category").getAsString(), row.get("link_category").getAsString(), row.get("link_group").getAsString(),
+                    row.has("has_position") && row.get("has_position").getAsBoolean(), row.get("x").getAsInt(), row.get("y").getAsInt(),
+                    row.get("icon_item").getAsString(), row.get("icon_entity").getAsString(),
+                    row.has("green_tint") && row.get("green_tint").isJsonPrimitive() ? row.get("green_tint").getAsBoolean() : null,
+                    row.has("render_mob_from_spawn_egg") && row.get("render_mob_from_spawn_egg").isJsonPrimitive() ? row.get("render_mob_from_spawn_egg").getAsBoolean() : null,
+                    TaskAppearance.parse(row), strings(row, "requires"), strings(row, "connects")));
         }
         java.util.LinkedHashMap<String, CategoryInfo> categories = new java.util.LinkedHashMap<>();
         if (root.has("categories") && root.get("categories").isJsonArray()) for (var categoryElement : root.getAsJsonArray("categories")) {
@@ -137,7 +150,45 @@ public final class ComputerTasksClientState {
             rewardPools.put(pool.get("id").getAsString(), new RewardPoolInfo(pool.get("id").getAsString(), List.copyOf(entries)));
         }
         return new Definitions(hash, List.copyOf(tasks), java.util.Collections.unmodifiableMap(categories),
-                java.util.Collections.unmodifiableMap(groups), java.util.Collections.unmodifiableMap(rewardPools));
+                java.util.Collections.unmodifiableMap(groups), java.util.Collections.unmodifiableMap(rewardPools), List.copyOf(links));
+    }
+
+    private static List<String> strings(JsonObject row, String key) {
+        if (!row.has(key) || !row.get(key).isJsonArray()) return List.of();
+        return row.getAsJsonArray(key).asList().stream().map(value -> value.getAsString()).toList();
+    }
+
+    private static TaskRow linkRow(LinkDefinition link, Definitions definitions, Map<String, TaskRow> tasksById, List<TaskRow> tasks) {
+        CategoryInfo category = link.linkCategory().isBlank() ? null : definitions.categories().get(link.linkCategory());
+        GroupInfo group = link.linkGroup().isBlank() ? null : definitions.groups().get(link.linkGroup());
+        boolean targetVisible = tasks.stream().anyMatch(task -> task.visible() && (link.linkCategory().isBlank()
+                ? group != null && categoryInGroup(definitions, task.category(), link.linkGroup()) : task.category().equals(link.linkCategory())));
+        boolean requirementsMet = link.requires().stream().allMatch(id -> tasksById.containsKey(id) && tasksById.get(id).complete());
+        String targetTitle = category != null ? category.title() : group != null ? group.title() : categoryTitleKey(link.linkCategory());
+        String title = link.title().isBlank() ? targetTitle : link.title();
+        String targetIconItem = category != null ? category.iconItem() : group != null ? group.iconItem() : "";
+        String targetIconEntity = category != null ? category.iconEntity() : group != null ? group.iconEntity() : "";
+        boolean customIcon = !link.iconItem().isBlank() || !link.iconEntity().isBlank();
+        String iconItem = customIcon ? link.iconItem() : targetIconItem;
+        String iconEntity = customIcon ? link.iconEntity() : targetIconEntity;
+        if (iconItem.isBlank() && iconEntity.isBlank()) iconItem = "minecraft:compass";
+        boolean targetTint = category != null ? category.greenTint() : group == null || group.greenTint();
+        boolean targetSpawnEgg = category != null ? category.renderMobFromSpawnEgg() : group == null || group.renderMobFromSpawnEgg();
+        return new TaskRow(link.id(), title, link.description(), true, false, targetVisible && requirementsMet, link.category(),
+                link.hasPosition(), link.x(), link.y(), List.of(), List.of(), 0, 0, false, false, false, iconItem, iconEntity,
+                link.greenTint() != null ? link.greenTint() : targetTint,
+                link.renderMobFromSpawnEgg() != null ? link.renderMobFromSpawnEgg() : targetSpawnEgg,
+                link.appearance(), List.of(), List.of(), "", link.connects(), link.linkCategory(), link.linkGroup(), List.of(), List.of());
+    }
+
+    private static boolean categoryInGroup(Definitions definitions, String category, String group) {
+        CategoryInfo info = definitions.categories().get(category);
+        return info != null && info.group().equals(group);
+    }
+
+    private static String categoryTitleKey(String category) {
+        var id = net.minecraft.resources.ResourceLocation.tryParse(category);
+        return id == null ? category : "task.category." + id.getNamespace() + "." + id.getPath().replace('/', '.');
     }
 
     private static TaskReward parseTaskReward(JsonObject reward) {
@@ -204,9 +255,13 @@ public final class ComputerTasksClientState {
                     definition.hasPosition(), definition.x(), definition.y(), definition.requires(), definition.archiveEntries(),
                     row.get("done").getAsInt(), definition.total(), definition.hasRewards(),
                     row.get("claimable").getAsBoolean(), row.get("claimed").getAsBoolean(),
-                    definition.iconItem(), definition.iconEntity(), definition.greenTint(), definition.renderMobFromSpawnEgg(),
-                    List.copyOf(objectives), definition.rewards()));
+                    definition.iconItem(), definition.iconEntity(), definition.greenTint(), definition.renderMobFromSpawnEgg(), definition.appearance(),
+                    List.copyOf(objectives), definition.rewards(), definition.iconTexture(), definition.connects(), "", "", definition.showcase(), definition.requiresAny()));
         }
+        Map<String, TaskRow> tasksById = new java.util.HashMap<>();
+        for (TaskRow row : rows) tasksById.put(row.id(), row);
+        List<TaskRow> taskRows = List.copyOf(rows);
+        for (LinkDefinition link : definitions.links()) rows.add(linkRow(link, definitions, tasksById, taskRows));
         TASKS.put(key, List.copyOf(rows));
     }
 
@@ -219,8 +274,21 @@ public final class ComputerTasksClientState {
     public static Map<String, CategoryInfo> categories() { return CATEGORIES.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()); }
     public static Map<String, GroupInfo> groups() { return GROUPS.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()); }
     public static RewardPoolInfo rewardPool(String id) { return REWARD_POOLS.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()).get(id); }
+    private record CategoryLookup(Map<String, CategoryInfo> source, Map<String, java.util.Optional<CategoryInfo>> resolved) { }
+    private static volatile CategoryLookup categoryLookup;
+
     public static CategoryInfo category(String category) {
         Map<String, CategoryInfo> definitions = categories();
+        if (category == null) return resolveCategory(definitions, null);
+        CategoryLookup lookup = categoryLookup;
+        if (lookup == null || lookup.source() != definitions) {
+            lookup = new CategoryLookup(definitions, new ConcurrentHashMap<>());
+            categoryLookup = lookup;
+        }
+        return lookup.resolved().computeIfAbsent(category, key -> java.util.Optional.ofNullable(resolveCategory(definitions, key))).orElse(null);
+    }
+
+    private static CategoryInfo resolveCategory(Map<String, CategoryInfo> definitions, String category) {
         CategoryInfo direct = definitions.get(category);
         if (direct != null) return direct;
         var id = net.minecraft.resources.ResourceLocation.tryParse(category);
@@ -229,17 +297,24 @@ public final class ComputerTasksClientState {
     public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); REWARD_POOLS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
     public static void clearTransient() { TEAM_STATUS.remove(ComputerWorkspaceClientKey.of()); }
     private record Definitions(String hash, List<TaskDefinition> tasks, Map<String, CategoryInfo> categories, Map<String, GroupInfo> groups,
-                               Map<String, RewardPoolInfo> rewardPools) { }
+                               Map<String, RewardPoolInfo> rewardPools, List<LinkDefinition> links) { }
+    private record LinkDefinition(String id, String title, String description, String category, String linkCategory, String linkGroup,
+                                  boolean hasPosition, int x, int y, String iconItem, String iconEntity, Boolean greenTint, Boolean renderMobFromSpawnEgg,
+                                  TaskAppearance appearance, List<String> requires, List<String> connects) { }
     private record TaskDefinition(String id, String title, String description, String category, boolean hasPosition, int x, int y, List<String> requires,
                                   List<String> archiveEntries, int total, boolean hasRewards, String iconItem, String iconEntity,
-                                  boolean greenTint, boolean renderMobFromSpawnEgg, List<ObjectiveDefinition> objectives, List<TaskReward> rewards) { }
+                                  boolean greenTint, boolean renderMobFromSpawnEgg, TaskAppearance appearance, List<ObjectiveDefinition> objectives, List<TaskReward> rewards, String iconTexture,
+                                  List<String> connects, List<String> showcase, List<String> requiresAny) { }
     private record ObjectiveDefinition(String description, int count, boolean optional, String item) { }
     public record CategoryInfo(String id, String title, String iconItem, String iconEntity, int sortOrder, String group, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record GroupInfo(String id, String title, String iconItem, String iconEntity, int sortOrder, boolean collapsed, boolean greenTint, boolean renderMobFromSpawnEgg) { }
     public record TaskRow(String id, String title, String description, boolean available, boolean complete, boolean visible,
                           String category, boolean hasPosition, int x, int y, List<String> requires, List<String> archiveEntries,
                           int done, int total, boolean hasRewards, boolean claimable, boolean claimed, String iconItem, String iconEntity,
-                          boolean greenTint, boolean renderMobFromSpawnEgg, List<TaskObjective> objectives, List<TaskReward> rewards) { }
+                          boolean greenTint, boolean renderMobFromSpawnEgg, TaskAppearance appearance, List<TaskObjective> objectives, List<TaskReward> rewards, String iconTexture,
+                          List<String> connects, String linkCategory, String linkGroup, List<String> showcase, List<String> requiresAny) {
+        public boolean isLink() { return !linkCategory.isBlank() || !linkGroup.isBlank(); }
+    }
     public record TaskObjective(String description, int progress, int count, boolean optional, String item, int displayGoal, boolean complete) { }
     public record TaskReward(String type, String item, int count, int experience, String target, String subject, String pool, String mode, long antcoins,
                              List<RewardOption> options) { }

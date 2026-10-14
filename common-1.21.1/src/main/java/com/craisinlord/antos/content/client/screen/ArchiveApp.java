@@ -20,6 +20,26 @@ final class ArchiveApp extends ComputerApp {
     final State state = new State();
 
     Window scrollbarDragging;
+    private final java.util.IdentityHashMap<ComputerGuideData.Entry, String> searchText = new java.util.IdentityHashMap<>();
+    private final java.util.Map<String, List<net.minecraft.util.FormattedCharSequence>> detailLines = new java.util.HashMap<>();
+    private Object textLanguage;
+    private String textPlayer;
+    private long textRevision = -1;
+    private int detailWidth = -1;
+    private List<ComputerGuideData.Entry> filterSource;
+    private String filterQuery;
+    private List<ComputerGuideData.Entry> filterResult;
+    private final List<GalleryButton> galleryButtons = new java.util.ArrayList<>();
+
+    void select(ComputerGuideData.Entry entry) {
+        state.entryId = entry.id();
+        state.detailScroll = 0;
+        ComputerNetworking.recordArchiveViewed(entry.id());
+        if (!entry.structureId().isBlank() || !entry.locatorId().isBlank()) {
+            com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.searching(entry.dimensionId(), entry.structureId().isBlank());
+            ComputerNetworking.locateStructure(entry.id());
+        }
+    }
 
     void drag(double mouseY) {
         if (scrollbarDragging != null) updateScrollbar(scrollbarDragging, mouseY);
@@ -30,12 +50,14 @@ final class ArchiveApp extends ComputerApp {
     }
 
     void render(GuiGraphics g, int x, int y, int w, int h, boolean maximized) {
-        List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(screen.workspaceDiskIds(),
-                com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get());
+        List<ResourceLocation> diskIds = screen.workspaceDiskIds();
+        List<ResourceLocation> unlocked = com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get();
+        List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(diskIds, unlocked);
 
+        galleryButtons.clear();
         ComputerGuideData.Entry selected = null;
         if (state.entryId != null) {
-            selected = entries.stream().filter(entry -> entry.id().equals(state.entryId)).findFirst().orElse(null);
+            selected = ComputerGuideData.availableEntry(diskIds, unlocked, state.entryId);
             if (selected == null) state.entryId = null;
         }
 
@@ -45,15 +67,22 @@ final class ArchiveApp extends ComputerApp {
             g.fill(x, y + 16, x + w, y + 18, GREEN);
             g.drawString(font, Component.literal(screen.trimToWidth(AntOSPlayerText.apply(ComputerGuideData.archiveTitle(selected).getString()), w)), x, y + 27, GREEN, false);
             int contentBottom = y + h - 20;
-            screen.enableComputerScissor(g, x, y + 36, x + w, contentBottom);
+            int contentTop = y + 36;
+            screen.enableComputerScissor(g, x, contentTop, x + w, contentBottom);
             int line = y + 43 - state.detailScroll * 11;
             line = screen.wrap(g, selected.type().toUpperCase() + " // " + selected.category().toUpperCase(), x, line, w, PALE_GREEN) + 5;
-            if (!selected.entityId().isBlank()) line = screen.renderArchivePreview(g, "", selected.entityId(), "", x, line, w, selected.rotation(), selected.renderScale()) + 2;
+            String heroEntity = !selected.entityId().isBlank() ? selected.entityId()
+                    : selected.itemId().isBlank() && selected.recipeId().isBlank() ? selected.coverEntityId() : "";
+            if (!heroEntity.isBlank()) line = visible(line, 96, contentTop, contentBottom)
+                    ? screen.renderArchivePreview(g, "", heroEntity, "", x, line, w, selected.rotation(), selected.renderScale()) + 2 : line + 98;
             for (String descriptionPart : selected.descriptionKeys()) {
-                line = renderDescriptionPart(g, descriptionPart, x, line, w);
+                line = renderDescriptionPart(g, descriptionPart, x, line, w, contentTop, contentBottom);
             }
-            if (!selected.itemId().isBlank()) line = screen.renderArchivePreview(g, selected.itemId(), "", "", x, line, w) + 2;
-            if (!selected.enchantmentId().isBlank()) line = screen.renderArchivePreview(g, "", "", selected.enchantmentId(), x, line, w) + 2;
+            line = renderGallery(g, selected, entries, x, line, w, contentTop, contentBottom);
+            if (!selected.itemId().isBlank()) line = visible(line, 48, contentTop, contentBottom)
+                    ? screen.renderArchivePreview(g, selected.itemId(), "", "", x, line, w) + 2 : line + 50;
+            if (!selected.enchantmentId().isBlank()) line = visible(line, 48, contentTop, contentBottom)
+                    ? screen.renderArchivePreview(g, "", "", selected.enchantmentId(), x, line, w) + 2 : line + 50;
             if (!selected.recipeId().isBlank()) line = screen.renderArchiveRecipe(g, selected.recipeId(), x, line, w) + 2;
             if (!selected.structureId().isBlank()) {
                 line = screen.wrap(g, "STRUCTURE // " + selected.structureId(), x, line, w, PALE_GREEN) + 2;
@@ -131,7 +160,43 @@ final class ArchiveApp extends ComputerApp {
     private List<ComputerGuideData.Entry> filterEntries(List<ComputerGuideData.Entry> entries) {
         String query = state.search.trim().toLowerCase(Locale.ROOT);
         if (query.isEmpty()) return entries;
-        return entries.stream().filter(entry -> entrySearchText(entry).contains(query)).toList();
+        validateTextCaches();
+        if (filterSource == entries && query.equals(filterQuery)) return filterResult;
+        if (searchText.size() > entries.size() * 2 + 64) searchText.clear();
+        List<ComputerGuideData.Entry> result = entries.stream().filter(entry -> searchText.computeIfAbsent(entry, this::entrySearchText).contains(query)).toList();
+        filterSource = entries;
+        filterQuery = query;
+        filterResult = result;
+        return result;
+    }
+
+    private void validateTextCaches() {
+        Object language = net.minecraft.locale.Language.getInstance();
+        String player = AntOSPlayerText.playerName();
+        long revision = ComputerGuideData.definitionRevision();
+        if (language != textLanguage || !player.equals(textPlayer) || revision != textRevision) {
+            textLanguage = language;
+            textPlayer = player;
+            textRevision = revision;
+            searchText.clear();
+            detailLines.clear();
+            filterSource = null;
+            filterQuery = null;
+            filterResult = null;
+        }
+    }
+
+    private static boolean visible(int top, int height, int clipTop, int clipBottom) {
+        return top + height > clipTop && top < clipBottom;
+    }
+
+    private List<net.minecraft.util.FormattedCharSequence> detailLines(String part, int w) {
+        validateTextCaches();
+        if (w != detailWidth || detailLines.size() > 512) {
+            detailWidth = w;
+            detailLines.clear();
+        }
+        return detailLines.computeIfAbsent(part, key -> font.split(Component.literal(AntOSPlayerText.apply(Component.translatable(key).getString())), w));
     }
 
     private String entrySearchText(ComputerGuideData.Entry entry) {
@@ -163,12 +228,73 @@ final class ArchiveApp extends ComputerApp {
         }
     }
 
-    private int renderDescriptionPart(GuiGraphics g, String part, int x, int y, int w) {
-        if (part.startsWith("@item:")) return screen.renderArchivePreview(g, part.substring(6), "", "", x, y, w) + 2;
-        if (part.startsWith("@entity:")) return screen.renderArchivePreview(g, "", part.substring(8), "", x, y, w) + 2;
-        if (part.startsWith("@enchantment:")) return screen.renderArchivePreview(g, "", "", part.substring(13), x, y, w) + 2;
+    private int renderGallery(GuiGraphics g, ComputerGuideData.Entry selected, List<ComputerGuideData.Entry> entries, int x, int y, int w,
+                              int clipTop, int clipBottom) {
+        List<ComputerGuideData.GalleryItem> gallery = selected.gallery();
+        if (gallery.isEmpty()) return y;
+        String title = selected.galleryTitleKey().isBlank() ? "GALLERY" : Component.translatable(selected.galleryTitleKey()).getString().toUpperCase(Locale.ROOT);
+        y = screen.wrap(g, title + " // " + gallery.size(), x, y + 2, w, PALE_GREEN) + 3;
+        int cell = 48;
+        int cellWidth = 64;
+        int cellHeight = cell + 26;
+        int columns = Math.max(1, (w + cellWidth - cell) / cellWidth);
+        for (int index = 0; index < gallery.size(); index++) {
+            ComputerGuideData.GalleryItem galleryItem = gallery.get(index);
+            int cellX = x + (index % columns) * cellWidth;
+            int cellY = y + (index / columns) * cellHeight;
+            if (!visible(cellY, cellHeight, clipTop, clipBottom)) continue;
+            String entityId = galleryEntity(galleryItem);
+            String itemId = entityId.isEmpty() ? galleryItem.id() : "";
+            ResourceLocation target = galleryTarget(galleryItem.id(), selected, entries);
+            boolean hover = target != null && screen.inside(cellX, cellY, cell, cell, screen.session.archiveMouseX, screen.session.archiveMouseY);
+            g.fill(cellX, cellY, cellX + cell, cellY + cell, hover ? 0xFF173817 : 0xFF102010);
+            if (target != null) screen.box(g, cellX, cellY, cellX + cell, cellY + cell, hover ? GREEN : 0xFF356035);
+            screen.renderArchiveAsset(g, itemId, entityId, "", "", cellX + cell / 2, cellY + cell / 2, cell - 6, 0.0F, 1.0F);
+            List<net.minecraft.util.FormattedCharSequence> nameLines = font.split(Component.literal(galleryName(galleryItem, entityId)), cellWidth - 4);
+            for (int nameLine = 0; nameLine < Math.min(2, nameLines.size()); nameLine++)
+                g.drawString(font, nameLines.get(nameLine), cellX, cellY + cell + 3 + nameLine * 10, target != null ? GREEN : PALE_GREEN, false);
+            if (target != null && cellY >= clipTop && cellY + cell <= clipBottom)
+                galleryButtons.add(new GalleryButton(cellX, cellY, cellX + cell, cellY + cell, target));
+        }
+        return y + (gallery.size() + columns - 1) / columns * cellHeight + 2;
+    }
+
+    private static String galleryEntity(ComputerGuideData.GalleryItem galleryItem) {
+        if (galleryItem.item()) return "";
+        if (galleryItem.entity()) return galleryItem.id();
+        ResourceLocation id = ResourceLocation.tryParse(galleryItem.id());
+        return id != null && net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(id) ? galleryItem.id() : "";
+    }
+
+    private static String galleryName(ComputerGuideData.GalleryItem galleryItem, String entityId) {
+        if (!galleryItem.nameKey().isBlank()) return Component.translatable(galleryItem.nameKey()).getString();
+        ResourceLocation id = ResourceLocation.tryParse(galleryItem.id());
+        if (id == null) return galleryItem.id();
+        if (!entityId.isEmpty()) return net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.get(id).getDescription().getString();
+        var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(id);
+        return item == net.minecraft.world.item.Items.AIR ? galleryItem.id() : item.getDescription().getString();
+    }
+
+    private static ResourceLocation galleryTarget(String id, ComputerGuideData.Entry selected, List<ComputerGuideData.Entry> entries) {
+        ComputerGuideData.Entry coverMatch = null;
+        for (ComputerGuideData.Entry entry : entries) {
+            if (entry == selected || entry.id().equals(selected.id())) continue;
+            if (id.equals(entry.entityId()) || id.equals(entry.itemId())) return entry.id();
+            if (coverMatch == null && (id.equals(entry.coverEntityId()) || id.equals(entry.coverItemId()))) coverMatch = entry;
+        }
+        return coverMatch == null ? null : coverMatch.id();
+    }
+
+    private int renderDescriptionPart(GuiGraphics g, String part, int x, int y, int w, int clipTop, int clipBottom) {
+        if (part.startsWith("@item:")) return visible(y, 48, clipTop, clipBottom) ? screen.renderArchivePreview(g, part.substring(6), "", "", x, y, w) + 2 : y + 50;
+        if (part.startsWith("@entity:")) return visible(y, 96, clipTop, clipBottom) ? screen.renderArchivePreview(g, "", part.substring(8), "", x, y, w) + 2 : y + 98;
+        if (part.startsWith("@enchantment:")) return visible(y, 48, clipTop, clipBottom) ? screen.renderArchivePreview(g, "", "", part.substring(13), x, y, w) + 2 : y + 50;
         if (part.startsWith("@recipe:")) return screen.renderArchiveRecipe(g, part.substring(8), x, y, w) + 2;
-        return screen.wrap(g, Component.literal(AntOSPlayerText.apply(Component.translatable(part).getString())), x, y, w, GREEN) + 3;
+        for (var line : detailLines(part, w)) {
+            if (visible(y, 11, clipTop, clipBottom)) g.drawString(font, line, x, y, GREEN, false);
+            y += 11;
+        }
+        return y + 3;
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
@@ -184,6 +310,14 @@ final class ArchiveApp extends ComputerApp {
             if (screen.inside(archiveX, archiveY, w - 16, 20, mouseX, mouseY)) {
                 state.entryId = null;
                 state.detailScroll = 0;
+                return true;
+            }
+            for (GalleryButton galleryButton : List.copyOf(galleryButtons)) {
+                if (mouseX < galleryButton.left() || mouseX >= galleryButton.right() || mouseY < galleryButton.top() || mouseY >= galleryButton.bottom()) continue;
+                ComputerGuideData.Entry target = ComputerGuideData.availableEntry(screen.workspaceDiskIds(),
+                        com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(), galleryButton.target());
+                if (target != null) select(target);
+                return true;
             }
         } else {
             if (screen.inside(archiveX, archiveY + 14, w - 16, 21, mouseX, mouseY)) {
@@ -213,14 +347,7 @@ final class ArchiveApp extends ComputerApp {
             if (relativeRow >= 0 && relativeRow < visibleRows && index < entries.size()
                     && screen.inside(cellX, rowTop, cellWidth - 2, cellHeight - 2, mouseX, mouseY)) {
                 ComputerGuideData.Entry openedEntry = entries.get(index);
-                state.entryId = openedEntry.id();
-                state.detailScroll = 0;
-                ComputerNetworking.recordArchiveViewed(openedEntry.id());
-                if (!openedEntry.structureId().isBlank() || !openedEntry.locatorId().isBlank()) {
-                    com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.searching(openedEntry.dimensionId(),
-                            openedEntry.structureId().isBlank());
-                    ComputerNetworking.locateStructure(openedEntry.id());
-                }
+                select(openedEntry);
             }
         }
         return true;
@@ -292,6 +419,8 @@ final class ArchiveApp extends ComputerApp {
         double progress = Math.max(0.0, Math.min(1.0, (mouseY - trackTop - thumbHeight / 2.0) / travel));
         state.scroll = (int) Math.round(progress * maximum);
     }
+
+    private record GalleryButton(int left, int top, int right, int bottom, ResourceLocation target) { }
 
     static final class State {
         ResourceLocation entryId;

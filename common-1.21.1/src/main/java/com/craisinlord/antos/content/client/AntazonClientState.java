@@ -31,6 +31,9 @@ public final class AntazonClientState {
     private static final Map<String, List<CheckoutLine>> CHECKOUTS = new ConcurrentHashMap<>();
     private static final Map<String, Notice> NOTICES = new ConcurrentHashMap<>();
     private static final Map<String, Map<String, ProductRow>> PRODUCT_INDEX = new ConcurrentHashMap<>();
+    private static final Map<String, Map<String, ReviewPage>> REVIEW_PAGES = new ConcurrentHashMap<>();
+    private static final Map<String, Long> BOOTSTRAP_RETRY = new ConcurrentHashMap<>();
+    private static final long REVIEW_RETRY_MILLIS = 2000L;
     private static volatile Map<String, JsonObject> catalog = Map.of();
     private static volatile String catalogVersion = "";
 
@@ -39,7 +42,7 @@ public final class AntazonClientState {
     public static void clearAll() {
         PRODUCTS.clear(); STATUS.clear(); RECEIVED.clear(); WISHLISTS.clear(); ORDERS.clear(); WISHLIST_RECEIVED.clear();
         WALLETS.clear(); SELL_ROWS.clear(); SELL_FEEDBACK.clear(); SELL_AMOUNT.clear(); PRICES.clear(); ONBOARDING.clear(); ONBOARDING_RECEIVED.clear();
-        CARTS.clear(); CART_RECEIVED.clear(); CHECKOUTS.clear(); NOTICES.clear(); PRODUCT_INDEX.clear();
+        CARTS.clear(); CART_RECEIVED.clear(); CHECKOUTS.clear(); NOTICES.clear(); PRODUCT_INDEX.clear(); REVIEW_PAGES.clear(); BOOTSTRAP_RETRY.clear();
         catalog = Map.of();
         catalogVersion = "";
     }
@@ -52,8 +55,13 @@ public final class AntazonClientState {
         String key = ComputerWorkspaceClientKey.of();
         String data = result.data();
         String prefix = ComputerAccessPayload.ANTAZON_STATE + "\0\0";
+        if (data.isEmpty() || !Character.isDigit(data.charAt(0))) return;
         try {
-            if (data.startsWith(prefix)) {
+            if (data.startsWith(BOOTSTRAP_PREFIX)) {
+                bootstrap(key, result, data);
+            } else if (data.startsWith(REVIEWS_PREFIX)) {
+                reviews(key, result, data);
+            } else if (data.startsWith(prefix)) {
                 JsonObject response = JsonParser.parseString(data.substring(prefix.length())).getAsJsonObject();
                 String version = response.get("catalog_version").getAsString();
                 if (response.has("catalog")) {
@@ -114,7 +122,7 @@ public final class AntazonClientState {
                                 integer(row, "returned_count", 0), row.get("value").getAsLong(),
                                 row.get("sellable").getAsBoolean(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
                                 integer(row, "limit", 0), string(row, "limit_reset", "none"), integer(row, "remaining", Integer.MAX_VALUE), bool(row, "over_limit", false),
-                                bool(row, "locked", false), string(row, "unlock_mode", "all"), strings(row.getAsJsonArray("unlock_tasks"))));
+                                bool(row, "locked", false), string(row, "unlock_mode", "all"), strings(row.getAsJsonArray("unlock_tasks")), strings(row.getAsJsonArray("unlock_disks")), strings(row.getAsJsonArray("unlock_commands"))));
                     }
                 }
                 SELL_ROWS.put(key, List.copyOf(rows));
@@ -126,7 +134,7 @@ public final class AntazonClientState {
                     JsonObject row = element.getAsJsonObject();
                     prices.add(new PriceRow(row.get("item").getAsString(), row.get("value").getAsInt(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
                             integer(row, "limit", 0), integer(row, "used", 0), integer(row, "remaining", Integer.MAX_VALUE), string(row, "limit_reset", "none"),
-                            bool(row, "locked", false), string(row, "unlock_mode", "all"), strings(row.getAsJsonArray("unlock_tasks"))));
+                            bool(row, "locked", false), string(row, "unlock_mode", "all"), strings(row.getAsJsonArray("unlock_tasks")), strings(row.getAsJsonArray("unlock_disks")), strings(row.getAsJsonArray("unlock_commands"))));
                 }
                 PRICES.put(key, List.copyOf(prices));
             } else if (data.startsWith(ComputerAccessPayload.ANTAZON_ONBOARDING + "\0")
@@ -192,6 +200,115 @@ public final class AntazonClientState {
         }
     }
 
+    private static final String BOOTSTRAP_PREFIX = ComputerAccessPayload.ANTAZON_BOOTSTRAP + "\0";
+    private static final String REVIEWS_PREFIX = ComputerAccessPayload.ANTAZON_REVIEWS + "\0";
+
+    private static void bootstrap(String key, ComputerAccessResultPayload result, String data) {
+        String[] envelope = data.split("\u0000", 3);
+        if (result.result() != ComputerAccessResultPayload.SUCCESS || envelope.length < 3 || envelope[2].isBlank()) {
+            BOOTSTRAP_RETRY.put(key, System.currentTimeMillis() + REVIEW_RETRY_MILLIS);
+            return;
+        }
+        for (JsonElement element : JsonParser.parseString(envelope[2]).getAsJsonArray()) {
+            JsonObject row = element.getAsJsonObject();
+            ComputerAccessClientState.update(new ComputerAccessResultPayload(row.get("result").getAsInt(),
+                    row.get("has_password").getAsBoolean(), row.get("authenticated").getAsBoolean(), row.get("data").getAsString()));
+        }
+    }
+
+    private static void reviews(String key, ComputerAccessResultPayload result, String data) {
+        Map<String, ReviewPage> pages = REVIEW_PAGES.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
+        String[] envelope = data.split("\u0000", 3);
+        if (result.result() != ComputerAccessResultPayload.SUCCESS || envelope.length < 3 || envelope[2].isBlank()) {
+            long retryAt = System.currentTimeMillis() + REVIEW_RETRY_MILLIS;
+            for (ReviewPage page : pages.values()) {
+                if (!page.pending) continue;
+                page.pending = false;
+                page.retryAt = retryAt;
+            }
+            return;
+        }
+        JsonObject response = JsonParser.parseString(envelope[2]).getAsJsonObject();
+        String product = response.get("product").getAsString();
+        int offset = response.get("offset").getAsInt();
+        String revision = response.get("revision").getAsString();
+        List<ReviewRow> rows = new ArrayList<>();
+        for (JsonElement element : response.getAsJsonArray("reviews")) {
+            JsonObject review = element.getAsJsonObject();
+            rows.add(new ReviewRow(review.get("author").getAsString(), review.get("title").getAsString(),
+                    review.get("body").getAsString(), review.get("rating").getAsInt(), review.get("badge").getAsString()));
+        }
+        ReviewPage page = pages.computeIfAbsent(product, ignored -> new ReviewPage());
+        page.pending = false;
+        if (offset == 0) {
+            page.rows = new ArrayList<>(rows);
+            page.loadedRevision = page.requestedRevision;
+            page.serverRevision = revision;
+            page.total = response.get("total").getAsInt();
+        } else if (revision.equals(page.serverRevision) && offset == page.rows.size()) {
+            page.rows.addAll(rows);
+            page.total = response.get("total").getAsInt();
+        } else {
+            page.loadedRevision = "";
+        }
+        page.view = List.copyOf(page.rows);
+    }
+
+    public static void ensureReviews(ProductRow product) {
+        if (product == null) return;
+        String key = ComputerWorkspaceClientKey.of();
+        Map<String, ReviewPage> pages = REVIEW_PAGES.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
+        if (product.playerReviewCount() <= 0) {
+            pages.remove(product.id());
+            return;
+        }
+        ReviewPage page = pages.computeIfAbsent(product.id(), ignored -> new ReviewPage());
+        if (page.pending || page.loadedRevision.equals(product.reviewRevision()) || System.currentTimeMillis() < page.retryAt) return;
+        page.pending = true;
+        page.requestedRevision = product.reviewRevision();
+        com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonReviews(product.id(), 0);
+    }
+
+    public static void loadMoreReviews(ProductRow product) {
+        if (product == null) return;
+        ReviewPage page = REVIEW_PAGES.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()).get(product.id());
+        if (page == null || page.pending || !page.loadedRevision.equals(product.reviewRevision()) || page.rows.size() >= page.total
+                || System.currentTimeMillis() < page.retryAt) return;
+        page.pending = true;
+        com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonReviews(product.id(), page.rows.size());
+    }
+
+    public static List<ReviewRow> playerReviews(ProductRow product) {
+        if (product == null || product.playerReviewCount() <= 0) return List.of();
+        ReviewPage page = REVIEW_PAGES.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()).get(product.id());
+        return page == null ? List.of() : page.view;
+    }
+
+    public static boolean moreReviewsAvailable(ProductRow product) {
+        if (product == null || product.playerReviewCount() <= 0) return false;
+        ReviewPage page = REVIEW_PAGES.getOrDefault(ComputerWorkspaceClientKey.of(), Map.of()).get(product.id());
+        return page == null || page.pending || !page.loadedRevision.equals(product.reviewRevision()) || page.rows.size() < page.total;
+    }
+
+    public static boolean consumeBootstrapRetry() {
+        String key = ComputerWorkspaceClientKey.of();
+        Long retryAt = BOOTSTRAP_RETRY.get(key);
+        if (retryAt == null || System.currentTimeMillis() < retryAt) return false;
+        BOOTSTRAP_RETRY.remove(key);
+        return true;
+    }
+
+    private static final class ReviewPage {
+        private String loadedRevision = "";
+        private String requestedRevision = "";
+        private String serverRevision = "";
+        private List<ReviewRow> rows = new ArrayList<>();
+        private List<ReviewRow> view = List.of();
+        private int total;
+        private boolean pending;
+        private long retryAt;
+    }
+
     private static void refreshAfterPurchase() {
         com.craisinlord.antos.content.network.ComputerNetworking.requestAntazon();
         com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonWallet();
@@ -241,6 +358,19 @@ public final class AntazonClientState {
         }
         String poolItem = poolItemName(string(row, "pool_item", ""));
         List<String> variants = row.has("variants") ? strings(row.getAsJsonArray("variants")) : List.of();
+        int playerReviewCount = integer(row, "player_review_count", 0);
+        long playerReviewSum = row.has("player_review_sum") ? row.get("player_review_sum").getAsLong() : 0L;
+        int[] stars = new int[5];
+        for (ReviewRow review : reviews) if (review.rating() >= 1 && review.rating() <= 5) stars[review.rating() - 1]++;
+        long staticSum = 0L;
+        for (ReviewRow review : reviews) staticSum += review.rating();
+        if (row.has("player_review_stars") && row.get("player_review_stars").isJsonArray()) {
+            JsonArray playerStars = row.getAsJsonArray("player_review_stars");
+            for (int index = 0; index < stars.length && index < playerStars.size(); index++) stars[index] += playerStars.get(index).getAsInt();
+        }
+        List<Integer> ratingCounts = java.util.Arrays.stream(stars).boxed().toList();
+        int reviewCount = reviews.size() + playerReviewCount;
+        double rating = reviewCount == 0 ? 0.0D : (staticSum + playerReviewSum) / (double) reviewCount;
         return new ProductRow(row.get("id").getAsString(), withPoolItem(row.get("name").getAsString(), poolItem),
                 withPoolItem(row.get("description").getAsString(), poolItem),
                 row.get("category").getAsString(), bool(row, "green_tint", true), bool(row, "render_mob_from_spawn_egg", true),
@@ -252,7 +382,8 @@ public final class AntazonClientState {
                 string(row, "unlock_mode", "all"), bool(row, "hidden_until_unlocked", false), strings(row.getAsJsonArray("tags")), thumbnail, List.copyOf(gallery),
                 row.get("quantity").getAsInt(), row.has("cooldown_ends") ? row.get("cooldown_ends").getAsLong() : 0L,
                 List.copyOf(payments), List.copyOf(rewards), List.copyOf(reviews), bool(row, "purchased", false), bool(row, "reviewed", false),
-                deadline(row, "rotates_in_ms"), bool(row, "rotates_real", false), string(row, "variant_mode", ""), variants);
+                deadline(row, "rotates_in_ms"), bool(row, "rotates_real", false), string(row, "variant_mode", ""), variants, strings(row.getAsJsonArray("unlock_disks")), strings(row.getAsJsonArray("unlock_commands")),
+                playerReviewCount, string(row, "player_review_revision", ""), reviewCount, rating, ratingCounts);
     }
 
     private static long deadline(JsonObject row, String key) {
@@ -360,6 +491,7 @@ public final class AntazonClientState {
         PRODUCTS.remove(key); PRODUCT_INDEX.remove(key); STATUS.remove(key); RECEIVED.remove(key); WISHLISTS.remove(key); ORDERS.remove(key); WISHLIST_RECEIVED.remove(key);
         WALLETS.remove(key); SELL_ROWS.remove(key); SELL_FEEDBACK.remove(key); SELL_AMOUNT.remove(key); PRICES.remove(key); ONBOARDING.remove(key);
         ONBOARDING_RECEIVED.remove(key); CARTS.remove(key); CART_RECEIVED.remove(key); CHECKOUTS.remove(key); NOTICES.remove(key);
+        REVIEW_PAGES.remove(key); BOOTSTRAP_RETRY.remove(key);
     }
 
     public record ProductRow(String id, String name, String description, String category, boolean greenTint, boolean renderMobFromSpawnEgg, int remaining, long restockAt, boolean restockReal,
@@ -367,13 +499,14 @@ public final class AntazonClientState {
                              String dealKey, long dealEndsAt, boolean dealReal, int dealLimit, int dealRemaining,
                              boolean locked, List<String> unlockTasks, String unlockMode, boolean hiddenUntilUnlocked, List<String> tags, PreviewAsset thumbnail,
                              List<PreviewAsset> gallery, int quantity, long cooldownEnds, List<PaymentRow> payments, List<RewardRow> rewards,
-                             List<ReviewRow> reviews, boolean purchased, boolean reviewed, long rotatesAt, boolean rotatesReal, String variantMode, List<String> variants) {
+                             List<ReviewRow> reviews, boolean purchased, boolean reviewed, long rotatesAt, boolean rotatesReal, String variantMode, List<String> variants, List<String> unlockDisks, List<String> unlockCommands,
+                             int playerReviewCount, String reviewRevision, int reviewCount, double rating, List<Integer> ratingCounts) {
         public boolean onSale() {
             return dealActive && dealRemaining != 0;
         }
 
-        public double rating() {
-            return reviews.isEmpty() ? 0.0D : reviews.stream().mapToInt(ReviewRow::rating).average().orElse(0.0D);
+        public int ratingCount(int stars) {
+            return stars >= 1 && stars <= ratingCounts.size() ? ratingCounts.get(stars - 1) : 0;
         }
     }
 
@@ -383,9 +516,9 @@ public final class AntazonClientState {
     public record ReviewRow(String author, String title, String body, int rating, String badge) { }
     public record OrderRow(String product, String option, int units, long gameTime, String status) { }
     public record SellRow(String item, int count, int acceptedCount, int returnedCount, long value, boolean sellable, boolean greenTint, boolean renderMobFromSpawnEgg,
-                          int limit, String limitReset, int remaining, boolean overLimit, boolean locked, String unlockMode, List<String> unlockTasks) { }
+                          int limit, String limitReset, int remaining, boolean overLimit, boolean locked, String unlockMode, List<String> unlockTasks, List<String> unlockDisks, List<String> unlockCommands) { }
     public record PriceRow(String item, int value, boolean greenTint, boolean renderMobFromSpawnEgg,
-                           int limit, int used, int remaining, String limitReset, boolean locked, String unlockMode, List<String> unlockTasks) { }
+                           int limit, int used, int remaining, String limitReset, boolean locked, String unlockMode, List<String> unlockTasks, List<String> unlockDisks, List<String> unlockCommands) { }
     public record CartLine(String product, int option, int units, String variant) {
         public CartLine(String product, int option, int units) { this(product, option, units, ""); }
     }

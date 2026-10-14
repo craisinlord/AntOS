@@ -39,6 +39,7 @@ public final class AntOSNeoForge {
         NeoForge.EVENT_BUS.addListener(this::onPlayerLogout);
         NeoForge.EVENT_BUS.addListener(this::onAdvancementEarned);
         AntmailEventData.registerListeners();
+        AntmailEventData.setAdvancementEvents(true);
         AntOS.LOGGER.info("AntOS NeoForge initialized");
     }
 
@@ -63,6 +64,7 @@ public final class AntOSNeoForge {
         FloppyTextureSync.tick(server);
         AntmailEventData.onTick(server);
         com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
+        com.craisinlord.antos.content.computer.ComputerPrograms.tick(server);
     }
 
     private void onAdvancementEarned(net.neoforged.neoforge.event.entity.player.AdvancementEvent.AdvancementEarnEvent event) {
@@ -73,6 +75,7 @@ public final class AntOSNeoForge {
 
     private void onServerStopped(ServerStoppedEvent event) {
         FieldGuideCompat.shutdown();
+        com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
     }
 
     private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {

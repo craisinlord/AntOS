@@ -24,6 +24,9 @@ public record ComputerAccessPayload(int action, String value) implements CustomP
     public static final int FILE_DELETE = 13;
     public static final int FILE_MOVE = 14;
     public static final int TERMINAL_COMMAND = 15;
+    public static final int FILE_CREATE_DIRECTORY = 16;
+    public static final int FILE_DELETE_TREE = 17;
+    public static final int NOTIFICATION = 18;
     public static final int ARCHIVE_STATE = 20;
     public static final int LOCATE_STRUCTURE = 21;
     public static final int TASK_STATE = 22;
@@ -54,10 +57,28 @@ public record ComputerAccessPayload(int action, String value) implements CustomP
     public static final int TEAM_RESULT = 47;
     public static final int ANTAZON_CART = 48;
     public static final int ANTAZON_CHECKOUT = 49;
+    public static final int DISK_REWARDS = 50;
+    public static final int DECRYPT_DISK = 51;
+    public static final int PROGRAM_START = 52;
+    public static final int PROGRAM_ACTION = 53;
+    public static final int PROGRAM_STATE = 54;
+    public static final int ANTAZON_REVIEWS = 60;
+    public static final int ANTAZON_BOOTSTRAP = 61;
+    public static final int MAX_VALUE_CHARS = 65536;
+    public static final int BOOTSTRAP_STATE = 1;
+    public static final int BOOTSTRAP_WALLET = 2;
+    public static final int BOOTSTRAP_SELL_STATE = 4;
+    public static final int BOOTSTRAP_WISHLIST = 8;
+    public static final int BOOTSTRAP_ORDERS = 16;
+    public static final int BOOTSTRAP_PRICES = 32;
+    public static final int BOOTSTRAP_ONBOARDING = 64;
+    public static final int BOOTSTRAP_CART = 128;
+    public static final int BOOTSTRAP_CRATE_LINK = 256;
+    public static final int BOOTSTRAP_ALL = 511;
     public static final Type<ComputerAccessPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "computer_access"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ComputerAccessPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, ComputerAccessPayload::action,
-            ByteBufCodecs.stringUtf8(65536), ComputerAccessPayload::value,
+            ByteBufCodecs.stringUtf8(MAX_VALUE_CHARS), ComputerAccessPayload::value,
             ComputerAccessPayload::new
     );
 

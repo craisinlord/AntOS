@@ -1,0 +1,12 @@
+{
+  "name": "antazon.examplemod.vault_blueprint.name",
+  "description": "antazon.examplemod.vault_blueprint.description",
+  "category": "field_research",
+  "thumbnail": { "item": "minecraft:map" },
+  "quantity": 1,
+  "payments": [ { "type": "antcoins", "resource": "antcoins", "amount": 40 } ],
+  "unlock_commands": ["examplemod:vault"],
+  "hidden_until_unlocked": false,
+  "notify_on_unlock": true,
+  "rewards": [ { "item": "minecraft:map", "count": 1 } ]
+}

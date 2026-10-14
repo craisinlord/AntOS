@@ -120,7 +120,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
                     AntOS.LOGGER.warn("Antazon product {} has an empty variant tag", product.id());
                     continue;
                 }
-                Product configured = new Product(product.id(), product.name(), product.description(), product.category(), product.tags(), product.thumbnail(), product.gallery(), product.quantity(), product.payments(), product.unlockMode(), product.unlockTasks(), product.availability(), product.rewards(), product.reviews(), product.delivery(), product.deliveryLocation(), product.enabled(), product.greenTint(), product.renderMobFromSpawnEgg(), product.hiddenUntilUnlocked(), product.notifyOnUnlock(), product.itemPool(), product.poolEntry(), product.variants(), variants);
+                Product configured = new Product(product.id(), product.name(), product.description(), product.category(), product.tags(), product.thumbnail(), product.gallery(), product.quantity(), product.payments(), product.unlockMode(), product.unlockTasks(), product.availability(), product.rewards(), product.reviews(), product.delivery(), product.deliveryLocation(), product.enabled(), product.greenTint(), product.renderMobFromSpawnEgg(), product.hiddenUntilUnlocked(), product.notifyOnUnlock(), product.itemPool(), product.poolEntry(), product.variants(), variants, product.unlockDisks(), product.unlockCommands());
                 all.put(configured.id(), configured);
                 continue;
             }
@@ -161,7 +161,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         return new Product(id, template.name(), template.description(), template.category(), template.tags(), thumbnail, gallery,
                 template.quantity(), template.payments(), template.unlockMode(), template.unlockTasks(), template.availability(),
                 List.copyOf(rewards), template.reviews(), template.delivery(), template.deliveryLocation(), template.enabled(), template.greenTint(),
-                template.renderMobFromSpawnEgg(), template.hiddenUntilUnlocked(), template.notifyOnUnlock(), template.itemPool(), new PoolEntry(template.id(), item, index, size), null, List.of());
+                template.renderMobFromSpawnEgg(), template.hiddenUntilUnlocked(), template.notifyOnUnlock(), template.itemPool(), new PoolEntry(template.id(), item, index, size), null, List.of(), template.unlockDisks(), template.unlockCommands());
     }
 
     @Override
@@ -218,6 +218,12 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         JsonArray unlockTasks = new JsonArray();
         for (ResourceLocation task : product.unlockTasks()) unlockTasks.add(task.toString());
         row.add("unlock_tasks", unlockTasks);
+        JsonArray unlockDisks = new JsonArray();
+        for (ResourceLocation disk : product.unlockDisks()) unlockDisks.add(disk.toString());
+        row.add("unlock_disks", unlockDisks);
+        JsonArray unlockCommands = new JsonArray();
+        for (ResourceLocation command : product.unlockCommands()) unlockCommands.add(com.craisinlord.antos.content.computer.terminal.TerminalCommands.hint(command));
+        row.add("unlock_commands", unlockCommands);
         JsonArray tags = new JsonArray();
         for (String tag : product.tags()) tags.add(tag);
         row.add("tags", tags);
@@ -295,6 +301,8 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
             return null;
         }
         List<ResourceLocation> taskIds = resourceIds(object.get("unlock_tasks"), id);
+        List<ResourceLocation> diskIds = resourceIds(object.get("unlock_disks"), id);
+        List<ResourceLocation> commandIds = resourceIds(object.get("unlock_commands"), id);
         boolean hiddenUntilUnlocked = !object.has("hidden_until_unlocked") || !object.get("hidden_until_unlocked").isJsonPrimitive()
                 || object.get("hidden_until_unlocked").getAsBoolean();
         boolean notifyOnUnlock = !object.has("notify_on_unlock") || !object.get("notify_on_unlock").isJsonPrimitive()
@@ -341,7 +349,7 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         List<Review> reviews = parseReviews(id, object.get("reviews"));
         if (object.has("deal")) AntOS.LOGGER.warn("Antazon product {} has a deal block, which is no longer supported; use a deal campaign in data/<namespace>/antazon/deal instead", id);
         boolean renderMobFromSpawnEgg = !object.has("render_mob_from_spawn_egg") || !object.get("render_mob_from_spawn_egg").isJsonPrimitive() || object.get("render_mob_from_spawn_egg").getAsBoolean();
-        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, delivery, deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, notifyOnUnlock, itemPool, null, variants, List.of());
+        return new Product(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, taskIds, availability, rewards, reviews, delivery, deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, notifyOnUnlock, itemPool, null, variants, List.of(), diskIds, commandIds);
     }
 
     private static VariantPool parseVariants(ResourceLocation id, JsonElement element) {
@@ -549,7 +557,24 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
     public record Product(ResourceLocation id, String name, String description, String category, List<String> tags,
                           PreviewAsset thumbnail, List<PreviewAsset> gallery, int quantity, List<Payment> payments, String unlockMode, List<ResourceLocation> unlockTasks,
                           Availability availability, List<Reward> rewards, List<Review> reviews, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint, boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked, boolean notifyOnUnlock,
-                          ItemPool itemPool, PoolEntry poolEntry, VariantPool variants, List<ResourceLocation> variantItems) {
+                          ItemPool itemPool, PoolEntry poolEntry, VariantPool variants, List<ResourceLocation> variantItems, List<ResourceLocation> unlockDisks,
+                          List<ResourceLocation> unlockCommands) {
+        public Product(ResourceLocation id, String name, String description, String category, List<String> tags,
+                       PreviewAsset thumbnail, List<PreviewAsset> gallery, int quantity, List<Payment> payments, String unlockMode, List<ResourceLocation> unlockTasks,
+                       Availability availability, List<Reward> rewards, List<Review> reviews, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint,
+                       boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked, boolean notifyOnUnlock, ItemPool itemPool, PoolEntry poolEntry, VariantPool variants,
+                       List<ResourceLocation> variantItems, List<ResourceLocation> unlockDisks) {
+            this(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, unlockTasks, availability, rewards, reviews, delivery,
+                    deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, notifyOnUnlock, itemPool, poolEntry, variants, variantItems, unlockDisks, List.of());
+        }
+
+        public Product(ResourceLocation id, String name, String description, String category, List<String> tags,
+                       PreviewAsset thumbnail, List<PreviewAsset> gallery, int quantity, List<Payment> payments, String unlockMode, List<ResourceLocation> unlockTasks,
+                       Availability availability, List<Reward> rewards, List<Review> reviews, String delivery, DeliveryLocation deliveryLocation, boolean enabled, boolean greenTint,
+                       boolean renderMobFromSpawnEgg, boolean hiddenUntilUnlocked, boolean notifyOnUnlock, ItemPool itemPool, PoolEntry poolEntry, VariantPool variants, List<ResourceLocation> variantItems) {
+            this(id, name, description, category, tags, thumbnail, gallery, quantity, payments, unlockMode, unlockTasks, availability, rewards, reviews, delivery,
+                    deliveryLocation, enabled, greenTint, renderMobFromSpawnEgg, hiddenUntilUnlocked, notifyOnUnlock, itemPool, poolEntry, variants, variantItems, List.of(), List.of());
+        }
     }
 
     public record DeliveryLocation(int x, int y, int z) { }

@@ -15,7 +15,7 @@ public final class AntOSNeoForgeNetworking {
     }
 
     private static void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("1");
+        var registrar = event.registrar(String.valueOf(com.craisinlord.antos.AntOS.NETWORK_PROTOCOL));
         registrar.playToServer(AnternetComputerPayload.TYPE, AnternetComputerPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
                     if (context.player() instanceof ServerPlayer player) ComputerAccessHandler.handleAnternet(player, payload);
@@ -24,6 +24,8 @@ public final class AntOSNeoForgeNetworking {
                 (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AnternetAccountHandler.handle(player, payload))));
         registrar.playToServer(AntmailAnternetPayload.TYPE, AntmailAnternetPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> AntmailServerHandler.handle(player, payload))));
+        registrar.playToServer(PhoneDiskInsertPayload.TYPE, PhoneDiskInsertPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> PhoneDiskInsertPayload.handle(player, payload))));
         registrar.playToClient(AnternetComputerResultPayload.TYPE, AnternetComputerResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.ComputerAccessClientState.updateAnternet(payload)));
         registrar.playToClient(AnternetAccountResultPayload.TYPE, AnternetAccountResultPayload.STREAM_CODEC,

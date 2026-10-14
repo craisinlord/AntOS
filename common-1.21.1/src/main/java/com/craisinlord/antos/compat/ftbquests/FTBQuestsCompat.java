@@ -53,19 +53,30 @@ public final class FTBQuestsCompat {
             if (team == null) antosMembers.add(account.accountId());
             else team.members().forEach(member -> antosMembers.add(member.accountId()));
         }
+        java.util.List<Task> mappedTasks = null;
         for (ServerPlayer recipient : player.server.getPlayerList().getPlayers()) {
             var recipientAccount = AntOSFTBBridge.account(recipient, data);
             java.util.UUID recipientKey = recipientAccount == null ? recipient.getUUID() : recipientAccount.accountId();
             if (!antosMembers.contains(recipientKey)) continue;
-            ServerQuestFile.getInstance().ifPresent(file -> file.getTeamData(recipient).ifPresent(teamData -> {
-                for (Task task : file.getAllTasks()) {
-                    if (task instanceof AntOSTask mapped && mapped.antosTaskId().equals(antosTaskId)
-                            && !teamData.isCompleted(task)) {
-                        teamData.setProgress(task, task.getMaxProgress());
-                    }
+            var file = ServerQuestFile.getInstance().orElse(null);
+            if (file == null) continue;
+            if (mappedTasks == null) mappedTasks = mappedTasks(file, antosTaskId);
+            if (mappedTasks.isEmpty()) return;
+            java.util.List<Task> matching = mappedTasks;
+            file.getTeamData(recipient).ifPresent(teamData -> {
+                for (Task task : matching) {
+                    if (!teamData.isCompleted(task)) teamData.setProgress(task, task.getMaxProgress());
                 }
-            }));
+            });
         }
+    }
+
+    private static java.util.List<Task> mappedTasks(ServerQuestFile file, ResourceLocation antosTaskId) {
+        java.util.List<Task> matching = new java.util.ArrayList<>();
+        for (Task task : file.getAllTasks()) {
+            if (task instanceof AntOSTask mapped && mapped.antosTaskId().equals(antosTaskId)) matching.add(task);
+        }
+        return matching;
     }
 
     private static void reconcileAntOSTasks(dev.ftb.mods.ftbteams.api.event.PlayerLoggedInAfterTeamEvent event) {

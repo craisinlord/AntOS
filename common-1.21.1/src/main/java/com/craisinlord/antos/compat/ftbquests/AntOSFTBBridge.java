@@ -90,7 +90,7 @@ public final class AntOSFTBBridge {
 
     private static boolean validTarget(String action, ResourceLocation target) {
         boolean valid = action.equals("unlock_archive") && ComputerGuideData.entry(target) != null
-                || action.equals("grant_task") && ComputerGuideData.tasks().stream().anyMatch(task -> task.id().equals(target));
+                || action.equals("grant_task") && ComputerGuideData.task(target) != null;
         if (!valid) com.craisinlord.antos.AntOS.LOGGER.warn("Ignoring invalid FTB Quests AntOS reward target: {} {}", action, target);
         return valid;
     }

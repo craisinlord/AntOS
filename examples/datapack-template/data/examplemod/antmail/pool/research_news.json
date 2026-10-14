@@ -1,0 +1,5 @@
+{
+  "chance_per_day": 0.5,
+  "max_per_day": 1,
+  "subscription_only": true
+}

@@ -1,0 +1,8 @@
+{
+  "sender": "fieldoffice@antmail.com",
+  "sender_display": "Lab Tips",
+  "subject": "A reminder from the lab",
+  "body": "Hello {player}, remember to bring your pickaxe. This message is available only to Lab Tips subscribers.",
+  "once": false,
+  "trigger": { "type": "random", "value": "0.25", "subscription_only": true }
+}

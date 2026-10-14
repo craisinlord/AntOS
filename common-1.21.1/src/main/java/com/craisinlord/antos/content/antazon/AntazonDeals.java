@@ -18,10 +18,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
 public final class AntazonDeals {
+    private static final int MAX_PROFILES = 256;
     private static final Map<UUID, ProfileDeals> PROFILES = new ConcurrentHashMap<>();
     private static volatile CandidateIndex index;
 
     private AntazonDeals() { }
+
+    public static void invalidate(UUID profile) {
+        PROFILES.remove(profile);
+    }
 
     public static void clear() {
         PROFILES.clear();
@@ -41,6 +46,7 @@ public final class AntazonDeals {
         ProfileDeals cached = PROFILES.get(profile);
         if (cached != null && cached.stamp() == stamp) return cached.deals();
         Map<ResourceLocation, Active> deals = pick(unlocked, day, now);
+        if (PROFILES.size() >= MAX_PROFILES) PROFILES.values().removeIf(entry -> entry.stamp() != stamp);
         PROFILES.put(profile, new ProfileDeals(stamp, deals));
         return deals;
     }

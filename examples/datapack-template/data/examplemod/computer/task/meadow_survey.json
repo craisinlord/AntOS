@@ -1,4 +1,7 @@
 {
+  "shape": "hexagon",
+  "size": 1.25,
+  "icon_scale": 0.85,
   "title": "task.examplemod.meadow_survey.title",
   "description": "task.examplemod.meadow_survey.description",
   "program": "examplemod:meadow_research",

@@ -22,7 +22,7 @@ public record TerminalResult(Status status, List<String> lines, String workingDi
     }
 
     public static TerminalResult open(String workingDirectory, String path) {
-        return new TerminalResult(Status.OPEN, List.of("OPENING " + path), workingDirectory, false, path);
+        return new TerminalResult(Status.OPEN, List.of(TerminalText.of("opening", path)), workingDirectory, false, path);
     }
 
     public enum Status {

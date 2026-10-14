@@ -67,7 +67,8 @@ public final class AntmailClientState {
             mailbox = null;
             snapshot = null;
             version = 0L;
-        } else if (!"result_too_large".equals(payload.detail()) && !"invalid_action".equals(payload.detail())) {
+        } else if (!"result_too_large".equals(payload.detail()) && !"invalid_action".equals(payload.detail())
+                && !"rate_limited".equals(payload.detail()) && !"profile_rate_limited".equals(payload.detail())) {
             refreshRequested = true;
         }
     }

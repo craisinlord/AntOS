@@ -8,6 +8,8 @@ public final class AnternetAccountClientState {
     private static volatile String faceIdError = "";
     private static volatile long faceIdStatusRevision;
     private static volatile java.util.UUID faceIdAccountId;
+    private static volatile long passwordChangeRevision;
+    private static volatile int passwordChangeResult = -1;
 
     private AnternetAccountClientState() { }
 
@@ -35,11 +37,25 @@ public final class AnternetAccountClientState {
             faceIdStatusRevision++;
             return;
         }
+        if (result.result() >= AnternetAccountResultPayload.PASSWORD_CHANGED
+                && result.result() <= AnternetAccountResultPayload.PASSWORD_CHANGE_RATE_LIMITED) {
+            passwordChangeResult = result.result();
+            passwordChangeRevision++;
+            return;
+        }
         if (result.result() == AnternetAccountResultPayload.LOGGED_OUT) {
             clear();
             return;
         }
         latest = result;
+    }
+
+    public static long passwordChangeRevision() {
+        return passwordChangeRevision;
+    }
+
+    public static int passwordChangeResult() {
+        return passwordChangeResult;
     }
 
     public static AnternetAccountResultPayload latest() {

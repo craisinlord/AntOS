@@ -1,0 +1,12 @@
+{
+  "title": "task.examplemod.lab_escape.title",
+  "description": "task.examplemod.lab_escape.description",
+  "program": "examplemod:meadow_research",
+  "category": "examplemod:meadow_research",
+  "sort_order": 60,
+  "availability": "automatic",
+  "objectives": [
+    { "id": "escape", "type": "program_ending", "target": "examplemod:lab_escape", "ending": "escaped", "description": "Reach the escaped ending in Lab Escape" }
+  ],
+  "rewards": [{ "type": "experience", "points": 10 }]
+}

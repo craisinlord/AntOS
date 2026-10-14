@@ -38,13 +38,13 @@ final class WallpapersApp extends ComputerApp {
         if (available.isEmpty()) g.drawString(font, Component.literal("NO WALLPAPERS AVAILABLE"), x, y + 24, PALE_GREEN, false);
     }
 
-    private List<ComputerGuideData.Wallpaper> unlockedWallpapers() {
+    List<ComputerGuideData.Wallpaper> unlockedWallpapers() {
         Set<String> unlocked = new HashSet<>(screen.session.wallpapers);
         unlocked.add(ComputerDesktopState.DEFAULT_WALLPAPER.toString());
         return ComputerGuideData.wallpapers().stream().filter(wallpaper -> unlocked.contains(wallpaper.id().toString())).toList();
     }
 
-    private void drawWallpaperPreview(GuiGraphics g, int x, int y, int w, int h, String id) {
+    void drawWallpaperPreview(GuiGraphics g, int x, int y, int w, int h, String id) {
         try {
             ComputerGuideData.Wallpaper wallpaper = ComputerGuideData.wallpaper(ResourceLocation.parse(id));
             if (wallpaper != null && !wallpaper.textureId().isBlank() && screen.drawWallpaperTexture(g, wallpaper, x, y, w, h)) return;

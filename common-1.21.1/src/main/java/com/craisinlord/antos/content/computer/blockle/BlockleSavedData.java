@@ -14,23 +14,37 @@ import java.util.UUID;
 
 public final class BlockleSavedData extends SavedData {
     private static final String ID = "antos_blockle";
+    private static final SavedData.Factory<BlockleSavedData> FACTORY = new SavedData.Factory<>(BlockleSavedData::new, BlockleSavedData::load, null);
     private final Map<String, State> games = new HashMap<>();
     private final Map<UUID, Long> rewardDays = new HashMap<>();
+    private long prunedDay = Long.MIN_VALUE;
+    private boolean pruned;
+
+    private static BlockleSavedData access(MinecraftServer server) {
+        BlockleSavedData data = server.overworld().getDataStorage().computeIfAbsent(FACTORY, ID);
+        data.prune(server.overworld().getDayTime() / 24000L);
+        return data;
+    }
+
+    private void prune(long day) {
+        if (pruned && prunedDay == day) return;
+        pruned = true;
+        prunedDay = day;
+        boolean changed = games.values().removeIf(state -> state.day != day);
+        changed |= rewardDays.values().removeIf(rewardDay -> rewardDay != day);
+        if (changed) setDirty();
+    }
 
     public static State get(MinecraftServer server, String key) {
-        BlockleSavedData data = server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(BlockleSavedData::new, BlockleSavedData::load, null), ID);
-        return data.games.computeIfAbsent(key, ignored -> new State());
+        return access(server).games.computeIfAbsent(key, ignored -> new State());
     }
 
     public static void changed(MinecraftServer server) {
-        server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(BlockleSavedData::new, BlockleSavedData::load, null), ID).setDirty();
+        access(server).setDirty();
     }
 
     public static boolean claimReward(MinecraftServer server, UUID profile, long day) {
-        BlockleSavedData data = server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(BlockleSavedData::new, BlockleSavedData::load, null), ID);
+        BlockleSavedData data = access(server);
         if (profile == null || data.rewardDays.getOrDefault(profile, Long.MIN_VALUE) == day) return false;
         data.rewardDays.put(profile, day);
         data.setDirty();

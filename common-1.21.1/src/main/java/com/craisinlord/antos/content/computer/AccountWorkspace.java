@@ -4,12 +4,15 @@ import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.network.AnternetAccountHandler;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class AccountWorkspace implements ComputerWorkspace {
@@ -19,31 +22,45 @@ public final class AccountWorkspace implements ComputerWorkspace {
     private final ComputerFileSystem fileSystem = new ComputerFileSystem();
     private final ComputerDesktopState desktopState = new ComputerDesktopState();
     private final ComputerTaskProgress taskProgress = new ComputerTaskProgress();
+    private ComputerWorkspaceData data;
     private boolean authenticated = true;
     private boolean workspaceLoaded;
+    private boolean progressLoaded;
     private int savedProgressRevision;
+    private int savedFileSystemRevision;
+    private CompoundTag savedDesktop;
 
     public AccountWorkspace(ServerPlayer owner, ComputerWorkspaceData.AccountInfo account) {
         this.owner = owner;
         this.account = account;
-        CompoundTag progress = ComputerWorkspaceData.access(owner.server).workspaceSection(account.workspaceId(), "TaskProgress");
-        if (progress != null) taskProgress.load(progress);
+    }
+
+    private ComputerWorkspaceData data() {
+        if (data == null) data = ComputerWorkspaceData.access(owner.server);
+        return data;
+    }
+
+    private void loadProgress() {
+        if (progressLoaded) return;
+        progressLoaded = true;
+        data().readWorkspaceSnapshot(account.workspaceId(), snapshot -> taskProgress.load(snapshot.getCompound("TaskProgress")));
         savedProgressRevision = taskProgress.revision();
     }
 
     private void loadWorkspace() {
         if (workspaceLoaded) return;
         workspaceLoaded = true;
-        CompoundTag snapshot = ComputerWorkspaceData.access(owner.server).workspaceSnapshot(account.workspaceId());
-        if (snapshot != null) {
+        data().readWorkspaceSnapshot(account.workspaceId(), snapshot -> {
             fileSystem.load(snapshot, owner.serverLevel().registryAccess());
             desktopState.load(snapshot.getCompound("Desktop"));
-        }
+        });
+        savedFileSystemRevision = fileSystem.revision();
+        savedDesktop = desktopState.save();
     }
 
     @Override public ComputerFileSystem fileSystem() { loadWorkspace(); return fileSystem; }
     @Override public ComputerDesktopState desktopState() { loadWorkspace(); return desktopState; }
-    @Override public ComputerTaskProgress taskProgress() { return taskProgress; }
+    @Override public ComputerTaskProgress taskProgress() { loadProgress(); return taskProgress; }
     @Override public UUID workspaceOwner() { return account.accountId(); }
     @Override public UUID workspaceId() { return account.workspaceId(); }
     @Override public boolean isRemoteWorkspace() { return true; }
@@ -66,16 +83,16 @@ public final class AccountWorkspace implements ComputerWorkspace {
     @Override public List<ResourceLocation> diskIds() {
         List<ResourceLocation> ids = new ArrayList<>();
         ids.add(INTRODUCTION_DISK);
-        ids.addAll(ComputerWorkspaceData.access(owner.server).profileDisks(account.accountId()));
+        ComputerWorkspaceData data = data();
+        ids.addAll(data.profileDisks(account.accountId()).stream().filter(data.activatedDisks(account.accountId())::contains).toList());
         return List.copyOf(ids);
     }
 
     @Override public boolean ejectOne(ServerPlayer player, ResourceLocation diskId) {
         if (!canUseFileSystem(player) || diskId == null || INTRODUCTION_DISK.equals(diskId)) return false;
-        ComputerWorkspaceData data = ComputerWorkspaceData.access(owner.server);
+        ComputerWorkspaceData data = data();
         if (!data.removeProfileDisk(account.accountId(), diskId)) return false;
-        ItemStack disk = new ItemStack(AntOSObjects.FLOPPY_DISK.get());
-        disk.set(AntOSObjects.FLOPPY_DISK_COMPONENT.get(), diskId);
+        ItemStack disk = com.craisinlord.antos.content.item.FloppyDiskItem.ejectedCopy(diskId);
         if (player.drop(disk, false) != null) return true;
         data.addProfileDisk(account.accountId(), diskId);
         return false;
@@ -92,17 +109,28 @@ public final class AccountWorkspace implements ComputerWorkspace {
             saveWorkspaceProgress();
             return;
         }
-        CompoundTag snapshot = new CompoundTag();
-        fileSystem.save(snapshot, owner.serverLevel().registryAccess());
-        snapshot.put("Desktop", desktopState.save());
-        snapshot.put("TaskProgress", taskProgress.save());
-        ComputerWorkspaceData.access(owner.server).saveWorkspaceSnapshot(account.workspaceId(), snapshot);
-        savedProgressRevision = taskProgress.revision();
+        Map<String, Tag> sections = new LinkedHashMap<>();
+        boolean filesChanged = fileSystem.revision() != savedFileSystemRevision;
+        if (filesChanged) {
+            CompoundTag files = new CompoundTag();
+            fileSystem.save(files, owner.serverLevel().registryAccess());
+            for (String key : files.getAllKeys()) sections.put(key, files.get(key));
+        }
+        CompoundTag desktop = desktopState.save();
+        boolean desktopChanged = !desktop.equals(savedDesktop);
+        if (desktopChanged) sections.put("Desktop", desktop);
+        boolean progressChanged = progressLoaded && taskProgress.revision() != savedProgressRevision;
+        if (progressChanged) sections.put("TaskProgress", taskProgress.save());
+        if (sections.isEmpty()) return;
+        data().saveOwnedWorkspaceSections(account.workspaceId(), sections);
+        savedFileSystemRevision = fileSystem.revision();
+        if (desktopChanged) savedDesktop = desktop;
+        if (progressChanged) savedProgressRevision = taskProgress.revision();
     }
 
     @Override public void saveWorkspaceProgress() {
-        if (taskProgress.revision() == savedProgressRevision) return;
-        ComputerWorkspaceData.access(owner.server).saveWorkspaceSection(account.workspaceId(), "TaskProgress", taskProgress.save());
+        if (!progressLoaded || taskProgress.revision() == savedProgressRevision) return;
+        data().saveOwnedWorkspaceSections(account.workspaceId(), Map.of("TaskProgress", taskProgress.save()));
         savedProgressRevision = taskProgress.revision();
     }
 }

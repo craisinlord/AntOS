@@ -2,16 +2,14 @@ package com.craisinlord.antos.content.antmail;
 
 import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.network.AnternetAccountHandler;
+import com.craisinlord.antos.content.network.ComputerAccessHandler;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
-import net.minecraft.ChatFormatting;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
 
 public final class AntmailNotifier {
     private AntmailNotifier() { }
@@ -20,21 +18,17 @@ public final class AntmailNotifier {
         if (server == null || message == null || message.notification().equals("silent")) return;
         for (ServerPlayer player : AntmailServerData.access(server).onlinePlayersFor(server, message.recipient())) {
             if (AnternetAccountHandler.session(player) == null && !carriesPhone(player)) continue;
-            Component sender = message.corrupted()
-                    ? Component.literal("????????").withStyle(ChatFormatting.OBFUSCATED, ChatFormatting.DARK_RED)
-                    : Component.literal(message.displaySender());
-            player.displayClientMessage(Component.translatable("antmail.antos.notification", sender), true);
             SoundEvent sound = sound(message.notification());
-            if (sound != null) player.playNotifySound(sound, SoundSource.PLAYERS, 0.6F, message.corrupted() ? 0.5F : 1.4F);
+            ComputerAccessHandler.sendNotification(player, "mail", message.displaySender(), String.valueOf(message.corrupted()),
+                    sound == null ? "" : sound.getLocation().toString());
         }
     }
 
     public static void notifyObjectiveCompleted(ServerPlayer player, ComputerGuideData.Task task,
                                                 ComputerGuideData.Objective objective) {
         if (player == null || task == null || objective == null || !objective.notifyPlayer()) return;
-        player.displayClientMessage(Component.translatable("antos.tasks.objective_complete",
-                Component.translatable(task.titleKey()), Component.translatable(objective.descriptionKey())), true);
-        player.playNotifySound(SoundEvents.NOTE_BLOCK_CHIME.value(), SoundSource.PLAYERS, 0.6F, 1.4F);
+        ComputerAccessHandler.sendNotification(player, "task", task.titleKey(), objective.descriptionKey(),
+                SoundEvents.NOTE_BLOCK_CHIME.value().getLocation().toString());
     }
 
     private static boolean carriesPhone(ServerPlayer player) {

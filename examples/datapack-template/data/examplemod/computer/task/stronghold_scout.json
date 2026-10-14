@@ -1,4 +1,7 @@
 {
+  "shape": "circle",
+  "size": 1.5,
+  "icon_scale": 1.0,
   "title": "task.examplemod.stronghold_scout.title",
   "description": "task.examplemod.stronghold_scout.description",
   "program": "examplemod:meadow_research",

@@ -18,13 +18,29 @@ import java.util.UUID;
 
 public final class AntmailServerData extends SavedData {
     private static final String ID = "antos_antmail";
-    private final AntmailMailboxStore mailboxes = new AntmailMailboxStore();
+    private final Map<AntmailAddress, MailboxIndex> mailboxIndex = new LinkedHashMap<>();
+    private final Map<AntmailAddress, AntmailMailboxShard> shards = new java.util.HashMap<>();
+    private net.minecraft.world.level.storage.DimensionDataStorage storage;
+    private AntmailMailboxStore legacyMailboxes;
+    private CompoundTag legacyTag;
+    private final Set<AntmailAddress> migrated = new LinkedHashSet<>();
     private final Map<AntmailAddress, java.util.Set<ResourceLocation>> triggered = new LinkedHashMap<>();
     private final Map<AntmailAddress, Long> mailboxVersions = new LinkedHashMap<>();
     private final Map<AntmailAddress, AntmailProfile> profiles = new LinkedHashMap<>();
     private final Map<UUID, UUID> linkedAccounts = new LinkedHashMap<>();
-    private final List<ScheduledMail> scheduled = new ArrayList<>();
-    private final Map<AntmailAddress, Set<ResourceLocation>> scheduledIds = new LinkedHashMap<>();
+    private static final SavedData.Factory<AntmailServerData> FACTORY = new SavedData.Factory<>(AntmailServerData::create, AntmailServerData::load, null);
+    private final Map<ScheduledMail, Long> scheduled = new LinkedHashMap<>();
+    private final Map<AntmailAddress, Map<ResourceLocation, Set<ScheduledMail>>> scheduledIds = new java.util.HashMap<>();
+    private final java.util.TreeMap<Long, ScheduledMail> readySchedule = new java.util.TreeMap<>();
+    private final java.util.TreeMap<Long, Set<ScheduledMail>> futureSchedule = new java.util.TreeMap<>();
+    private final Map<AntmailAddress, Set<ScheduledMail>> parkedFull = new java.util.HashMap<>();
+    private final Map<AntmailAddress, Set<ScheduledMail>> parkedOffline = new java.util.HashMap<>();
+    private final Set<AntmailAddress> onlineAddresses = new java.util.HashSet<>();
+    private final java.util.ArrayDeque<AntmailAddress> randomMailQueue = new java.util.ArrayDeque<>();
+    final Map<AntmailAddress, Set<ResourceLocation>> advancementPending = new java.util.HashMap<>();
+    Object advancementPendingKey;
+    private long scheduleSequence;
+    private long scheduleDay = Long.MIN_VALUE;
     private final Map<AntmailAddress, Set<ResourceLocation>> poolSeen = new LinkedHashMap<>();
     private final Map<AntmailAddress, Set<ResourceLocation>> readDefinitions = new LinkedHashMap<>();
     private final Map<AntmailAddress, Set<ResourceLocation>> completedTasks = new LinkedHashMap<>();
@@ -39,23 +55,45 @@ public final class AntmailServerData extends SavedData {
     public static AntmailServerData load(CompoundTag tag, HolderLookup.Provider registries) {
         AntmailServerData data = new AntmailServerData();
         AntmailServerData loaded = data;
-        AntmailMailboxStore restored = AntmailMailboxStore.fromTag(tag.getCompound("Mailboxes"));
-        for (AntmailMailbox mailbox : restored.mailboxes()) {
-            loaded.mailboxes.put(mailbox);
-        }
-        // Older saves kept a retry queue for undeliverable mail; fold anything left in it into the inboxes once.
-        ListTag pendingTags = tag.getList("Pending", 10);
-        for (int i = 0; i < pendingTags.size(); i++) {
+        ListTag indexTags = tag.getList("MailboxIndex", 10);
+        for (int i = 0; i < indexTags.size(); i++) {
             try {
-                CompoundTag pendingTag = pendingTags.getCompound(i);
-                AntmailMessage message = AntmailMessage.fromTag(pendingTag.getCompound("Message"));
-                if (loaded.mailboxes.getOrCreate(AntmailAddress.parse(pendingTag.getString("Recipient"))).addIncoming(message)) {
-                    message.setDeliveryStatus("DELIVERED");
+                CompoundTag row = indexTags.getCompound(i);
+                Set<AntmailAddress> correspondents = new LinkedHashSet<>();
+                ListTag correspondentTags = row.getList("Correspondents", 8);
+                for (int j = 0; j < correspondentTags.size(); j++) {
+                    try {
+                        correspondents.add(AntmailAddress.parse(correspondentTags.getString(j)));
+                    } catch (RuntimeException ignored) {
+                    }
                 }
+                data.mailboxIndex.put(AntmailAddress.parse(row.getString("Address")),
+                        new MailboxIndex(Math.max(0, row.getInt("InboxSize")), row.getBoolean("Purgeable"), correspondents));
             } catch (RuntimeException ignored) {
             }
         }
-        if (!pendingTags.isEmpty()) loaded.setDirty();
+        if (tag.contains("Mailboxes") || tag.contains("Pending")) {
+            CompoundTag legacy = new CompoundTag();
+            if (tag.contains("Mailboxes")) legacy.put("Mailboxes", tag.getCompound("Mailboxes"));
+            if (tag.contains("Pending")) legacy.put("Pending", tag.getList("Pending", 10));
+            AntmailMailboxStore restored = AntmailMailboxStore.fromTag(tag.getCompound("Mailboxes"));
+            // Older saves kept a retry queue for undeliverable mail; fold anything left in it into the inboxes once.
+            ListTag pendingTags = tag.getList("Pending", 10);
+            for (int i = 0; i < pendingTags.size(); i++) {
+                try {
+                    CompoundTag pendingTag = pendingTags.getCompound(i);
+                    AntmailMessage message = AntmailMessage.fromTag(pendingTag.getCompound("Message"));
+                    if (restored.getOrCreate(AntmailAddress.parse(pendingTag.getString("Recipient"))).addIncoming(message)) {
+                        message.setDeliveryStatus("DELIVERED");
+                    }
+                } catch (RuntimeException ignored) {
+                }
+            }
+            for (AntmailMailbox mailbox : restored.mailboxes()) data.mailboxIndex.put(mailbox.address(), MailboxIndex.of(mailbox));
+            data.legacyMailboxes = restored;
+            data.legacyTag = legacy;
+            loaded.setDirty();
+        }
         ListTag triggeredTags = tag.getList("Triggered", 10);
         for (int i = 0; i < triggeredTags.size(); i++) {
             CompoundTag triggeredTag = triggeredTags.getCompound(i);
@@ -69,6 +107,13 @@ public final class AntmailServerData extends SavedData {
             }
         }
         data.randomMailDay = tag.contains("RandomMailDay") ? tag.getLong("RandomMailDay") : Long.MIN_VALUE;
+        ListTag randomQueueTags = tag.getList("RandomMailQueue", 8);
+        for (int i = 0; i < randomQueueTags.size(); i++) {
+            try {
+                data.randomMailQueue.add(AntmailAddress.parse(randomQueueTags.getString(i)));
+            } catch (RuntimeException ignored) {
+            }
+        }
         ListTag versionTags = tag.getList("MailboxVersions", 10);
         for (int i = 0; i < versionTags.size(); i++) {
             try {
@@ -91,8 +136,7 @@ public final class AntmailServerData extends SavedData {
                 CompoundTag entry = scheduledTags.getCompound(i);
                 ScheduledMail scheduledMail = new ScheduledMail(AntmailAddress.parse(entry.getString("Address")),
                         ResourceLocation.parse(entry.getString("Id")), entry.getLong("DueDay"));
-                data.scheduled.add(scheduledMail);
-                addId(data.scheduledIds, scheduledMail.address(), scheduledMail.definitionId());
+                data.addScheduled(scheduledMail);
             } catch (RuntimeException ignored) {
             }
         }
@@ -143,7 +187,31 @@ public final class AntmailServerData extends SavedData {
 
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
-        tag.put("Mailboxes", mailboxes.toTag());
+        if (legacyTag != null) {
+            boolean unsaved = legacyMailboxes != null;
+            for (AntmailAddress address : migrated) {
+                AntmailMailboxShard shard = shards.get(address);
+                if (shard != null && !shard.persisted()) unsaved = true;
+            }
+            if (unsaved) {
+                for (String key : legacyTag.getAllKeys()) tag.put(key, legacyTag.get(key).copy());
+            } else {
+                legacyTag = null;
+                migrated.clear();
+            }
+        }
+        ListTag indexTags = new ListTag();
+        for (Map.Entry<AntmailAddress, MailboxIndex> entry : mailboxIndex.entrySet()) {
+            CompoundTag row = new CompoundTag();
+            row.putString("Address", entry.getKey().fullAddress());
+            row.putInt("InboxSize", entry.getValue().inboxSize());
+            if (entry.getValue().purgeable()) row.putBoolean("Purgeable", true);
+            ListTag correspondentTags = new ListTag();
+            for (AntmailAddress address : entry.getValue().correspondents()) correspondentTags.add(net.minecraft.nbt.StringTag.valueOf(address.fullAddress()));
+            row.put("Correspondents", correspondentTags);
+            indexTags.add(row);
+        }
+        tag.put("MailboxIndex", indexTags);
         ListTag triggeredTags = new ListTag();
         for (Map.Entry<AntmailAddress, java.util.Set<ResourceLocation>> entry : triggered.entrySet()) {
             CompoundTag triggeredTag = new CompoundTag();
@@ -155,6 +223,11 @@ public final class AntmailServerData extends SavedData {
         }
         tag.put("Triggered", triggeredTags);
         tag.putLong("RandomMailDay", randomMailDay);
+        if (!randomMailQueue.isEmpty()) {
+            ListTag randomQueueTags = new ListTag();
+            for (AntmailAddress address : randomMailQueue) randomQueueTags.add(net.minecraft.nbt.StringTag.valueOf(address.fullAddress()));
+            tag.put("RandomMailQueue", randomQueueTags);
+        }
         ListTag versionTags = new ListTag();
         for (Map.Entry<AntmailAddress, Long> entry : mailboxVersions.entrySet()) {
             CompoundTag versionTag = new CompoundTag();
@@ -172,7 +245,7 @@ public final class AntmailServerData extends SavedData {
         }
         tag.put("LinkedAccounts", linkTags);
         ListTag scheduledTags = new ListTag();
-        for (ScheduledMail entry : scheduled) {
+        for (ScheduledMail entry : scheduled.keySet()) {
             CompoundTag row = new CompoundTag();
             row.putString("Address", entry.address().fullAddress());
             row.putString("Id", entry.definitionId().toString());
@@ -198,8 +271,74 @@ public final class AntmailServerData extends SavedData {
     }
 
     private static AntmailServerData get(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(AntmailServerData::create, AntmailServerData::load, null), ID);
+        net.minecraft.world.level.storage.DimensionDataStorage dataStorage = server.overworld().getDataStorage();
+        AntmailServerData data = dataStorage.computeIfAbsent(FACTORY, ID);
+        if (data.storage != dataStorage) data.attach(dataStorage);
+        return data;
+    }
+
+    private synchronized void attach(net.minecraft.world.level.storage.DimensionDataStorage dataStorage) {
+        if (storage == dataStorage) return;
+        storage = dataStorage;
+        shards.clear();
+        if (legacyMailboxes == null) return;
+        for (AntmailMailbox mailbox : legacyMailboxes.mailboxes()) {
+            String key = AntmailMailboxShard.key(mailbox.address());
+            AntmailMailboxShard shard = dataStorage.get(AntmailMailboxShard.FACTORY, key);
+            if (shard == null) {
+                shard = new AntmailMailboxShard();
+                dataStorage.set(key, shard);
+            }
+            if (!shard.hasMailbox()) {
+                shard.setMailbox(mailbox);
+                shard.setDirty();
+                migrated.add(mailbox.address());
+            }
+            shards.put(mailbox.address(), shard);
+            refreshIndex(mailbox.address(), shard.mailbox(mailbox.address()));
+        }
+        legacyMailboxes = null;
+        setDirty();
+    }
+
+    private AntmailMailboxShard shard(AntmailAddress address) {
+        AntmailMailboxShard shard = shards.get(address);
+        if (shard != null) return shard;
+        shard = storage.computeIfAbsent(AntmailMailboxShard.FACTORY, AntmailMailboxShard.key(address));
+        shards.put(address, shard);
+        refreshIndex(address, shard.mailbox(address));
+        return shard;
+    }
+
+    private AntmailMailbox loadedMailbox(AntmailAddress address) {
+        if (address == null) return null;
+        if (!mailboxIndex.containsKey(address)) {
+            if (storage == null || shards.containsKey(address)) return null;
+            AntmailMailboxShard orphan = storage.get(AntmailMailboxShard.FACTORY, AntmailMailboxShard.key(address));
+            if (orphan == null || !orphan.hasMailbox()) return null;
+            shards.put(address, orphan);
+            refreshIndex(address, orphan.mailbox(address));
+            setDirty();
+            return orphan.mailbox(address);
+        }
+        return shard(address).mailbox(address);
+    }
+
+    private AntmailMailbox loadOrCreate(AntmailAddress address) {
+        boolean created = !mailboxIndex.containsKey(address);
+        AntmailMailboxShard shard = shard(address);
+        if (created) {
+            shard.setDirty();
+            setDirty();
+        }
+        return shard.mailbox(address);
+    }
+
+    private void refreshIndex(AntmailAddress address, AntmailMailbox mailbox) {
+        MailboxIndex entry = MailboxIndex.of(mailbox);
+        if (entry.equals(mailboxIndex.get(address))) return;
+        mailboxIndex.put(address, entry);
+        setDirty();
     }
 
     public static AntmailServerData access(MinecraftServer server) {
@@ -265,36 +404,138 @@ public final class AntmailServerData extends SavedData {
     }
 
     public synchronized boolean isScheduled(AntmailAddress address, ResourceLocation definitionId) {
-        return scheduledIds.getOrDefault(address, Set.of()).contains(definitionId);
+        Map<ResourceLocation, Set<ScheduledMail>> ids = scheduledIds.get(address);
+        return ids != null && ids.containsKey(definitionId);
     }
 
     public synchronized void schedule(AntmailAddress address, ResourceLocation definitionId, long dueDay) {
-        scheduled.add(new ScheduledMail(address, definitionId, dueDay));
-        addId(scheduledIds, address, definitionId);
-        setDirty();
+        if (addScheduled(new ScheduledMail(address, definitionId, dueDay))) setDirty();
+    }
+
+    private boolean addScheduled(ScheduledMail entry) {
+        if (scheduled.containsKey(entry)) return false;
+        long sequence = scheduleSequence++;
+        scheduled.put(entry, sequence);
+        scheduledIds.computeIfAbsent(entry.address(), ignored -> new java.util.HashMap<>())
+                .computeIfAbsent(entry.definitionId(), ignored -> new LinkedHashSet<>()).add(entry);
+        if (scheduleDay != Long.MIN_VALUE && entry.dueDay() <= scheduleDay) readySchedule.put(sequence, entry);
+        else futureSchedule.computeIfAbsent(entry.dueDay(), ignored -> new LinkedHashSet<>()).add(entry);
+        return true;
     }
 
     public synchronized List<ScheduledMail> scheduled() {
-        return List.copyOf(scheduled);
+        return List.copyOf(scheduled.keySet());
+    }
+
+    public synchronized boolean isScheduled(ScheduledMail entry) {
+        return scheduled.containsKey(entry);
+    }
+
+    public synchronized List<ScheduledMail> dueSchedule(long today) {
+        if (today != scheduleDay) {
+            scheduleDay = today;
+            var due = futureSchedule.headMap(today, true);
+            for (Set<ScheduledMail> entries : due.values()) {
+                for (ScheduledMail entry : entries) readySchedule.put(scheduled.get(entry), entry);
+            }
+            due.clear();
+            wakeAll(parkedFull);
+            wakeAll(parkedOffline);
+        }
+        return readySchedule.isEmpty() ? List.of() : List.copyOf(readySchedule.values());
+    }
+
+    public synchronized List<ScheduledMail> scheduledFor(AntmailAddress address, ResourceLocation definitionId) {
+        Map<ResourceLocation, Set<ScheduledMail>> ids = scheduledIds.get(address);
+        Set<ScheduledMail> entries = ids == null ? null : ids.get(definitionId);
+        return entries == null ? List.of() : List.copyOf(entries);
+    }
+
+    public synchronized void parkUntilSpace(ScheduledMail entry) {
+        park(entry, parkedFull);
+    }
+
+    public synchronized void parkUntilOnline(ScheduledMail entry) {
+        park(entry, parkedOffline);
+    }
+
+    private void park(ScheduledMail entry, Map<AntmailAddress, Set<ScheduledMail>> target) {
+        Long sequence = scheduled.get(entry);
+        if (sequence == null) return;
+        detach(entry, sequence);
+        target.computeIfAbsent(entry.address(), ignored -> new LinkedHashSet<>()).add(entry);
+    }
+
+    private void wake(Map<AntmailAddress, Set<ScheduledMail>> source, AntmailAddress address) {
+        Set<ScheduledMail> entries = source.remove(address);
+        if (entries == null) return;
+        for (ScheduledMail entry : entries) {
+            Long sequence = scheduled.get(entry);
+            if (sequence != null) readySchedule.put(sequence, entry);
+        }
+    }
+
+    private void wakeAll(Map<AntmailAddress, Set<ScheduledMail>> source) {
+        for (AntmailAddress address : List.copyOf(source.keySet())) wake(source, address);
+    }
+
+    public synchronized void wakeOnline(AntmailAddress address) {
+        if (address != null) wake(parkedOffline, address);
+    }
+
+    public synchronized void updateOnline(java.util.Collection<AntmailAddress> online) {
+        for (AntmailAddress address : online) {
+            if (!onlineAddresses.contains(address)) wake(parkedOffline, address);
+        }
+        onlineAddresses.clear();
+        onlineAddresses.addAll(online);
+    }
+
+    private void detach(ScheduledMail entry, long sequence) {
+        readySchedule.remove(sequence);
+        Set<ScheduledMail> future = futureSchedule.get(entry.dueDay());
+        if (future != null && future.remove(entry) && future.isEmpty()) futureSchedule.remove(entry.dueDay());
+        removeParked(parkedFull, entry);
+        removeParked(parkedOffline, entry);
+    }
+
+    private static void removeParked(Map<AntmailAddress, Set<ScheduledMail>> source, ScheduledMail entry) {
+        Set<ScheduledMail> entries = source.get(entry.address());
+        if (entries != null && entries.remove(entry) && entries.isEmpty()) source.remove(entry.address());
     }
 
     public synchronized void unschedule(ScheduledMail entry) {
-        if (!scheduled.remove(entry)) return;
-        boolean stillScheduled = false;
-        for (ScheduledMail other : scheduled) {
-            if (other.address().equals(entry.address()) && other.definitionId().equals(entry.definitionId())) {
-                stillScheduled = true;
-                break;
-            }
-        }
-        if (!stillScheduled) {
-            Set<ResourceLocation> ids = scheduledIds.get(entry.address());
-            if (ids != null) {
-                ids.remove(entry.definitionId());
-                if (ids.isEmpty()) scheduledIds.remove(entry.address());
-            }
+        Long sequence = scheduled.remove(entry);
+        if (sequence == null) return;
+        detach(entry, sequence);
+        Map<ResourceLocation, Set<ScheduledMail>> ids = scheduledIds.get(entry.address());
+        if (ids != null) {
+            Set<ScheduledMail> entries = ids.get(entry.definitionId());
+            if (entries != null && entries.remove(entry) && entries.isEmpty()) ids.remove(entry.definitionId());
+            if (ids.isEmpty()) scheduledIds.remove(entry.address());
         }
         setDirty();
+    }
+
+    public synchronized boolean inboxFull(AntmailAddress address) {
+        AntmailMailboxShard shard = shards.get(address);
+        if (shard != null) return shard.mailbox(address).inboxSize() >= AntmailValidation.MAX_MAILBOX_MESSAGES;
+        MailboxIndex entry = mailboxIndex.get(address);
+        return entry != null && entry.inboxSize() >= AntmailValidation.MAX_MAILBOX_MESSAGES;
+    }
+
+    synchronized void queueRandomMail(java.util.Collection<AntmailAddress> addresses) {
+        randomMailQueue.clear();
+        randomMailQueue.addAll(addresses);
+        if (!randomMailQueue.isEmpty()) setDirty();
+    }
+
+    synchronized List<AntmailAddress> takeRandomMail(int count) {
+        if (randomMailQueue.isEmpty()) return List.of();
+        List<AntmailAddress> batch = new ArrayList<>(Math.min(count, randomMailQueue.size()));
+        while (batch.size() < count && !randomMailQueue.isEmpty()) batch.add(randomMailQueue.poll());
+        setDirty();
+        return batch;
     }
 
     private static boolean addId(Map<AntmailAddress, Set<ResourceLocation>> map, AntmailAddress address, ResourceLocation id) {
@@ -348,7 +589,9 @@ public final class AntmailServerData extends SavedData {
     }
 
     public synchronized void purgeReadSelfDeleting(AntmailAddress address) {
-        AntmailMailbox mailbox = mailboxes.get(address);
+        MailboxIndex entry = mailboxIndex.get(address);
+        if (entry == null || !entry.purgeable() && !shards.containsKey(address)) return;
+        AntmailMailbox mailbox = loadedMailbox(address);
         if (mailbox == null) return;
         boolean changed = false;
         for (AntmailMessage message : mailbox.inbox()) {
@@ -372,14 +615,11 @@ public final class AntmailServerData extends SavedData {
     }
 
     public synchronized AntmailMailbox mailbox(AntmailAddress address) {
-        return mailboxes.get(address);
+        return loadedMailbox(address);
     }
 
     public synchronized AntmailMailbox mailboxOrCreate(AntmailAddress address) {
-        boolean created = !mailboxes.contains(address);
-        AntmailMailbox mailbox = mailboxes.getOrCreate(address);
-        if (created) setDirty();
-        return mailbox;
+        return loadOrCreate(address);
     }
 
     public synchronized long mailboxVersion(AntmailAddress address) {
@@ -388,7 +628,17 @@ public final class AntmailServerData extends SavedData {
 
     public synchronized void touchMailbox(AntmailAddress address) {
         if (address == null) return;
+        AntmailMailboxShard shard = shards.get(address);
+        if (shard != null) {
+            shard.setDirty();
+            refreshIndex(address, shard.mailbox(address));
+        }
+        bumpVersion(address);
+    }
+
+    private void bumpVersion(AntmailAddress address) {
         mailboxVersions.put(address, mailboxVersion(address) + 1L);
+        if (parkedFull.containsKey(address) && !inboxFull(address)) wake(parkedFull, address);
         setDirty();
     }
 
@@ -398,9 +648,18 @@ public final class AntmailServerData extends SavedData {
 
     public synchronized void setProfile(AntmailAddress address, String displayName, String avatarItem, MinecraftServer server) {
         AntmailProfile profile = new AntmailProfile(displayName, avatarItem);
-        if (profile.displayName().isBlank() && profile.avatarItem().isBlank()) profiles.remove(address);
+        boolean blank = profile.displayName().isBlank() && profile.avatarItem().isBlank();
+        AntmailProfile previous = profiles.get(address);
+        if (blank ? previous == null : profile.equals(previous)) return;
+        if (blank) profiles.remove(address);
         else profiles.put(address, profile);
-        for (AntmailAddress accountAddress : profileAddresses(server)) touchMailbox(accountAddress);
+        bumpVersion(address);
+        for (Map.Entry<AntmailAddress, MailboxIndex> entry : List.copyOf(mailboxIndex.entrySet())) {
+            if (entry.getKey().equals(address)) continue;
+            AntmailMailboxShard shard = shards.get(entry.getKey());
+            boolean involves = shard != null ? shard.mailbox(entry.getKey()).involves(address) : entry.getValue().correspondents().contains(address);
+            if (involves) bumpVersion(entry.getKey());
+        }
         setDirty();
     }
 
@@ -445,39 +704,48 @@ public final class AntmailServerData extends SavedData {
     }
 
     public synchronized AntmailDeliveryResult deliver(MinecraftServer server, AntmailMessage message) {
+        return deliver(server, message, true);
+    }
+
+    public synchronized AntmailDeliveryResult deliver(MinecraftServer server, AntmailMessage message, boolean recordFullMailbox) {
         if (message == null) return AntmailDeliveryResult.failed(AntmailDeliveryResult.Status.MESSAGE_INVALID, null, "missing_message");
         if (com.craisinlord.antos.content.computer.ComputerWorkspaceData.access(server)
                 .accountByUsername(message.recipient().username()) == null) {
             return failedAndRecorded(message, AntmailDeliveryResult.Status.ADDRESS_NOT_FOUND, "address_not_found");
         }
-        AntmailMailbox destination = mailboxes.getOrCreate(message.recipient());
-        if (destination.inboxSize() >= AntmailValidation.MAX_MAILBOX_MESSAGES) return failedAndRecorded(message, AntmailDeliveryResult.Status.MAILBOX_FULL, "mailbox_full");
+        AntmailMailbox destination = loadOrCreate(message.recipient());
+        if (destination.inboxSize() >= AntmailValidation.MAX_MAILBOX_MESSAGES) return !recordFullMailbox
+                ? AntmailDeliveryResult.failed(AntmailDeliveryResult.Status.MAILBOX_FULL, message, "mailbox_full") : failedAndRecorded(message, AntmailDeliveryResult.Status.MAILBOX_FULL, "mailbox_full");
         message.setDeliveryStatus("DELIVERED");
         AntmailMessage incoming = message.copy();
         destination.addIncoming(incoming);
-        mailboxes.getOrCreate(message.sender()).addSent(message);
+        loadOrCreate(message.sender()).addSent(message);
         touchMailbox(message.recipient());
         touchMailbox(message.sender());
-        setDirty();
         AntmailNotifier.notify(server, incoming);
         return AntmailDeliveryResult.delivered(message);
     }
 
     private AntmailDeliveryResult failedAndRecorded(AntmailMessage message, AntmailDeliveryResult.Status status, String detail) {
         message.setDeliveryStatus("FAILED // " + detail.toUpperCase());
-        mailboxes.getOrCreate(message.sender()).addSent(message);
+        loadOrCreate(message.sender()).addSent(message);
         touchMailbox(message.sender());
-        setDirty();
         return AntmailDeliveryResult.failed(status, message, detail);
     }
 
     public synchronized AntmailDeliveryResult retry(MinecraftServer server, AntmailAddress sender, UUID messageId) {
-        AntmailMessage message = mailboxes.getOrCreate(sender).findSent(messageId);
+        AntmailMessage message = loadOrCreate(sender).findSent(messageId);
         if (message == null) return null;
         return deliver(server, message);
     }
 
     public record ScheduledMail(AntmailAddress address, ResourceLocation definitionId, long dueDay) {
+    }
+
+    private record MailboxIndex(int inboxSize, boolean purgeable, Set<AntmailAddress> correspondents) {
+        private static MailboxIndex of(AntmailMailbox mailbox) {
+            return new MailboxIndex(mailbox.inboxSize(), mailbox.hasReadSelfDeleting(), mailbox.correspondents());
+        }
     }
 }
 

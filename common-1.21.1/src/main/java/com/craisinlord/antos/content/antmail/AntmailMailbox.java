@@ -221,6 +221,39 @@ public final class AntmailMailbox {
         }
     }
 
+    public boolean involves(AntmailAddress other) {
+        return involves(inbox, other) || involves(sent, other) || involves(archived, other) || involves(trash, other);
+    }
+
+    public java.util.Set<AntmailAddress> correspondents() {
+        java.util.Set<AntmailAddress> addresses = new java.util.LinkedHashSet<>();
+        collectCorrespondents(inbox, addresses);
+        collectCorrespondents(sent, addresses);
+        collectCorrespondents(archived, addresses);
+        collectCorrespondents(trash, addresses);
+        addresses.remove(address);
+        return addresses;
+    }
+
+    public boolean hasReadSelfDeleting() {
+        for (AntmailMessage message : inbox) if (message.read() && message.deleteAfterRead()) return true;
+        return false;
+    }
+
+    private static void collectCorrespondents(List<AntmailMessage> messages, java.util.Set<AntmailAddress> addresses) {
+        for (AntmailMessage message : messages) {
+            if (message.sender() != null) addresses.add(message.sender());
+            if (message.recipient() != null) addresses.add(message.recipient());
+        }
+    }
+
+    private static boolean involves(List<AntmailMessage> messages, AntmailAddress other) {
+        for (AntmailMessage message : messages) {
+            if (other.equals(message.sender()) || other.equals(message.recipient())) return true;
+        }
+        return false;
+    }
+
     private static boolean contains(List<AntmailMessage> messages, UUID id) {
         return messages.stream().anyMatch(message -> message.id().equals(id));
     }

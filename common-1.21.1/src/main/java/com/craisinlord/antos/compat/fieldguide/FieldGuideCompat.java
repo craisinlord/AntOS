@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.Block;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -45,6 +47,14 @@ public final class FieldGuideCompat {
     private static Method progressManagerGetProgress;
     private static Method progressGetUnlockedEntries;
     private static Method getEntryId;
+    private static CatalogFingerprint catalogFingerprint;
+    private static int catalogChecks;
+    private static final ClassValue<Map<String, Optional<Method>>> REFLECTED_METHODS = new ClassValue<>() {
+        @Override
+        protected Map<String, Optional<Method>> computeValue(Class<?> type) {
+            return new java.util.concurrent.ConcurrentHashMap<>();
+        }
+    };
 
     private FieldGuideCompat() {
     }
@@ -76,6 +86,7 @@ public final class FieldGuideCompat {
         if (tickServer != server) {
             tickServer = server;
             tickCounter = 0;
+            catalogFingerprint = null;
             SYNC_STATE.clear();
         }
         if (++tickCounter < 20) return;
@@ -103,6 +114,7 @@ public final class FieldGuideCompat {
         WARNED_ENTRY_ERRORS.clear();
         tickServer = null;
         tickCounter = 0;
+        catalogFingerprint = null;
         ComputerGuideData.replaceFieldGuideEntries(Map.of());
     }
 
@@ -110,6 +122,9 @@ public final class FieldGuideCompat {
         Object manager = managerGetInstance.invoke(null);
         Object rawResolved = managerGetResolvedEntries.invoke(manager);
         if (!(rawResolved instanceof Map<?, ?> categories)) return false;
+        CatalogFingerprint fingerprint = CatalogFingerprint.of(categories, ComputerGuideData.datapackRevision());
+        if (++catalogChecks < 5 && fingerprint.equals(catalogFingerprint)) return false;
+        catalogChecks = 0;
         Map<ResourceLocation, ComputerGuideData.Entry> generated = new LinkedHashMap<>();
         for (Object categoryEntries : categories.values()) {
             if (!(categoryEntries instanceof Collection<?> resolvedEntries)) continue;
@@ -127,7 +142,9 @@ public final class FieldGuideCompat {
                 }
             }
         }
-        return ComputerGuideData.replaceFieldGuideEntries(generated);
+        boolean changed = ComputerGuideData.replaceFieldGuideEntries(generated);
+        catalogFingerprint = fingerprint;
+        return changed;
     }
 
     private static ComputerGuideData.Entry convertEntry(ResourceLocation archiveId, ResourceLocation sourceId, Object resolvedEntry) {
@@ -201,8 +218,16 @@ public final class FieldGuideCompat {
     }
 
     private static ResourceLocation reflectedResourceLocation(Object target, String methodName) {
+        Method method = REFLECTED_METHODS.get(target.getClass()).computeIfAbsent(methodName, name -> {
+            try {
+                return Optional.of(target.getClass().getMethod(name));
+            } catch (NoSuchMethodException ignored) {
+                return Optional.empty();
+            }
+        }).orElse(null);
+        if (method == null) return null;
         try {
-            Object value = target.getClass().getMethod(methodName).invoke(target);
+            Object value = method.invoke(target);
             return value instanceof ResourceLocation id ? id : null;
         } catch (ReflectiveOperationException ignored) {
             return null;
@@ -229,11 +254,18 @@ public final class FieldGuideCompat {
             state.accountId = account.accountId();
             state.processedIds.clear();
         }
+        boolean pending = false;
+        for (Object value : unlockedIds) {
+            if (value instanceof String id && !state.processedIds.contains(id)) {
+                pending = true;
+                break;
+            }
+        }
+        if (!pending) return;
         Set<String> currentIds = new LinkedHashSet<>();
         for (Object value : unlockedIds) {
             if (value instanceof String id) currentIds.add(id);
         }
-        if (state.processedIds.containsAll(currentIds)) return;
         AccountWorkspace workspace = new AccountWorkspace(player, account);
         ComputerTasks.synchronizeSharedProgress(player, workspace);
         ComputerTaskProgress taskProgress = workspace.taskProgress();
@@ -281,6 +313,34 @@ public final class FieldGuideCompat {
         if (reflectionFailureLogged) return;
         reflectionFailureLogged = true;
         AntOS.LOGGER.error("Field Guide compatibility could not access the Field Guide 1.21.1 API", exception);
+    }
+
+    private record CatalogFingerprint(Object catalog, long revision, int size, int[] sizes, Object[] collections) {
+        private static CatalogFingerprint of(Map<?, ?> catalog, long revision) {
+            int[] sizes = new int[catalog.size()];
+            Object[] collections = new Object[catalog.size()];
+            int index = 0;
+            for (Object value : catalog.values()) {
+                if (index >= sizes.length) break;
+                collections[index] = value;
+                sizes[index] = value instanceof Collection<?> collection ? collection.size() : -1;
+                index++;
+            }
+            return new CatalogFingerprint(catalog, revision, catalog.size(), sizes, collections);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof CatalogFingerprint that)) return false;
+            if (catalog != that.catalog || revision != that.revision || size != that.size || !Arrays.equals(sizes, that.sizes)) return false;
+            for (int i = 0; i < collections.length; i++) if (collections[i] != that.collections[i]) return false;
+            return true;
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(catalog) * 31 + Long.hashCode(revision);
+        }
     }
 
     private static final class PlayerSyncState {

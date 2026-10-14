@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 public final class AntOS {
     public static final String MODID = "antos";
     public static final String MOD_VERSION = AntOSBuildVersion.VALUE;
+    public static final int NETWORK_PROTOCOL = 2;
     public static final Logger LOGGER = LoggerFactory.getLogger(MODID);
 
     private AntOS() {}
