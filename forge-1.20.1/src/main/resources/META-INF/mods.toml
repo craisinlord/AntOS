@@ -1,0 +1,31 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="All Rights Reserved"
+
+[[mods]]
+modId="antos"
+version="${version}"
+displayName="AntOS"
+authors="CraisinLord"
+description='''An ant-themed computer with apps, games, and data-driven content.'''
+
+[[dependencies.antos]]
+modId="forge"
+mandatory=true
+versionRange="${forge_version_range}"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.antos]]
+modId="minecraft"
+mandatory=true
+versionRange="[${minecraft_version},1.21)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.antos]]
+modId="geckolib"
+mandatory=true
+versionRange="[4.0,)"
+ordering="AFTER"
+side="BOTH"

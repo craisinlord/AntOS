@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "A": "minecraft:iron_ingot",
+    "B": "minecraft:copper_ingot",
+    "C": "minecraft:glass",
+    "D": "minecraft:repeater",
+    "E": "minecraft:redstone_torch"
+  },
+  "pattern": [
+    "AAC",
+    "BDE",
+    "AAA"
+  ],
+  "result": {
+    "id": "antos:computer",
+    "count": 1
+  }
+}

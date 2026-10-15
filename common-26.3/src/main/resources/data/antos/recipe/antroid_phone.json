@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "A": "minecraft:iron_ingot",
+    "B": "#c:glass_panes",
+    "C": "minecraft:comparator",
+    "D": "minecraft:copper_ingot"
+  },
+  "pattern": [
+    "AD",
+    "BC"
+  ],
+  "result": {
+    "id": "antos:antroid_phone",
+    "count": 1
+  }
+}

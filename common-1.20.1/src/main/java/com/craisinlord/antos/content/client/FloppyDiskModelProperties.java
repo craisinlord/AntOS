@@ -1,0 +1,17 @@
+package com.craisinlord.antos.content.client;
+
+import net.minecraft.client.renderer.item.ItemProperties;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
+
+public final class FloppyDiskModelProperties {
+    private static final ResourceLocation FLOPPY_CATEGORY =
+            new ResourceLocation("antos", "floppy_category");
+
+    private FloppyDiskModelProperties() {}
+
+    public static void register(Item floppyDisk) {
+        ItemProperties.register(floppyDisk, FLOPPY_CATEGORY,
+                (stack, level, entity, seed) -> FloppyTextureClientState.modelOverride(stack));
+    }
+}

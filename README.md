@@ -4,6 +4,8 @@ AntOS adds an ant-themed computer to Minecraft 1.21.1. Its desktop includes an A
 
 This README is the reference for modpack developers. The fastest way to start is to copy [`examples/datapack-template`](examples/datapack-template), which has a working example of everything below.
 
+The development workspace also contains forward-port targets for Minecraft 26.1, 26.2, and 26.3 on Fabric and NeoForge. Those targets are under active porting and are not release-ready until their build and runtime parity checks pass. See [`docs/PORTING_26.md`](docs/PORTING_26.md) for the project layout and Gradle tasks.
+
 ## Contents
 
 - [Requirements and integrations](#requirements-and-integrations)

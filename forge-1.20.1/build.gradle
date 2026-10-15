@@ -1,0 +1,99 @@
+plugins {
+    id 'java-library'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.parchmentmc.librarian.forgegradle' version '1.+'
+    id 'org.spongepowered.mixin' version '0.7.+'
+}
+
+group = mod_group_id
+version = mod_version
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(17) }
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.minecraftforge.net' }
+    maven { url = 'https://maven.parchmentmc.org' }
+    maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    maven { url = 'https://maven.ftb.dev/releases' }
+    maven { url = 'https://maven.architectury.dev/' }
+    maven {
+        url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/'
+        content { includeGroup 'software.bernie.geckolib' }
+    }
+}
+
+base { archivesName = 'antos-forge-1.20.1' }
+
+def generatedVersionSource = layout.buildDirectory.file('generated/sources/antosVersion/java/com/craisinlord/antos/AntOSBuildVersion.java')
+tasks.register('generateAntOSVersion') {
+    inputs.property 'version', project.version
+    outputs.file generatedVersionSource
+    doLast {
+        def sourceFile = generatedVersionSource.get().asFile
+        sourceFile.parentFile.mkdirs()
+        sourceFile.text = "package com.craisinlord.antos;\n\npublic final class AntOSBuildVersion {\n    public static final String VALUE = \"${project.version}\";\n\n    private AntOSBuildVersion() {}\n}\n"
+    }
+}
+
+sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated/sources/antosVersion/java'))
+tasks.named('compileJava') { dependsOn tasks.named('generateAntOSVersion') }
+tasks.withType(JavaCompile).configureEach { options.compilerArgs += ['-Xmaxerrs', '10000'] }
+tasks.named('sourcesJar') { dependsOn tasks.named('generateAntOSVersion') }
+
+tasks.withType(AbstractCopyTask).configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+minecraft {
+    mappings channel: 'parchment', version: parchment_version
+    copyIdeResources = true
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'info'
+            mods { antos { source sourceSets.main } }
+        }
+        client {
+            jvmArgs '-Dmixin.env.remapRefMap=true', "-Dmixin.env.refMapRemappingFile=${projectDir}/build/createSrgToMcp/output.srg"
+        }
+        server {
+            jvmArgs '-Dmixin.env.remapRefMap=true', "-Dmixin.env.refMapRemappingFile=${projectDir}/build/createSrgToMcp/output.srg"
+            args '--nogui'
+        }
+    }
+}
+
+sourceSets {
+    main {
+        java.srcDirs += file('../common-1.20.1/src/main/java')
+        resources.srcDirs += file('../common-1.20.1/src/main/resources')
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+    implementation fg.deobf("software.bernie.geckolib:geckolib-forge-${minecraft_version}:${geckolib_version}")
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    compileOnly "dev.ftb.mods:ftb-quests-forge:2001.4.22"
+    compileOnly("dev.ftb.mods:ftb-library-forge:2001.2.13") { transitive = false }
+    compileOnly("dev.ftb.mods:ftb-teams-forge:2001.3.2") { transitive = false }
+    compileOnly "dev.architectury:architectury-forge:9.2.14"
+}
+
+mixin {
+    add sourceSets.main, 'geckolib.refmap.json'
+    config 'geckolib.mixins.json'
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    def replaceProperties = [version: project.version, forge_version_range: forge_version_range,
+                             loader_version_range: loader_version_range, minecraft_version: minecraft_version]
+    inputs.properties replaceProperties
+    filesMatching('META-INF/mods.toml') { expand replaceProperties }
+}
+
+tasks.named('jar', Jar).configure { finalizedBy 'reobfJar' }

@@ -1,0 +1,22 @@
+package com.craisinlord.antos.content.network;
+
+import com.craisinlord.antos.AntOS;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
+
+public record AntmailAnternetResultPayload(int status, String address, String messageId, String detail, String data, long version) implements CustomPacketPayload {
+    public static final int MAX_DATA_CHARS = 65536;
+    public static final Type<AntmailAnternetResultPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(AntOS.MODID, "antmail_anternet_result"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, AntmailAnternetResultPayload> STREAM_CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, AntmailAnternetResultPayload::status,
+            ByteBufCodecs.stringUtf8(64), AntmailAnternetResultPayload::address,
+            ByteBufCodecs.stringUtf8(64), AntmailAnternetResultPayload::messageId,
+            ByteBufCodecs.stringUtf8(128), AntmailAnternetResultPayload::detail,
+            ByteBufCodecs.stringUtf8(MAX_DATA_CHARS), AntmailAnternetResultPayload::data,
+            ByteBufCodecs.VAR_LONG, AntmailAnternetResultPayload::version,
+            AntmailAnternetResultPayload::new);
+    @Override public Type<AntmailAnternetResultPayload> type() { return TYPE; }
+}

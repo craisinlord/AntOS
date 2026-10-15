@@ -1,0 +1,11 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "antos:item/floppy_disk/floppy_disk"
+  },
+  "overrides": [
+    { "predicate": { "antos:floppy_category": 1.0 }, "model": "antos:item/floppy_disk/elythia" },
+    { "predicate": { "antos:floppy_category": 2.0 }, "model": "antos:item/floppy_disk/thoraxis" },
+    { "predicate": { "antos:floppy_category": 3.0 }, "model": "antos:item/floppy_disk/cavaryn" }
+  ]
+}

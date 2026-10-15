@@ -1,0 +1,12 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "antos:floppy_category",
+    "cases": [
+      { "when": "elythia", "model": { "type": "minecraft:model", "model": "antos:item/floppy_disk/elythia" } },
+      { "when": "thoraxis", "model": { "type": "minecraft:model", "model": "antos:item/floppy_disk/thoraxis" } },
+      { "when": "cavaryn", "model": { "type": "minecraft:model", "model": "antos:item/floppy_disk/cavaryn" } }
+    ],
+    "fallback": { "type": "minecraft:model", "model": "antos:item/floppy_disk" }
+  }
+}

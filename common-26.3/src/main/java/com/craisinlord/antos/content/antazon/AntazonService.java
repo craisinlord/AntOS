@@ -1,0 +1,794 @@
+package com.craisinlord.antos.content.antazon;
+
+import com.craisinlord.antos.content.AntOSObjects;
+import com.craisinlord.antos.content.computer.ComputerWorkspace;
+import com.craisinlord.antos.content.computer.ComputerWorkspaceData;
+import com.craisinlord.antos.content.computer.ComputerTasks;
+import com.craisinlord.antos.content.entity.RewardDropEntity;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.Container;
+import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.entity.item.ItemEntity;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+public final class AntazonService {
+    private static final long MINECRAFT_DAY = 24000L;
+    private static final Map<ServerPlayer, InventorySnapshot> INVENTORIES = new java.util.WeakHashMap<>();
+
+    private AntazonService() { }
+
+    public static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer,
+                                          Identifier productId, String optionId, int units) {
+        return purchase(player, computer, productId, optionId, "", units);
+    }
+
+    public static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer,
+                                          Identifier productId, String optionId, String variantId, int units) {
+        if (player == null || computer == null || productId == null || optionId == null || units < 1 || units > 64)
+            return PurchaseResult.failed("invalid_request");
+        List<ItemStack> deliveries = new ArrayList<>();
+        List<ItemStack> directDeliveries = new ArrayList<>();
+        List<LocationDelivery> locationDeliveries = new ArrayList<>();
+        PurchaseResult result = purchase(player, computer, productId, optionId, variantId, units, deliveries, directDeliveries, locationDeliveries);
+        if (result.success()) {
+            launchDelivery(player, deliveries);
+            deliverDirect(player, directDeliveries);
+            launchLocationDeliveries(player, locationDeliveries);
+        }
+        return result;
+    }
+
+    private static PurchaseResult purchase(ServerPlayer player, ComputerWorkspace computer,
+                                           Identifier productId, String optionId, String variantId, int units, List<ItemStack> deliveries,
+                                           List<ItemStack> directDeliveries, List<LocationDelivery> locationDeliveries) {
+        if (player == null || computer == null || productId == null || optionId == null || units < 1 || units > 64)
+            return PurchaseResult.failed("invalid_request");
+        AntazonData.Product product = AntazonData.product(productId);
+        if (product == null || !product.enabled()) return PurchaseResult.failed("product_unavailable");
+        if (!unlocked(player, computer, product)) return PurchaseResult.failed("task_locked");
+        int optionIndex = -1;
+        if (!optionId.equals("default")) {
+            try { optionIndex = Integer.parseInt(optionId); }
+            catch (NumberFormatException exception) { return PurchaseResult.failed("invalid_request"); }
+            if (optionIndex < 0 || optionIndex >= product.payments().size()) return PurchaseResult.failed("invalid_request");
+        }
+        BlockPos deliveryLocation = null;
+        if (product.delivery().equals("falling_chest_location")) {
+            AntazonData.DeliveryLocation coordinates = product.deliveryLocation();
+            if (coordinates == null) return PurchaseResult.failed("delivery_unavailable");
+            deliveryLocation = new BlockPos(coordinates.x(), coordinates.y(), coordinates.z());
+            ServerLevel level = player.level();
+            if (!level.isInWorldBounds(deliveryLocation) || !level.getWorldBorder().isWithinBounds(deliveryLocation)
+                    || !level.hasChunkAt(deliveryLocation)) return PurchaseResult.failed("delivery_unavailable");
+        }
+        long gameTime = player.level().getGameTime();
+        long day = gameTime / MINECRAFT_DAY;
+        if (!AntazonData.availableOn(product, day)) return PurchaseResult.failed("product_unavailable");
+        AntazonServerData data = AntazonServerData.access(player.level().getServer());
+        synchronized (data) {
+            AntazonData.Availability availability = product.availability();
+            AntazonServerData.Stock current = currentStock(data, product, day);
+            int requiredUnits = Math.multiplyExact(product.quantity(), units);
+            if (availability.serverStock() > 0 && current.remaining() < requiredUnits) return PurchaseResult.failed("out_of_stock");
+            UUID profile = accountOwner(computer, player);
+            Identifier limitKey = AntazonData.limitKey(product);
+            AntazonServerData.PlayerState playerState = data.playerState(profile, limitKey);
+            long reset = resetMarker(availability.playerLimitReset(), day);
+            int playerQuantity = playerState.reset() == reset ? playerState.quantity() : 0;
+            if (availability.playerLimit() > 0 && playerQuantity + requiredUnits > availability.playerLimit()) return PurchaseResult.failed("player_limit");
+            if (availability.cooldownMinecraftDays() > 0 && playerState.lastPurchase() != Long.MIN_VALUE
+                    && gameTime < playerState.lastPurchase() + availability.cooldownMinecraftDays() * MINECRAFT_DAY)
+                return PurchaseResult.failed("cooldown");
+            List<AntazonData.Reward> rewardDefinitions = new ArrayList<>(product.rewards());
+            String variantReceipt = "";
+            if (product.variants() != null) {
+                if (product.variantItems().isEmpty()) return PurchaseResult.failed("product_unavailable");
+                if (product.variants().mode().equals("all")) {
+                    for (Identifier item : product.variantItems()) rewardDefinitions.add(new AntazonData.Reward(item, 1));
+                    variantReceipt = "all variants";
+                } else {
+                    Identifier selected;
+                    if (product.variants().mode().equals("random")) selected = product.variantItems().get(player.level().getRandom().nextInt(product.variantItems().size()));
+                    else {
+                        try { selected = Identifier.parse(variantId); }
+                        catch (RuntimeException exception) { return PurchaseResult.failed("variant_required"); }
+                        if (!product.variantItems().contains(selected)) return PurchaseResult.failed("variant_unavailable");
+                    }
+                    rewardDefinitions.add(new AntazonData.Reward(selected, 1));
+                    variantReceipt = new ItemStack(BuiltInRegistries.ITEM.getValue(selected)).getHoverName().getString();
+                }
+            }
+            List<ItemStack> rewards = rewards(rewardDefinitions, requiredUnits);
+            if (rewards.isEmpty()) return PurchaseResult.failed("delivery_unavailable");
+            UUID account = accountOwner(computer, player);
+            AntazonDeals.Active deal = AntazonDeals.active(player, computer, product, day);
+            int dealUnits = dealUnits(data, profile, product, deal, units);
+            AntazonData.Payment payment = null;
+            String paymentReceipt = "";
+            int paidAmount = 0;
+            List<AntazonData.Payment> candidates = optionIndex < 0 ? product.payments() : List.of(product.payments().get(optionIndex));
+            for (AntazonData.Payment candidate : candidates) {
+                int totalPayment = totalPrice(candidate, deal, dealUnits, units);
+                if (pay(player, data, account, candidate, totalPayment)) {
+                    payment = candidate;
+                    paidAmount = totalPayment;
+                    paymentReceipt = totalPayment + " " + (candidate.type().equals("antcoins") ? "antcoins" : candidate.resource());
+                    if (!variantReceipt.isBlank()) paymentReceipt += " // " + variantReceipt;
+                    break;
+                }
+            }
+            if (payment == null) return PurchaseResult.failed(optionIndex < 0 ? "payment_unavailable" : "insufficient_payment");
+            if (availability.serverStock() > 0) data.setStock(limitKey, new AntazonServerData.Stock(current.remaining() - requiredUnits, current.nextRestockDay()));
+            data.setPlayerState(profile, limitKey, new AntazonServerData.PlayerState(playerQuantity + requiredUnits, reset, gameTime));
+            UUID orderId = UUID.randomUUID();
+            if (deal != null && dealUnits > 0) data.addDealUnits(profile, deal.key(), limitKey, dealUnits);
+            boolean discounted = deal != null && dealUnits > 0;
+            data.addOrder(new AntazonServerData.Order(orderId, profile, productId, paymentReceipt, requiredUnits, gameTime, "DELIVERED",
+                    paidAmount, discounted ? deal.discountPercent() : 0, discounted ? deal.campaign().id().toString() : "",
+                    discounted ? Math.multiplyExact(dealUnits, product.quantity()) : 0));
+            if (product.delivery().equals("direct")) directDeliveries.addAll(rewards);
+            else if (product.delivery().equals("falling_chest_location")) locationDeliveries.add(new LocationDelivery(deliveryLocation, rewards));
+            else deliveries.addAll(rewards);
+            return PurchaseResult.accepted(orderId, requiredUnits, paymentReceipt);
+        }
+    }
+
+    private static void launchDelivery(ServerPlayer player, List<ItemStack> deliveries) {
+        if (player == null || deliveries.isEmpty()) return;
+        List<ItemStack> merged = new ArrayList<>();
+        for (ItemStack stack : deliveries) {
+            ItemStack remaining = stack.copy();
+            for (ItemStack existing : merged) {
+                if (remaining.isEmpty()) break;
+                if (!ItemStack.isSameItemSameComponents(existing, remaining)) continue;
+                int moved = Math.min(remaining.getCount(), existing.getMaxStackSize() - existing.getCount());
+                existing.grow(moved);
+                remaining.shrink(moved);
+            }
+            while (!remaining.isEmpty()) merged.add(remaining.split(remaining.getMaxStackSize()));
+        }
+        ServerLevel level = player.level();
+        BlockPos landing = player.blockPosition();
+        int perDrop = RewardDropEntity.MAX_REWARD_STACKS - 1;
+        for (int start = 0; start < merged.size(); start += perDrop) {
+            List<ItemStack> contents = new ArrayList<>(merged.subList(start, Math.min(merged.size(), start + perDrop)));
+            contents.add(new ItemStack(Items.CHEST, 1));
+            RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
+            drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
+            drop.setRewards(contents, player);
+            level.addFreshEntity(drop);
+        }
+        RewardDropEntity.announceIncoming(player);
+    }
+
+    private static void deliverDirect(ServerPlayer player, List<ItemStack> deliveries) {
+        for (ItemStack stack : deliveries) {
+            ItemStack remaining = stack.copy();
+            player.getInventory().add(remaining);
+            if (!remaining.isEmpty()) player.drop(remaining, false, net.minecraft.util.Prediction.SERVER_ONLY);
+        }
+    }
+
+    private static void launchLocationDeliveries(ServerPlayer player, List<LocationDelivery> deliveries) {
+        ServerLevel level = player.level();
+        for (LocationDelivery delivery : deliveries) {
+            List<ItemStack> contents = new ArrayList<>();
+            for (ItemStack stack : delivery.rewards()) {
+                ItemStack remaining = stack.copy();
+                while (!remaining.isEmpty()) contents.add(remaining.split(remaining.getMaxStackSize()));
+            }
+            contents.add(new ItemStack(Items.CHEST, 1));
+            for (int start = 0; start < contents.size(); start += RewardDropEntity.MAX_REWARD_STACKS) {
+                List<ItemStack> chunk = new ArrayList<>(contents.subList(start, Math.min(contents.size(), start + RewardDropEntity.MAX_REWARD_STACKS)));
+                RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
+                BlockPos landing = delivery.position();
+                drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
+                drop.setRewards(chunk, player);
+                level.addFreshEntity(drop);
+            }
+            RewardDropEntity.announceIncoming(player);
+        }
+    }
+
+    public static CheckoutResult checkout(ServerPlayer player, ComputerWorkspace computer) {
+        if (player == null || computer == null || !computer.canUseFileSystem(player)) return new CheckoutResult(List.of(), List.of());
+        AntazonServerData data = AntazonServerData.access(player.level().getServer());
+        UUID owner = accountOwner(computer, player);
+        List<AntazonServerData.CartLine> cart = data.cart(owner);
+        List<ItemStack> deliveries = new ArrayList<>();
+        List<ItemStack> directDeliveries = new ArrayList<>();
+        List<LocationDelivery> locationDeliveries = new ArrayList<>();
+        List<AntazonServerData.CartLine> remaining = new ArrayList<>();
+        List<CheckoutLine> results = new ArrayList<>();
+        for (AntazonServerData.CartLine line : cart) {
+            PurchaseResult result;
+            try {
+                result = purchase(player, computer, line.product(), Integer.toString(line.option()), line.variant(), line.units(), deliveries, directDeliveries, locationDeliveries);
+            } catch (ArithmeticException exception) {
+                result = PurchaseResult.failed("invalid_request");
+            }
+            results.add(new CheckoutLine(line, result.status(), result.receipt()));
+            if (!result.success() && !result.status().equals("product_unavailable")) remaining.add(line);
+        }
+        launchDelivery(player, deliveries);
+        deliverDirect(player, directDeliveries);
+        launchLocationDeliveries(player, locationDeliveries);
+        if (!cart.equals(remaining)) data.setCart(owner, remaining);
+        return new CheckoutResult(List.copyOf(results), List.copyOf(remaining));
+    }
+
+    public static List<AntazonServerData.CartLine> sanitizeCart(List<AntazonServerData.CartLine> lines, long day) {
+        Map<String, AntazonServerData.CartLine> merged = new LinkedHashMap<>();
+        for (AntazonServerData.CartLine line : lines) {
+            AntazonData.Product product = AntazonData.product(line.product());
+            if (product == null || !product.enabled() || !AntazonData.availableOn(product, day)
+                    || line.option() < 0 || line.option() >= product.payments().size()) continue;
+            if (product.variants() != null && product.variants().mode().equals("choose")) {
+                try { if (!product.variantItems().contains(Identifier.parse(line.variant()))) continue; }
+                catch (RuntimeException exception) { continue; }
+            } else if (!line.variant().isBlank()) continue;
+            String key = line.product() + "|" + line.option() + "|" + line.variant();
+            AntazonServerData.CartLine previous = merged.get(key);
+            if (previous == null && merged.size() >= AntazonServerData.MAX_CART_LINES) continue;
+            int units = Math.max(1, Math.min(64, line.units() + (previous == null ? 0 : previous.units())));
+            merged.put(key, new AntazonServerData.CartLine(line.product(), line.option(), units, line.variant()));
+        }
+        return List.copyOf(merged.values());
+    }
+
+    public static int unitPrice(AntazonData.Payment payment, AntazonDeals.Active deal) {
+        return deal == null ? payment.amount() : deal.price(payment.amount());
+    }
+
+    public static int dealUnits(AntazonServerData data, UUID profile, AntazonData.Product product, AntazonDeals.Active deal, int units) {
+        if (deal == null) return 0;
+        int remaining = dealRemaining(data, profile, product, deal);
+        return remaining < 0 ? units : Math.min(units, remaining);
+    }
+
+    public static int dealRemaining(AntazonServerData data, UUID profile, AntazonData.Product product, AntazonDeals.Active deal) {
+        if (deal == null) return 0;
+        if (deal.campaign().dealLimit() <= 0) return -1;
+        return Math.max(0, deal.campaign().dealLimit() - data.dealUnitsUsed(profile, deal.key(), AntazonData.limitKey(product)));
+    }
+
+    private static int totalPrice(AntazonData.Payment payment, AntazonDeals.Active deal, int dealUnits, int units) {
+        return Math.addExact(Math.multiplyExact(unitPrice(payment, deal), dealUnits), Math.multiplyExact(payment.amount(), units - dealUnits));
+    }
+
+    public static AntazonServerData.Stock currentStock(AntazonServerData data, AntazonData.Product product, long day) {
+        AntazonData.Availability availability = product.availability();
+        AntazonServerData.Stock current = data.stock(AntazonData.limitKey(product));
+        boolean real = availability.restockRealHours() > 0L;
+        long clock = real ? System.currentTimeMillis() / 60_000L : day;
+        long interval = real ? availability.restockRealHours() * 60L : availability.restockMinecraftDays();
+        if (current == null) current = new AntazonServerData.Stock(availability.serverStock(), clock + interval);
+        if (interval > 0 && clock >= current.nextRestockDay())
+            current = new AntazonServerData.Stock(availability.serverStock(), clock + interval);
+        return current;
+    }
+
+    public static long restockInMillis(AntazonData.Product product, AntazonServerData.Stock stock, long gameTime) {
+        AntazonData.Availability availability = product.availability();
+        if (availability.serverStock() <= 0 || !availability.restocks() || stock.remaining() >= availability.serverStock()) return 0L;
+        if (availability.restockRealHours() > 0L) return Math.max(0L, stock.nextRestockDay() * 60_000L - System.currentTimeMillis());
+        return Math.max(0L, (stock.nextRestockDay() * MINECRAFT_DAY - gameTime) * 50L);
+    }
+
+    public static int limitUsed(AntazonServerData data, UUID profile, AntazonData.Product product, long day) {
+        AntazonServerData.PlayerState state = data.playerState(profile, AntazonData.limitKey(product));
+        return state.reset() == resetMarker(product.availability().playerLimitReset(), day) ? state.quantity() : 0;
+    }
+
+    public static long owned(ServerPlayer player, AntazonServerData data, UUID account, AntazonData.Payment payment) {
+        if (payment.type().equals("antcoins")) return data.wallet(account);
+        if (!payment.type().equals("item")) return 0L;
+        return inventory(player).owned(payment.resource());
+    }
+
+    private static InventorySnapshot inventory(ServerPlayer player) {
+        int tick = player.level().getServer().getTickCount();
+        synchronized (INVENTORIES) {
+            InventorySnapshot snapshot = INVENTORIES.get(player);
+            if (snapshot == null || !snapshot.matches(player.getInventory(), tick)) {
+                snapshot = InventorySnapshot.capture(player.getInventory(), tick);
+                INVENTORIES.put(player, snapshot);
+            }
+            return snapshot;
+        }
+    }
+
+    private static final class InventorySnapshot {
+        private final int tick;
+        private final ItemStack[] stacks;
+        private final int[] counts;
+        private final Map<Item, ItemStack> samples = new LinkedHashMap<>();
+        private final Map<Item, Long> totals = new LinkedHashMap<>();
+        private final Map<String, Long> owned = new java.util.HashMap<>();
+
+        private InventorySnapshot(int tick, int size) {
+            this.tick = tick;
+            this.stacks = new ItemStack[size];
+            this.counts = new int[size];
+        }
+
+        static InventorySnapshot capture(net.minecraft.world.entity.player.Inventory inventory, int tick) {
+            InventorySnapshot snapshot = new InventorySnapshot(tick, inventory.getContainerSize());
+            for (int slot = 0; slot < snapshot.stacks.length; slot++) {
+                ItemStack stack = inventory.getItem(slot);
+                snapshot.stacks[slot] = stack;
+                snapshot.counts[slot] = stack.getCount();
+                if (stack.isEmpty()) continue;
+                snapshot.samples.putIfAbsent(stack.getItem(), stack);
+                snapshot.totals.merge(stack.getItem(), (long) stack.getCount(), Long::sum);
+            }
+            return snapshot;
+        }
+
+        boolean matches(net.minecraft.world.entity.player.Inventory inventory, int currentTick) {
+            if (tick != currentTick || inventory.getContainerSize() != stacks.length) return false;
+            for (int slot = 0; slot < stacks.length; slot++) {
+                ItemStack stack = inventory.getItem(slot);
+                if (stack != stacks[slot] || stack.getCount() != counts[slot]) return false;
+            }
+            return true;
+        }
+
+        long owned(String resource) {
+            Long cached = owned.get(resource);
+            if (cached != null) return cached;
+            java.util.function.Predicate<ItemStack> matches = AntazonTags.matcher(resource);
+            long count = 0L;
+            if (matches != null) for (Map.Entry<Item, Long> entry : totals.entrySet()) {
+                if (matches.test(samples.get(entry.getKey()))) count += entry.getValue();
+            }
+            owned.put(resource, count);
+            return count;
+        }
+    }
+
+    public static Manifest manifest(ServerPlayer player, ComputerWorkspace computer) {
+        if (player == null || computer == null || !computer.canUseFileSystem(player)) return Manifest.failed("unauthorized");
+        return manifest(player, computer, resolveCrate(player, computer), accountOwner(computer, player), player.level().getServer().overworld().getGameTime() / MINECRAFT_DAY);
+    }
+
+    public static Manifest manifest(ServerPlayer player, ComputerWorkspace computer, CrateRef crate, UUID owner, long day) {
+        return shipmentPlan(player, computer, crate, owner, day).manifest();
+    }
+
+    private static ShipmentPlan shipmentPlan(ServerPlayer player, ComputerWorkspace computer, CrateRef crate, UUID owner, long day) {
+        if (crate == null) return new ShipmentPlan(Manifest.failed(computer.isRemoteWorkspace() ? "crate_unavailable" : "crate_required"), List.of(), List.of(), Map.of());
+        Container chest = crate.container();
+        AntazonServerData data = AntazonServerData.access(crate.level().getServer());
+        Map<Identifier, ManifestEntry> entries = new LinkedHashMap<>();
+        Map<String, Integer> pendingByLimit = new LinkedHashMap<>();
+        Map<String, Integer> soldByLimit = new LinkedHashMap<>();
+        List<ItemStack> acceptedContents = new ArrayList<>();
+        List<ItemStack> excessContents = new ArrayList<>();
+        boolean hasItems = false;
+        boolean unsupported = false;
+        boolean partial = false;
+        boolean locked = false;
+        int acceptedTotal = 0;
+        int excessTotal = 0;
+        for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+            ItemStack stack = chest.getItem(slot);
+            if (stack.isEmpty()) continue;
+            hasItems = true;
+            Identifier itemId = BuiltInRegistries.ITEM.getKey(stack.getItem());
+            AntazonSellData.Rule rule = AntazonSellData.rule(itemId);
+            boolean ruleLocked = rule != null && !sellRuleUnlocked(player, computer, rule);
+            int available = stack.getCount();
+            if (rule == null || ruleLocked) available = 0;
+            else if (rule.limit() > 0) {
+                long used = (long) sellLimitUsage(data, owner, rule, day) + pendingByLimit.getOrDefault(rule.limitKey(), 0);
+                available = Math.min(available, (int) Math.max(0L, (long) rule.limit() - used));
+            }
+            int excess = stack.getCount() - available;
+            if (available > 0) acceptedContents.add(stack.copyWithCount(available));
+            if (excess > 0) excessContents.add(stack.copyWithCount(excess));
+            if (rule != null && !ruleLocked && rule.limit() > 0 && available > 0) {
+                pendingByLimit.merge(rule.limitKey(), available, (a, b) -> (int) Math.min(Integer.MAX_VALUE, (long) a + b));
+                soldByLimit.merge(rule.limitKey(), available, (a, b) -> (int) Math.min(Integer.MAX_VALUE, (long) a + b));
+            }
+            long value = rule == null || ruleLocked ? 0L : Math.multiplyExact((long) available, rule.value());
+            ManifestEntry previous = entries.get(itemId);
+            entries.put(itemId, new ManifestEntry(itemId,
+                    (previous == null ? 0 : previous.count()) + stack.getCount(),
+                    Math.addExact(previous == null ? 0L : previous.value(), value), rule != null, rule == null || rule.greenTint(), rule == null || rule.renderMobFromSpawnEgg(),
+                    rule == null ? 0 : rule.limit(), rule == null ? "none" : rule.limitReset(), rule == null || rule.limit() <= 0 ? Integer.MAX_VALUE : Math.max(0, rule.limit() - sellLimitUsage(data, owner, rule, day)),
+                    (previous == null ? 0 : previous.acceptedCount()) + available,
+                    (previous == null ? 0 : previous.returnedCount()) + excess,
+                    (previous != null && previous.overLimit()) || (rule != null && !ruleLocked && excess > 0 && rule.limit() > 0),
+                    ruleLocked || (previous != null && previous.locked()),
+                    rule == null ? "all" : rule.unlockMode(), rule == null ? List.of() : rule.unlockTasks(), rule == null ? List.of() : rule.unlockDisks(),
+                    rule == null ? List.of() : rule.unlockCommands()));
+            unsupported |= rule == null;
+            locked |= ruleLocked;
+            acceptedTotal += available;
+            excessTotal += excess;
+            partial |= rule != null && !ruleLocked && rule.limit() > 0 && excess > 0;
+        }
+        for (Map.Entry<Identifier, ManifestEntry> entry : new ArrayList<>(entries.entrySet())) {
+            AntazonSellData.Rule rule = AntazonSellData.rule(entry.getKey());
+            ManifestEntry row = entry.getValue();
+            if (rule == null || rule.limit() <= 0) continue;
+            int remaining = (int) Math.max(0L, (long) rule.limit() - sellLimitUsage(data, owner, rule, day) - pendingByLimit.getOrDefault(rule.limitKey(), 0));
+            entries.put(entry.getKey(), new ManifestEntry(row.item(), row.count(), row.value(), row.sellable(), row.greenTint(), row.renderMobFromSpawnEgg(),
+                    row.limit(), row.limitReset(), remaining, row.acceptedCount(), row.returnedCount(), row.overLimit(), row.locked(), row.unlockMode(), row.unlockTasks(), row.unlockDisks(), row.unlockCommands()));
+        }
+        long total = entries.values().stream().mapToLong(ManifestEntry::value).sum();
+        String status = !hasItems ? "crate_empty" : unsupported ? "unsupported_items" : locked ? "task_locked"
+                : total < 1L ? partial ? "sell_limit_reached" : "crate_empty" : partial ? "partial_shipment" : "";
+        Manifest manifest = new Manifest(List.copyOf(entries.values()), total, status, acceptedTotal, excessTotal);
+        return new ShipmentPlan(manifest, List.copyOf(acceptedContents), List.copyOf(excessContents), Map.copyOf(soldByLimit));
+    }
+
+    public static List<AntazonSellData.Rule> priceList() {
+        return AntazonSellData.rules();
+    }
+
+    public static SellAllowance sellAllowance(ServerPlayer player, ComputerWorkspace computer, AntazonSellData.Rule rule) {
+        if (rule == null) return new SellAllowance(0, 0, Integer.MAX_VALUE, "none", false);
+        UUID owner = accountOwner(computer, player);
+        long day = player.level().getServer().overworld().getGameTime() / MINECRAFT_DAY;
+        int used = rule.limit() <= 0 ? 0 : sellLimitUsage(AntazonServerData.access(player.level().getServer()), owner, rule, day);
+        return new SellAllowance(rule.limit(), used, rule.limit() <= 0 ? Integer.MAX_VALUE : Math.max(0, rule.limit() - used), rule.limitReset(), !sellRuleUnlocked(player, computer, rule));
+    }
+
+    public static boolean sellRuleUnlocked(ServerPlayer player, ComputerWorkspace computer, AntazonSellData.Rule rule) {
+        return rule == null || requirementsMet(player, computer, rule.unlockTasks(), rule.unlockDisks(), rule.unlockCommands(), rule.unlockMode());
+    }
+    public static List<AntazonSellData.Rule> visibleSellRules(ServerPlayer player, ComputerWorkspace computer) {
+        return priceList().stream().filter(rule -> !rule.hiddenUntilUnlocked() || sellRuleUnlocked(player, computer, rule)).toList();
+    }
+
+    private static int sellLimitUsage(AntazonServerData data, UUID owner, AntazonSellData.Rule rule, long day) {
+        if (owner == null || rule.limit() <= 0) return 0;
+        AntazonServerData.SellLimitState state = data.sellLimitState(owner, rule.limitKey());
+        return state.reset() == resetMarker(rule.limitReset(), day) ? state.quantity() : 0;
+    }
+
+    public static PrepareResult prepareShipment(ServerPlayer player, ComputerWorkspace computer, Identifier itemId, int amount) {
+        if (player == null || computer == null || itemId == null || amount < 1 || amount > 64) return PrepareResult.failed("invalid_request");
+        if (!computer.canUseFileSystem(player)) return PrepareResult.failed("unauthorized");
+        AntazonSellData.Rule rule = AntazonSellData.rule(itemId);
+        CrateRef crate = resolveCrate(player, computer);
+        if (rule == null) return PrepareResult.failed("unsupported_item");
+        if (crate == null) return PrepareResult.failed(computer.isRemoteWorkspace() ? "crate_unavailable" : "crate_required");
+        Container chest = crate.container();
+        Item item = BuiltInRegistries.ITEM.getValue(itemId);
+        int available = player.getInventory().countItem(item);
+        if (available < amount) return PrepareResult.failed("insufficient_inventory");
+        int remaining = amount;
+        for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+            ItemStack stack = chest.getItem(slot);
+            if (stack.isEmpty()) remaining -= Math.min(remaining, item.getDefaultMaxStackSize());
+            else if (ItemStack.isSameItemSameComponents(stack, new ItemStack(item))) remaining -= Math.min(remaining, stack.getMaxStackSize() - stack.getCount());
+            if (remaining <= 0) break;
+        }
+        if (remaining > 0) return PrepareResult.failed("crate_full");
+        remaining = amount;
+        for (int slot = 0; slot < player.getInventory().getContainerSize() && remaining > 0; slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (!stack.isEmpty() && stack.is(item)) {
+                int take = Math.min(remaining, stack.getCount());
+                stack.shrink(take);
+                remaining -= take;
+            }
+        }
+        ItemStack toInsert = new ItemStack(item, amount);
+        for (int slot = 0; slot < chest.getContainerSize() && !toInsert.isEmpty(); slot++) {
+            ItemStack stack = chest.getItem(slot);
+            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, toInsert)) {
+                int moved = Math.min(toInsert.getCount(), stack.getMaxStackSize() - stack.getCount());
+                stack.grow(moved);
+                toInsert.shrink(moved);
+            }
+        }
+        for (int slot = 0; slot < chest.getContainerSize() && !toInsert.isEmpty(); slot++) {
+            if (chest.getItem(slot).isEmpty()) {
+                chest.setItem(slot, toInsert.split(Math.min(toInsert.getCount(), toInsert.getMaxStackSize())));
+            }
+        }
+        chest.setChanged();
+        return PrepareResult.accepted(amount, (long) amount * rule.value());
+    }
+
+    public static SellResult sell(ServerPlayer player, ComputerWorkspace computer) {
+        if (player == null || computer == null || !computer.canUseFileSystem(player)) return SellResult.failed("unauthorized");
+        CrateRef crate = resolveCrate(player, computer);
+        if (crate == null) return SellResult.failed(computer.isRemoteWorkspace() ? "crate_unavailable" : "crate_required");
+        BlockPos chestPos = crate.position();
+        Container chest = crate.container();
+        synchronized (AntazonServerData.access(player.level().getServer())) {
+            long day = player.level().getServer().overworld().getGameTime() / MINECRAFT_DAY;
+            UUID account = accountOwner(computer, player);
+            ShipmentPlan plan = shipmentPlan(player, computer, crate, account, day);
+            Manifest manifest = plan.manifest();
+            if (!manifest.ready()) return SellResult.failed(manifest.status());
+            List<ItemStack> originalContents = new ArrayList<>();
+            long currentTotal = 0L;
+            for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+                ItemStack stack = chest.getItem(slot);
+                originalContents.add(stack.copy());
+            }
+            List<ItemStack> shipmentContents = plan.acceptedContents();
+            for (ItemStack stack : shipmentContents) {
+                AntazonSellData.Rule rule = AntazonSellData.rule(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+                if (rule == null) return SellResult.failed("crate_changed");
+                currentTotal = Math.addExact(currentTotal, Math.multiplyExact((long) stack.getCount(), rule.value()));
+            }
+            if (currentTotal != manifest.total()) return SellResult.failed("crate_changed");
+            var chestState = crate.level().getBlockState(chestPos);
+            var blockEntityTag = crate.blockEntity().saveWithFullMetadata(crate.level().registryAccess());
+            crate.level().removeBlock(chestPos, false);
+            RewardDropEntity shipment = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), crate.level());
+            shipment.setPos(chestPos.getX() + 0.5D, chestPos.getY() + 0.75D, chestPos.getZ() + 0.5D);
+            shipment.setRewards(shipmentContents, player);
+            shipment.setShipping(account, manifest.total(), player.getUUID());
+            if (!crate.level().addFreshEntity(shipment)) {
+                restoreShippingContainer(crate.level(), chestPos, chestState, blockEntityTag, originalContents);
+                return SellResult.failed("shipment_failed");
+            }
+            List<ItemEntity> returnedItems = new ArrayList<>();
+            for (ItemStack stack : plan.excessContents()) {
+                ItemEntity item = new ItemEntity(crate.level(), chestPos.getX() + 0.5D, chestPos.getY() + 0.5D, chestPos.getZ() + 0.5D, stack.copy());
+                item.setPickUpDelay(10);
+                if (!crate.level().addFreshEntity(item)) {
+                    for (ItemEntity returned : returnedItems) returned.discard();
+                    shipment.discard();
+                    restoreShippingContainer(crate.level(), chestPos, chestState, blockEntityTag, originalContents);
+                    return SellResult.failed("shipment_failed");
+                }
+                returnedItems.add(item);
+            }
+            for (Map.Entry<String, Integer> entry : plan.soldByLimit().entrySet()) {
+                AntazonSellData.Rule rule = AntazonSellData.ruleForLimitKey(entry.getKey());
+                if (rule == null) continue;
+                int used = sellLimitUsage(AntazonServerData.access(player.level().getServer()), account, rule, day);
+                int quantity = (int) Math.min(Integer.MAX_VALUE, (long) used + entry.getValue());
+                AntazonServerData.access(player.level().getServer()).setSellLimitState(account, entry.getKey(),
+                        new AntazonServerData.SellLimitState(quantity, resetMarker(rule.limitReset(), day)));
+            }
+            crate.level().playSound(null, chestPos, net.minecraft.sounds.SoundEvents.FIREWORK_ROCKET_LAUNCH,
+                    net.minecraft.sounds.SoundSource.NEUTRAL, 0.8F, 1.0F);
+            RewardDropEntity.announceShippingLaunched(player);
+            return SellResult.accepted(manifest.total());
+        }
+    }
+
+    private static void restoreShippingContainer(ServerLevel level, BlockPos position, net.minecraft.world.level.block.state.BlockState state,
+                                                 net.minecraft.nbt.CompoundTag blockEntityTag, List<ItemStack> contents) {
+        level.setBlock(position, state, 3);
+        BlockEntity restoredEntity = level.getBlockEntity(position);
+        if (restoredEntity != null) restoredEntity.loadWithComponents(net.minecraft.world.level.storage.TagValueInput.create(net.minecraft.util.ProblemReporter.DISCARDING, level.registryAccess(), blockEntityTag));
+        if (shippingInventory(level, position) instanceof Container restored) {
+            for (int slot = 0; slot < contents.size() && slot < restored.getContainerSize(); slot++) restored.setItem(slot, contents.get(slot));
+            restored.setChanged();
+        }
+    }
+
+    public static boolean toggleWishlist(ServerPlayer player, Identifier productId) {
+        if (player == null || productId == null || AntazonData.product(productId) == null) return false;
+        return AntazonServerData.access(player.level().getServer()).toggleWishlist(profileId(player), productId);
+    }
+
+    public static ReviewResult submitReview(ServerPlayer player, Identifier productId, int rating, String title, String body) {
+        if (player == null || productId == null || AntazonData.product(productId) == null) return ReviewResult.failed("product_unavailable");
+        if (rating < 1 || rating > 5 || title == null || title.isBlank() || title.length() > 80 || body == null || body.isBlank() || body.length() > 512)
+            return ReviewResult.failed("invalid_review");
+        AntazonServerData data = AntazonServerData.access(player.level().getServer());
+        UUID profile = profileId(player);
+        if (data.hasReviewed(profile, productId)) return ReviewResult.failed("already_reviewed");
+        if (!data.hasPurchased(profile, productId)) return ReviewResult.failed("purchase_required");
+        data.addReview(new AntazonServerData.PlayerReview(profile, productId, rating, title.trim(), body.trim(), player.level().getGameTime()));
+        return ReviewResult.accepted();
+    }
+
+    public static boolean unlocked(ServerPlayer player, ComputerWorkspace computer, AntazonData.Product product) {
+        return requirementsMet(player, computer, product.unlockTasks(), product.unlockDisks(), product.unlockCommands(), product.unlockMode());
+    }
+
+    private static boolean requirementsMet(ServerPlayer player, ComputerWorkspace computer, List<Identifier> tasks, List<Identifier> disks,
+                                           List<Identifier> commands, String mode) {
+        var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+        ComputerWorkspaceData workspaceData = account == null ? null : ComputerWorkspaceData.access(player.level().getServer());
+        com.craisinlord.antos.content.computer.DiskProfileState diskState = workspaceData == null || workspaceData.account(account.accountId()) == null
+                ? null : workspaceData.diskState(account.accountId());
+        return AntazonUnlocks.test(tasks, disks, commands, mode, task -> ComputerTasks.isTaskComplete(player, computer, task),
+                disk -> diskState != null && diskState.activated(disk),
+                command -> com.craisinlord.antos.content.computer.terminal.TerminalCommands.ran(player, command));
+    }
+    private static long resetMarker(String reset, long day) {
+        return switch (reset) {
+            case "minecraft_day" -> day;
+            case "minecraft_week" -> day / 7L;
+            default -> Long.MIN_VALUE;
+        };
+    }
+
+    private static boolean pay(ServerPlayer player, AntazonServerData data, UUID account, AntazonData.Payment payment, int amount) {
+        if (payment.type().equals("antcoins")) return data.debit(account, amount);
+        if (!payment.type().equals("item")) return false;
+        java.util.function.Predicate<ItemStack> matches = AntazonTags.matcher(payment.resource());
+        if (matches == null || owned(player, data, account, payment) < amount) return false;
+        int remaining = amount;
+        for (int slot = 0; slot < player.getInventory().getContainerSize() && remaining > 0; slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (!matches.test(stack)) continue;
+            int removed = Math.min(remaining, stack.getCount());
+            stack.shrink(removed);
+            remaining -= removed;
+        }
+        player.containerMenu.broadcastChanges();
+        return remaining == 0;
+    }
+
+    private static List<ItemStack> rewards(List<AntazonData.Reward> definitions, int units) {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (AntazonData.Reward reward : definitions) {
+            Item item = BuiltInRegistries.ITEM.getValue(reward.item());
+            int remaining = reward.count() * units;
+            while (remaining > 0) {
+                int count = Math.min(item.getDefaultMaxStackSize(), remaining);
+                stacks.add(new ItemStack(item, count));
+                remaining -= count;
+            }
+        }
+        return stacks;
+    }
+
+    public static UUID accountOwner(ComputerWorkspace computer, ServerPlayer player) {
+        return computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
+    }
+
+    private static UUID profileId(ServerPlayer player) {
+        var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+        return account == null ? player.getUUID() : account.accountId();
+    }
+
+    public static CrateRef resolveCrate(ServerPlayer player, ComputerWorkspace computer) {
+        UUID owner = accountOwner(computer, player);
+        AntazonServerData data = AntazonServerData.access(player.level().getServer());
+        if (computer.isRemoteWorkspace() || computer.workspaceOwner() != null) {
+            AntazonServerData.CrateLocation location = data.shippingCrate(owner);
+            if (location == null) return null;
+            Identifier dimension;
+            try { dimension = Identifier.parse(location.dimension()); }
+            catch (RuntimeException exception) { return null; }
+            ServerLevel level = player.level().getServer().getLevel(net.minecraft.resources.ResourceKey.create(
+                    net.minecraft.core.registries.Registries.DIMENSION, dimension));
+            if (level == null) return null;
+            BlockPos position = BlockPos.of(location.position());
+            if (!level.hasChunkAt(position)) return null;
+            CrateRef crate = shippingContainer(level, position);
+            if (crate == null) {
+                data.clearShippingCrate(owner);
+                return null;
+            }
+            return crate;
+        }
+        BlockPos best = findNearbyContainerPosition(player);
+        if (best == null) return null;
+        data.setShippingCrate(owner, player.level().dimension().identifier(), best);
+        return shippingContainer(player.level(), best);
+    }
+
+    public static boolean linkNearbyCrate(ServerPlayer player, UUID accountId) {
+        if (player == null || accountId == null) return false;
+        BlockPos position = findNearbyContainerPosition(player);
+        if (position == null) return false;
+        AntazonServerData.access(player.level().getServer()).setShippingCrate(accountId, player.level().dimension().identifier(), position);
+        return true;
+    }
+
+    private static BlockPos findNearbyContainerPosition(ServerPlayer player) {
+        BlockPos origin = player.blockPosition();
+        BlockPos best = null;
+        double bestDistance = 36.0D;
+        for (BlockPos candidate : BlockPos.betweenClosed(origin.offset(-3, -2, -3), origin.offset(3, 2, 3))) {
+            if (shippingContainer(player.level(), candidate) == null) continue;
+            double distance = candidate.distToCenterSqr(player.position());
+            if (distance <= bestDistance) { best = candidate.immutable(); bestDistance = distance; }
+        }
+        return best;
+    }
+
+    private static CrateRef shippingContainer(ServerLevel level, BlockPos position) {
+        BlockEntity blockEntity = level.getBlockEntity(position);
+        Container inventory = shippingInventory(level, position);
+        if (blockEntity == null || inventory == null) return null;
+        if (blockEntity instanceof ChestBlockEntity
+                && level.getBlockState(position).is(Blocks.CHEST)
+                && level.getBlockState(position).getValue(ChestBlock.TYPE) == ChestType.SINGLE)
+            return new CrateRef(level, position, inventory, blockEntity);
+        String className = blockEntity.getClass().getName();
+        if (className.equals("com.mrcrayfish.furniture.refurbished.blockentity.MailboxBlockEntity")
+                && optionalModClassLoaded(blockEntity, className))
+            return new CrateRef(level, position, inventory, blockEntity);
+        if (className.equals("com.simibubi.create.content.logistics.packagePort.frogport.FrogportBlockEntity")
+                && optionalModClassLoaded(blockEntity, className))
+            return new CrateRef(level, position, inventory, blockEntity);
+        return null;
+    }
+
+    private static Container shippingInventory(ServerLevel level, BlockPos position) {
+        BlockEntity blockEntity = level.getBlockEntity(position);
+        if (blockEntity instanceof Container container) return container;
+        if (blockEntity == null || !blockEntity.getClass().getName().equals("com.simibubi.create.content.logistics.packagePort.frogport.FrogportBlockEntity")
+                || !optionalModClassLoaded(blockEntity, blockEntity.getClass().getName())) return null;
+        try {
+            Object inventory = blockEntity.getClass().getField("inventory").get(blockEntity);
+            return inventory instanceof Container container ? container : null;
+        } catch (ReflectiveOperationException | LinkageError exception) {
+            return null;
+        }
+    }
+
+    private static boolean optionalModClassLoaded(BlockEntity blockEntity, String className) {
+        try {
+            Class.forName(className, false, blockEntity.getClass().getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError exception) {
+            return false;
+        }
+    }
+
+    public record CrateRef(ServerLevel level, BlockPos position, Container container, BlockEntity blockEntity) { }
+
+    private record LocationDelivery(BlockPos position, List<ItemStack> rewards) { }
+
+    public record PurchaseResult(boolean success, String status, UUID orderId, int units, String receipt) {
+        static PurchaseResult accepted(UUID orderId, int units, String receipt) { return new PurchaseResult(true, "accepted", orderId, units, receipt); }
+        static PurchaseResult failed(String status) { return new PurchaseResult(false, status, null, 0, ""); }
+    }
+
+    public record CheckoutLine(AntazonServerData.CartLine line, String status, String receipt) { }
+
+    public record CheckoutResult(List<CheckoutLine> lines, List<AntazonServerData.CartLine> remaining) { }
+
+    public record SellResult(boolean success, String status, long amount) {
+        static SellResult accepted(long amount) { return new SellResult(true, "shipment_launched", amount); }
+        static SellResult failed(String status) { return new SellResult(false, status, 0L); }
+    }
+
+    public record PrepareResult(boolean success, String status, int amount, long value) {
+        public static PrepareResult accepted(int amount, long value) { return new PrepareResult(true, "prepared", amount, value); }
+        public static PrepareResult failed(String status) { return new PrepareResult(false, status, 0, 0L); }
+    }
+
+    private record ShipmentPlan(Manifest manifest, List<ItemStack> acceptedContents, List<ItemStack> excessContents, Map<String, Integer> soldByLimit) { }
+
+    public record Manifest(List<ManifestEntry> entries, long total, String status, int acceptedCount, int excessCount) {
+        static Manifest failed(String status) { return new Manifest(List.of(), 0L, status, 0, 0); }
+        boolean ready() { return (status.isBlank() || status.equals("partial_shipment")) && total > 0L; }
+    }
+
+    public record SellAllowance(int limit, int used, int remaining, String reset, boolean locked) { }
+
+    public record ManifestEntry(Identifier item, int count, long value, boolean sellable, boolean greenTint, boolean renderMobFromSpawnEgg,
+                                int limit, String limitReset, int remaining, int acceptedCount, int returnedCount, boolean overLimit, boolean locked, String unlockMode,
+                                List<Identifier> unlockTasks, List<Identifier> unlockDisks, List<Identifier> unlockCommands) { }
+
+    public record ReviewResult(boolean success, String status) {
+        static ReviewResult accepted() { return new ReviewResult(true, "review_accepted"); }
+        static ReviewResult failed(String status) { return new ReviewResult(false, status); }
+    }
+}

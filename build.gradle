@@ -14,6 +14,8 @@ allprojects {
         maven { url 'https://maven.architectury.dev/' }
         maven { url 'https://maven.fabricmc.net/' }
         maven { url 'https://maven.neoforged.net/releases' }
+        maven { url 'https://api.modrinth.com/maven' }
+        maven { url 'https://cursemaven.com' }
         maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
         mavenCentral()
     }
@@ -30,6 +32,16 @@ allprojects {
 
 tasks.named('jar') { enabled = false }
 
+['build', 'assemble', 'clean', 'runClient', 'runServer'].each { taskName ->
+    tasks.register("forge120${taskName.capitalize()}", Exec) {
+        group = 'forge-1.20.1'
+        description = "Runs '${taskName}' with the Forge 1.20.1 wrapper"
+        workingDir = file('forge-1.20.1')
+        environment 'GRADLE_USER_HOME', gradle.gradleUserHomeDir.absolutePath
+        commandLine file("forge-1.20.1/${providers.systemProperty('os.name').get().toLowerCase().contains('win') ? 'gradlew.bat' : 'gradlew'}").absolutePath, taskName
+    }
+}
+
 [
     fabric121: [projectPath: 'fabric-1.21.1', taskGroup: 'fabric-1.21.1'],
     neoforge121: [projectPath: 'neoforge-1.21.1', taskGroup: 'neoForge-1.21.1']
@@ -40,6 +52,20 @@ tasks.named('jar') { enabled = false }
             group = loader.taskGroup
             description = "Runs ':${projectPath}:${taskName}' from the AntOS root project"
             dependsOn(":${projectPath}:${taskName}")
+        }
+    }
+}
+
+['26.1': '261', '26.2': '262', '26.3': '263'].each { version, suffix ->
+    ['fabric', 'neoforge'].each { loader ->
+        def prefix = "${loader}${suffix}"
+        def projectPath = "${loader}-${version}"
+        ['build', 'assemble', 'clean', 'runClient', 'runServer'].each { taskName ->
+            tasks.register("${prefix}${taskName.capitalize()}") {
+                group = "${loader}-${version}"
+                description = "Runs ':${projectPath}:${taskName}' from the AntOS root project"
+                dependsOn(":${projectPath}:${taskName}")
+            }
         }
     }
 }

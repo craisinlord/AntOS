@@ -1,0 +1,27 @@
+{
+  "blend": { "func": "add", "srcrgb": "srcalpha", "dstrgb": "1-srcalpha" },
+  "vertex": "antos:task_shape",
+  "fragment": "antos:task_shape",
+  "attributes": ["Position", "UV0"],
+  "samplers": [],
+  "uniforms": [
+    { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
+    { "name": "ProjMat", "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
+    { "name": "ColorModulator", "type": "float", "count": 4, "values": [1,1,1,1] },
+    { "name": "SideCount", "type": "int", "count": 1, "values": [0] },
+    { "name": "ShapeSize", "type": "float", "count": 1, "values": [32] },
+    { "name": "BorderWidth", "type": "float", "count": 1, "values": [2] },
+    { "name": "HoverWidth", "type": "float", "count": 1, "values": [0] },
+    { "name": "FillColor", "type": "float", "count": 4, "values": [0.04,0.09,0.04,1] },
+    { "name": "BorderColor", "type": "float", "count": 4, "values": [0,1,0,1] },
+    { "name": "HoverColor", "type": "float", "count": 4, "values": [0,1,0,1] },
+    { "name": "Vertex0", "type": "float", "count": 2, "values": [0.5,0.5] },
+    { "name": "Vertex1", "type": "float", "count": 2, "values": [0.5,0.5] },
+    { "name": "Vertex2", "type": "float", "count": 2, "values": [0.5,0.5] },
+    { "name": "Vertex3", "type": "float", "count": 2, "values": [0.5,0.5] },
+    { "name": "Vertex4", "type": "float", "count": 2, "values": [0.5,0.5] },
+    { "name": "Vertex5", "type": "float", "count": 2, "values": [0.5,0.5] },
+    { "name": "Vertex6", "type": "float", "count": 2, "values": [0.5,0.5] },
+    { "name": "Vertex7", "type": "float", "count": 2, "values": [0.5,0.5] }
+  ]
+}

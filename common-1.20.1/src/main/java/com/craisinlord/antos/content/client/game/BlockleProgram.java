@@ -1,0 +1,156 @@
+package com.craisinlord.antos.content.client.game;
+
+import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
+import com.craisinlord.antos.content.network.ComputerNetworking;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public final class BlockleProgram {
+    private final List<String> guesses = new ArrayList<>();
+    private final List<String> colors = new ArrayList<>();
+    private String input = "";
+    private String status = "LOADING...";
+    private String phase = "PLAYING";
+    private String answer = "";
+    private ResourceLocation answerId;
+    private long day = -1L;
+    private boolean installed;
+    private boolean pending;
+    private boolean received;
+    private long lastResponseRevision = -1L;
+    private String rewardPopup = "";
+    private long rewardPopupUntil;
+
+    public void setInstalled(boolean installed) {
+        this.installed = installed;
+        if (!installed) clear();
+    }
+
+    public boolean installed() {
+        return installed;
+    }
+
+    public void requestState() {
+        if (installed) ComputerNetworking.requestBlockleState();
+    }
+
+    public void tick() {
+        BlockleClientState.Update update = BlockleClientState.get();
+        if (update == null || update.revision() == lastResponseRevision) return;
+        lastResponseRevision = update.revision();
+        ComputerAccessResultPayload result = update.result();
+        String[] fields = result.data().split("\u0000", 3);
+        if (fields.length < 3 || (!fields[0].equals("24") && !fields[0].equals("25"))) return;
+        if (!fields[1].isBlank()) {
+            status = fields[1].toUpperCase();
+            pending = false;
+            return;
+        }
+        if (fields.length == 3) {
+            parse(fields[2]);
+            pending = false;
+            input = "";
+            received = true;
+        }
+    }
+
+    public boolean keyPressed(int keyCode) {
+        if (!installed) return false;
+        if (keyCode == 259) {
+            if (!input.isEmpty()) input = input.substring(0, input.length() - 1);
+            return true;
+        }
+        if (keyCode == 257 || keyCode == 335) {
+            if (!received) return true;
+            if (input.length() == 5 && phase.equals("PLAYING") && !pending) {
+                ComputerNetworking.submitBlockleGuess(input);
+                pending = true;
+                status = "SUBMITTING";
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public boolean charTyped(char codePoint) {
+        if (!installed || !received || phase.equals("SOLVED") || phase.equals("FAILED")) return false;
+        if (codePoint >= 'A' && codePoint <= 'Z') codePoint = Character.toLowerCase(codePoint);
+        if (codePoint >= 'a' && codePoint <= 'z' && input.length() < 5) {
+            input += codePoint;
+            status = "";
+            return true;
+        }
+        return false;
+    }
+
+    public void render(GuiGraphics graphics, Font font, int x, int y, int width, int height) {
+        BlockleRenderer.render(graphics, font, x, y, width, height, guesses, colors, input, status, phase, answerId);
+        if (!rewardPopup.isEmpty() && System.currentTimeMillis() < rewardPopupUntil) {
+            int popupWidth = Math.min(width - 8, font.width(rewardPopup) + 20);
+            int popupX = x + (width - popupWidth) / 2;
+            int popupY = y + 42;
+            graphics.fill(popupX, popupY, popupX + popupWidth, popupY + 24, 0xEE17351C);
+            graphics.renderOutline(popupX, popupY, popupWidth, 24, 0xFF65FF65);
+            graphics.drawCenteredString(font, Component.literal(rewardPopup), x + width / 2, popupY + 8, 0xFFFFFFFF);
+        } else if (System.currentTimeMillis() >= rewardPopupUntil) {
+            rewardPopup = "";
+        }
+    }
+
+    private void parse(String encoded) {
+        String[] values = encoded.split("\\|");
+        if (values.length == 0) return;
+        try { day = Long.parseLong(values[0]); } catch (NumberFormatException ignored) { return; }
+        for (int index = 1; index + 1 < values.length; index++) {
+            if (values[index].equals("REWARD")) {
+                rewardPopup = "Great job! You earned " + values[index + 1] + " " + com.craisinlord.antos.content.client.AntOSPlayerText.currencyName();
+                rewardPopupUntil = System.currentTimeMillis() + 3500L;
+                break;
+            }
+        }
+        guesses.clear();
+        colors.clear();
+        phase = "PLAYING";
+        answer = "";
+        for (int index = 1; index < values.length; index++) {
+            String value = values[index];
+            if (value.equals("PLAYING") || value.equals("SOLVED") || value.equals("FAILED")) {
+                phase = value;
+                if (index + 1 < values.length && (phase.equals("SOLVED") || phase.equals("FAILED"))) {
+                    answer = values[index + 1];
+                    if (index + 2 < values.length) {
+                        try { answerId = ResourceLocation.tryParse(values[index + 2]); } catch (IllegalArgumentException ignored) { answerId = null; }
+                    }
+                }
+                break;
+            }
+            String[] guess = value.split(",", 2);
+            if (guess.length == 2 && guess[0].length() == 5 && guess[1].length() == 5) {
+                guesses.add(guess[0]);
+                colors.add(guess[1]);
+            }
+        }
+        status = phase.equals("FAILED") && !answer.isBlank() ? "ANSWER: " + answer.toUpperCase() : phase.equals("PLAYING") ? "" : phase;
+    }
+
+    private void clear() {
+        guesses.clear();
+        colors.clear();
+        input = "";
+        status = "LOADING...";
+        phase = "PLAYING";
+        answer = "";
+        answerId = null;
+        rewardPopup = "";
+        rewardPopupUntil = 0L;
+        day = -1L;
+        pending = false;
+        received = false;
+        lastResponseRevision = -1L;
+    }
+}

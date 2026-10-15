@@ -1,0 +1,106 @@
+package com.craisinlord.antos.content.client;
+
+import com.craisinlord.antos.content.network.ComputerAccessPayload;
+import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class ComputerFileSystemClientState {
+    private static final Map<String, State> STATES = new ConcurrentHashMap<>();
+
+    private ComputerFileSystemClientState() {
+    }
+
+    public static void clearAll() { STATES.clear(); }
+
+    public static void update(ComputerAccessResultPayload payload) {
+        if (payload.data().isEmpty()) return;
+        int separator = payload.data().indexOf('\0');
+        if (separator < 1 || separator > 3) return;
+        int action;
+        try {
+            action = Integer.parseInt(payload.data().substring(0, separator));
+        } catch (NumberFormatException ignored) {
+            return;
+        }
+        if (action != ComputerAccessPayload.FILE_LIST
+                && action != ComputerAccessPayload.FILE_OPEN
+                && action != ComputerAccessPayload.FILE_CREATE
+                && action != ComputerAccessPayload.FILE_SAVE
+                && action != ComputerAccessPayload.FILE_DELETE
+                && action != ComputerAccessPayload.FILE_MOVE
+                && action != ComputerAccessPayload.FILE_CREATE_DIRECTORY
+                && action != ComputerAccessPayload.FILE_DELETE_TREE) {
+            return;
+        }
+        String[] envelope = payload.data().split("\u0000", 3);
+        if (envelope.length < 3) return;
+        State state = STATES.computeIfAbsent(ComputerWorkspaceClientKey.of(), ignored -> new State());
+        state.success = payload.result() == ComputerAccessResultPayload.SUCCESS;
+        state.error = envelope[1];
+        if (state.success) state.error = "";
+        if (action == ComputerAccessPayload.FILE_CREATE || action == ComputerAccessPayload.FILE_SAVE
+                || action == ComputerAccessPayload.FILE_DELETE || action == ComputerAccessPayload.FILE_MOVE
+                || action == ComputerAccessPayload.FILE_CREATE_DIRECTORY || action == ComputerAccessPayload.FILE_DELETE_TREE) {
+            state.lastMutationAction = action;
+            state.lastMutationPath = envelope[2];
+            state.lastMutationSuccess = state.success;
+            state.lastMutationError = envelope[1];
+            state.mutationSerial++;
+        }
+        if (action == ComputerAccessPayload.FILE_LIST) {
+            state.files = new ArrayList<>();
+            if (state.success && !envelope[2].isEmpty()) state.files.addAll(List.of(envelope[2].split("\\n")));
+        } else if (action == ComputerAccessPayload.FILE_OPEN) {
+            if (state.success) {
+                String[] file = envelope[2].split("\u0000", 2);
+                if (file.length == 2) {
+                    state.openedPath = file[0];
+                    state.openedContents = file[1];
+                    state.openSerial++;
+                }
+            } else {
+                state.openedPath = "";
+                state.openedContents = "";
+            }
+        } else if ((action == ComputerAccessPayload.FILE_DELETE || action == ComputerAccessPayload.FILE_MOVE || action == ComputerAccessPayload.FILE_DELETE_TREE) && state.success) {
+            state.openedPath = "";
+            state.openedContents = "";
+        }
+    }
+
+    public static State get() {
+        return STATES.computeIfAbsent(ComputerWorkspaceClientKey.of(), ignored -> new State());
+    }
+
+    public static final class State {
+        private List<String> files = List.of();
+        private String openedPath = "";
+        private String openedContents = "";
+        private String error = "";
+        private boolean success;
+        private int lastMutationAction = -1;
+        private String lastMutationPath = "";
+        private boolean lastMutationSuccess;
+        private String lastMutationError = "";
+        private int mutationSerial;
+        private int openSerial;
+
+        public List<String> files() { return List.copyOf(files); }
+        public String openedPath() { return openedPath; }
+        public String openedContents() { return openedContents; }
+        public String error() { return error; }
+        public boolean success() { return success; }
+        public int lastMutationAction() { return lastMutationAction; }
+        public String lastMutationPath() { return lastMutationPath; }
+        public boolean lastMutationSuccess() { return lastMutationSuccess; }
+        public String lastMutationError() { return lastMutationError; }
+        public int mutationSerial() { return mutationSerial; }
+        public int openSerial() { return openSerial; }
+    }
+}
+
+

@@ -1,0 +1,91 @@
+plugins { id 'net.fabricmc.fabric-loom' }
+
+base { archivesName = "antos-fabric-26.2" }
+
+def generatedVersionSource = layout.buildDirectory.file('generated/sources/antosVersion/java/com/craisinlord/antos/AntOSBuildVersion.java')
+tasks.register('generateAntOSVersion') {
+    inputs.property 'version', project.version
+    outputs.file generatedVersionSource
+    doLast {
+        def sourceFile = generatedVersionSource.get().asFile
+        sourceFile.parentFile.mkdirs()
+        sourceFile.text = "package com.craisinlord.antos;\n\npublic final class AntOSBuildVersion {\n    public static final String VALUE = \"${project.version}\";\n\n    private AntOSBuildVersion() {}\n}\n"
+    }
+}
+sourceSets.main.java.srcDir(generatedVersionSource.map { it.asFile.parentFile })
+tasks.named('compileJava') { dependsOn tasks.named('generateAntOSVersion') }
+tasks.named('sourcesJar') { dependsOn tasks.named('generateAntOSVersion') }
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    withSourcesJar()
+}
+
+sourceSets.main {
+    java.srcDirs += project(':common-26.2').sourceSets.main.java.srcDirs
+    resources.srcDirs += project(':common-26.2').sourceSets.main.resources.srcDirs
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version_26_2}"
+    implementation "net.fabricmc:fabric-loader:${fabric_loader_version_26_2}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_26_2}"
+    implementation "maven.modrinth:geckolib:${geckolib_modrinth_version_fabric_26_2}"
+    compileOnly "dev.ftb.mods:ftb-quests-fabric:${ftb_quests_version_26_1}"
+    compileOnly "dev.ftb.mods:ftb-library:${ftb_library_version_26_1}"
+    compileOnly("dev.ftb.mods:ftb-library-fabric:${ftb_library_version_26_1}") { transitive = false }
+    compileOnly "dev.ftb.mods:ftb-teams:${ftb_teams_version_26_1}"
+    compileOnly("dev.ftb.mods:ftb-teams-fabric:${ftb_teams_version_26_1}") { transitive = false }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', minecraft_version_26_2
+    inputs.property 'fabric_loader_version', fabric_loader_version_26_2
+    filesMatching('fabric.mod.json') {
+        expand version: project.version,
+                minecraft_version: minecraft_version_26_2,
+                fabric_loader_version: fabric_loader_version_26_2
+    }
+}
+
+
+def commonTestClasses = layout.buildDirectory.dir('classes/java/commonTest')
+
+tasks.register('compileCommonTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source fileTree('../common-26.2/src/test/java') { include '**/*.java' }
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = commonTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+def commonTests = [
+        accountTest          : ['com.craisinlord.antos.content.computer.ComputerWorkspaceDataAccountTest', 'Runs automated Anternet account credential tests.'],
+        taskAppearanceTest   : ['com.craisinlord.antos.content.guide.TaskAppearanceTest', 'Runs task appearance parsing and shape geometry tests.'],
+        taskShapeShaderTest  : ['com.craisinlord.antos.content.client.renderer.TaskShapeShaderTest', 'Verifies task shape distance geometry, theme remapping, and fallback coverage.'],
+        diskCollectionTest   : ['com.craisinlord.antos.content.computer.DiskCollectionTest', 'Verifies disk collection persistence, profile isolation, and old save migration.'],
+        diskDefinitionTest   : ['com.craisinlord.antos.content.guide.DiskDefinitionTest', 'Verifies backward compatible disk definitions and Library metadata.'],
+        antazonDiskUnlockTest: ['com.craisinlord.antos.content.antazon.AntazonDiskUnlockTest', 'Verifies mixed task and disk requirements and unlock notification transitions.'],
+        diskEngineTest       : ['com.craisinlord.antos.content.computer.DiskEngineTest', 'Verifies disk activation, files, encryption, programs, and subscriptions.']
+]
+
+commonTests.each { name, spec ->
+    tasks.register(name, JavaExec) {
+        group = 'verification'
+        description = spec[1]
+        dependsOn tasks.named('compileCommonTests')
+        classpath = files(commonTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+        mainClass = spec[0]
+        args rootProject.projectDir.absolutePath
+        workingDir = layout.buildDirectory.dir('disk-stage-tests').get().asFile
+        doFirst { workingDir.mkdirs() }
+    }
+}
+
+tasks.register('runCommonTests') {
+    group = 'verification'
+    description = 'Runs every common test suite.'
+    dependsOn commonTests.keySet()
+}

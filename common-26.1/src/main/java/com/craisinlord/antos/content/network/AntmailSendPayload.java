@@ -1,0 +1,16 @@
+package com.craisinlord.antos.content.network;
+
+import com.craisinlord.antos.AntOS;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
+
+public record AntmailSendPayload(String recipient, String subject, String body, String attachments) implements CustomPacketPayload {
+    public static final Type<AntmailSendPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(AntOS.MODID, "antmail_send"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, AntmailSendPayload> STREAM_CODEC = StreamCodec.composite(ByteBufCodecs.stringUtf8(64), AntmailSendPayload::recipient, ByteBufCodecs.stringUtf8(64), AntmailSendPayload::subject, ByteBufCodecs.stringUtf8(16384), AntmailSendPayload::body, ByteBufCodecs.stringUtf8(65536), AntmailSendPayload::attachments, AntmailSendPayload::new);
+    @Override public Type<AntmailSendPayload> type() { return TYPE; }
+}
+
+

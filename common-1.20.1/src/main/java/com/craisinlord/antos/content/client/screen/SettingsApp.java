@@ -1,0 +1,837 @@
+package com.craisinlord.antos.content.client.screen;
+
+import com.craisinlord.antos.AntOS;
+import com.craisinlord.antos.config.AntOSSettings;
+import com.craisinlord.antos.content.client.AntazonClientState;
+import com.craisinlord.antos.content.client.AntmailClientState;
+import com.craisinlord.antos.content.client.AnternetAccountClientState;
+import com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState;
+import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
+import com.craisinlord.antos.content.client.ComputerNotificationClientState;
+import com.craisinlord.antos.content.client.ComputerTasksClientState;
+import com.craisinlord.antos.content.client.ComputerTheme;
+import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
+import com.craisinlord.antos.content.computer.ComputerFileSystem;
+import com.craisinlord.antos.content.guide.ComputerGuideData;
+import com.craisinlord.antos.content.network.AntmailNetworking;
+import com.craisinlord.antos.content.network.AnternetAccountNetworking;
+import com.craisinlord.antos.content.network.AnternetAccountResultPayload;
+import com.craisinlord.antos.content.network.ComputerNetworking;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
+
+import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
+import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
+import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
+import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
+import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
+
+final class SettingsApp extends ComputerApp {
+    private static final int SIDEBAR = 96;
+    private static final int ROW = 18;
+    private static final int SELECTED_FILL = 0xFF204820;
+    private static final String[] CATEGORIES = {"account", "personalize", "apps", "notifications", "storage", "help", "about"};
+    private static final String[] ALERT_STYLES = {"toast", "actionbar", "both", "off"};
+    private static final String[][] SHORTCUTS = {
+            {"text", "save"}, {"text", "save_as"}, {"text", "open"}, {"text", "new"}, {"text", "find"}, {"text", "rename"},
+            {"text", "delete"}, {"text", "undo"}, {"text", "redo"}, {"text", "select_all"}, {"text", "word"},
+            {"paint", "pencil"}, {"paint", "eraser"}, {"paint", "fill"}, {"paint", "line"}, {"paint", "rectangle"},
+            {"paint", "ellipse"}, {"paint", "grid"}, {"paint", "brush"}, {"paint", "undo"}, {"paint", "redo"},
+            {"paint", "invert"}, {"paint", "save"},
+            {"files", "open"}, {"files", "up"}, {"files", "rename"}, {"files", "delete"}, {"files", "new_folder"},
+            {"files", "move"}, {"files", "copy_path"}, {"files", "refresh"},
+            {"terminal", "complete"}, {"terminal", "history"}, {"terminal", "clear_line"}, {"terminal", "clear_screen"},
+            {"terminal", "cancel"}, {"terminal", "paste"}, {"terminal", "scroll"}
+    };
+
+    final State state = new State();
+    private final AppKit kit = new AppKit(this);
+    private final Field displayName = new Field(32, false);
+    private final Field iconItem = new Field(64, false);
+    private final Field search = new Field(32, false);
+    private final Field currentPassword = new Field(128, true);
+    private final Field newPassword = new Field(128, true);
+    private final Field confirmPassword = new Field(128, true);
+    private Field focused;
+    private int contentTop;
+    private int contentBottom;
+    private int paneX;
+    private int paneW;
+    private int cursorY;
+    private boolean requested;
+    private boolean profileLoaded;
+    private boolean profilePending;
+    private Object profileBaseline;
+    private String profileStatus = "";
+    private int profileStatusColor = AppKit.MUTED;
+    private boolean passwordDialog;
+    private boolean passwordPending;
+    private long passwordRevision;
+    private String passwordError = "";
+    private String notice = "";
+    private long noticeUntil;
+    private String confirmAction = "";
+    private long confirmUntil;
+
+    void render(GuiGraphics g, int x, int y, int w, int h) {
+        if (!requested) {
+            requested = true;
+            ComputerNetworking.listFiles();
+            if (AntOSSettings.appEnabled("ANTMAIL") && AntmailClientState.get() == null) AntmailNetworking.requestState();
+            if (AntOSSettings.appEnabled("ANTAZON")) ComputerNetworking.requestAntazonWallet();
+        }
+        syncProfile();
+        syncPassword();
+        if (!confirmAction.isEmpty() && System.currentTimeMillis() > confirmUntil) confirmAction = "";
+        kit.begin();
+        kit.suppressHover(passwordDialog);
+        boolean narrow = w < 300;
+        if (narrow && state.showList) {
+            renderCategoryList(g, x, y, w, h);
+        } else {
+            int left = x;
+            int width = w;
+            if (!narrow) {
+                renderSidebar(g, x, y, h);
+                left = x + SIDEBAR + 8;
+                width = w - SIDEBAR - 8;
+            }
+            renderPane(g, left, y, width, h, narrow);
+        }
+        if (passwordDialog) renderPasswordDialog(g, x, y, w, h);
+        kit.drawTooltip(g, x, y, x + w, y + h);
+    }
+
+    private void renderSidebar(GuiGraphics g, int x, int y, int h) {
+        g.fill(x, y, x + SIDEBAR, y + h, AppKit.PANEL);
+        g.fill(x + SIDEBAR, y, x + SIDEBAR + 1, y + h, DARK_GREEN);
+        g.drawString(font, Component.literal(tr("title")), x + 6, y + 5, GREEN, false);
+        g.fill(x + 4, y + 16, x + SIDEBAR - 4, y + 17, DARK_GREEN);
+        int rowY = y + 21;
+        for (String category : CATEGORIES) {
+            boolean selected = state.category.equals(category);
+            boolean hover = kit.hovered(x + 2, rowY, SIDEBAR - 4, 19);
+            if (selected || hover) g.fill(x + 2, rowY, x + SIDEBAR - 2, rowY + 19, selected ? SELECTED_FILL : HOVER_FILL);
+            if (selected) g.fill(x + 2, rowY, x + 4, rowY + 19, GREEN);
+            g.drawString(font, Component.literal(screen.trimToWidth(tr("category." + category), SIDEBAR - 14)), x + 8, rowY + 6, selected ? PALE_GREEN : GREEN, false);
+            kit.hit(x + 2, rowY, SIDEBAR - 4, 19, () -> select(category));
+            rowY += 21;
+        }
+    }
+
+    private void renderCategoryList(GuiGraphics g, int x, int y, int w, int h) {
+        g.drawString(font, Component.literal(tr("title")), x, y + 3, GREEN, false);
+        g.fill(x, y + 14, x + w, y + 15, DARK_GREEN);
+        int rowY = y + 19;
+        for (String category : CATEGORIES) {
+            boolean hover = kit.hovered(x, rowY, w, 20);
+            g.fill(x, rowY, x + w, rowY + 20, hover ? HOVER_FILL : AppKit.PANEL);
+            g.drawString(font, Component.literal(tr("category." + category)), x + 6, rowY + 6, hover ? GREEN : PALE_GREEN, false);
+            g.drawString(font, Component.literal(">"), x + w - 10, rowY + 6, AppKit.MUTED, false);
+            kit.hit(x, rowY, w, 20, () -> select(category));
+            rowY += 22;
+        }
+    }
+
+    private void select(String category) {
+        state.category = category;
+        state.scroll = 0;
+        state.showList = false;
+        focused = null;
+    }
+
+    private void renderPane(GuiGraphics g, int x, int y, int w, int h, boolean narrow) {
+        paneX = x;
+        paneW = w;
+        int titleX = x;
+        if (narrow) {
+            int backWidth = kit.labelWidth("<");
+            kit.button(g, x, y, backWidth, 15, "<", false, true, tr("tip.back"), () -> state.showList = true);
+            titleX += backWidth + 6;
+        }
+        g.drawString(font, Component.literal(tr("category." + state.category)), titleX, y + 4, GREEN, false);
+        if (System.currentTimeMillis() < noticeUntil) {
+            String shown = screen.trimToWidth(notice, Math.max(10, w / 2));
+            g.drawString(font, Component.literal(shown), x + w - font.width(shown), y + 4, PALE_GREEN, false);
+        }
+        g.fill(x, y + 15, x + w, y + 16, DARK_GREEN);
+        contentTop = y + 19;
+        contentBottom = y + h;
+        int viewHeight = contentBottom - contentTop;
+        screen.enableComputerScissor(g, x, contentTop, x + w, contentBottom);
+        kit.clip(x, contentTop, w, viewHeight);
+        cursorY = contentTop + 2 - state.scroll;
+        try {
+            switch (state.category) {
+                case "account" -> renderAccount(g);
+                case "personalize" -> renderPersonalize(g);
+                case "apps" -> renderApps(g);
+                case "notifications" -> renderNotifications(g);
+                case "storage" -> renderStorage(g);
+                case "help" -> renderHelp(g);
+                default -> renderAbout(g);
+            }
+        } finally {
+            kit.unclip();
+            g.disableScissor();
+        }
+        int contentHeight = cursorY + state.scroll - contentTop;
+        state.maximumScroll = Math.max(0, contentHeight - viewHeight);
+        state.scroll = Math.max(0, Math.min(state.maximumScroll, state.scroll));
+        kit.scrollbar(g, x + w - 3, contentTop, viewHeight, viewHeight, contentHeight, state.scroll, state.maximumScroll, value -> state.scroll = value);
+    }
+
+    private int innerWidth() {
+        return paneW - 8;
+    }
+
+    private void heading(GuiGraphics g, String key) {
+        cursorY += 4;
+        g.drawString(font, Component.literal(tr(key)), paneX, cursorY, AppKit.MUTED, false);
+        g.fill(paneX, cursorY + 10, paneX + innerWidth(), cursorY + 11, DARK_GREEN);
+        cursorY += 15;
+    }
+
+    private void label(GuiGraphics g, String text, int color) {
+        for (var line : font.split(Component.literal(text), innerWidth())) {
+            g.drawString(font, line, paneX, cursorY, color, false);
+            cursorY += 11;
+        }
+    }
+
+    private void valueRow(GuiGraphics g, String label, String value) {
+        int valueWidth = Math.min(font.width(value), innerWidth() / 2);
+        String shown = screen.trimToWidth(value, valueWidth);
+        g.drawString(font, Component.literal(screen.trimToWidth(label, innerWidth() - valueWidth - 8)), paneX, cursorY + 4, PALE_GREEN, false);
+        g.drawString(font, Component.literal(shown), paneX + innerWidth() - font.width(shown), cursorY + 4, GREEN, false);
+        cursorY += ROW;
+    }
+
+    private void toggleRow(GuiGraphics g, String label, boolean value, Consumer<Boolean> change) {
+        int width = innerWidth();
+        boolean hover = kit.hovered(paneX, cursorY, width, ROW - 2);
+        if (hover) g.fill(paneX, cursorY, paneX + width, cursorY + ROW - 2, HOVER_FILL);
+        g.drawString(font, Component.literal(screen.trimToWidth(label, width - 40)), paneX + 3, cursorY + 4, PALE_GREEN, false);
+        int trackX = paneX + width - 28;
+        int trackY = cursorY + 2;
+        g.fill(trackX, trackY, trackX + 24, trackY + 12, value ? 0xFF2A6A2A : DARK_GREEN);
+        kit.outline(g, trackX, trackY, 24, 12, value ? GREEN : AppKit.SOFT);
+        int knobX = value ? trackX + 14 : trackX + 2;
+        g.fill(knobX, trackY + 2, knobX + 8, trackY + 10, value ? PALE_GREEN : AppKit.MUTED);
+        kit.hit(paneX, cursorY, width, ROW - 2, () -> change.accept(!value));
+        cursorY += ROW;
+    }
+
+    private void choiceRow(GuiGraphics g, String label, String[] values, String prefix, String selected, Consumer<String> change) {
+        int width = innerWidth();
+        int[] widths = new int[values.length];
+        int total = 0;
+        for (int index = 0; index < values.length; index++) {
+            widths[index] = Math.max(30, font.width(tr(prefix + values[index])) + 10);
+            total += widths[index] + 3;
+        }
+        int labelWidth = font.width(label);
+        boolean inline = labelWidth + 10 + total <= width;
+        g.drawString(font, Component.literal(screen.trimToWidth(label, width)), paneX + 3, cursorY + 5, PALE_GREEN, false);
+        int chipX = inline ? paneX + width - total + 3 : paneX + 3;
+        int chipY = inline ? cursorY : cursorY + 14;
+        for (int index = 0; index < values.length; index++) {
+            String value = values[index];
+            screen.drawFilterButton(g, chipX, chipY, widths[index], value.equals(selected), tr(prefix + value));
+            kit.hit(chipX, chipY, widths[index], 17, () -> change.accept(value));
+            chipX += widths[index] + 3;
+        }
+        cursorY += inline ? ROW + 2 : ROW + 16;
+    }
+
+    private void buttonRow(GuiGraphics g, String label, String button, boolean danger, Runnable action) {
+        int width = innerWidth();
+        int buttonWidth = Math.max(56, kit.labelWidth(button));
+        g.drawString(font, Component.literal(screen.trimToWidth(label, width - buttonWidth - 8)), paneX + 3, cursorY + 5, danger ? AppKit.ERROR : PALE_GREEN, false);
+        kit.button(g, paneX + width - buttonWidth, cursorY, buttonWidth, 16, button, false, true, action);
+        cursorY += ROW + 2;
+    }
+
+    private void field(GuiGraphics g, String label, Field field, String placeholder) {
+        g.drawString(font, Component.literal(label), paneX + 3, cursorY, AppKit.MUTED, false);
+        cursorY += 10;
+        kit.field(g, paneX, cursorY, innerWidth(), 18, field.shown(), field.cursor, focused == field, placeholder);
+        kit.hit(paneX, cursorY, innerWidth(), 18, () -> focus(field));
+        cursorY += 22;
+    }
+
+    private void focus(Field field) {
+        focused = field;
+        field.cursor = field.value.length();
+    }
+
+    private void renderAccount(GuiGraphics g) {
+        var account = AnternetAccountClientState.latest();
+        String username = account == null || account.username() == null ? "-" : account.username();
+        heading(g, "account.signed_in");
+        valueRow(g, tr("account.username"), username);
+        heading(g, "account.profile");
+        if (!AntOSSettings.appEnabled("ANTMAIL")) {
+            label(g, tr("account.profile_unavailable"), AppKit.MUTED);
+        } else if (!profileLoaded) {
+            label(g, tr("account.profile_loading"), AppKit.MUTED);
+        } else {
+            field(g, tr("account.display_name"), displayName, tr("account.display_name_placeholder"));
+            field(g, tr("account.icon_item"), iconItem, tr("account.icon_item_placeholder"));
+            int saveWidth = Math.max(70, kit.labelWidth(tr("account.save_profile")));
+            kit.button(g, paneX + innerWidth() - saveWidth, cursorY, saveWidth, 16, tr("account.save_profile"), false, !profilePending, this::saveProfile);
+            int mailWidth = Math.max(70, kit.labelWidth(tr("account.open_mail")));
+            kit.button(g, paneX + innerWidth() - saveWidth - mailWidth - 4, cursorY, mailWidth, 16, tr("account.open_mail"), false, true, () -> screen.open("ANTMAIL"));
+            if (!profileStatus.isEmpty()) g.drawString(font, Component.literal(screen.trimToWidth(profileStatus, innerWidth() - saveWidth - mailWidth - 10)), paneX + 3, cursorY + 4, profileStatusColor, false);
+            cursorY += ROW + 2;
+        }
+        heading(g, "account.security");
+        buttonRow(g, tr("account.password"), tr("account.change_password"), false, this::openPasswordDialog);
+        boolean linked = AnternetAccountClientState.faceIdLinked();
+        boolean mine = screen.faceIdLinkedToCurrentAccount();
+        String faceStatus = linked ? mine ? tr("face_id.on") : tr("face_id.in_use") : tr("face_id.off");
+        String faceButton = linked && mine ? tr("face_id.unlink") : tr("face_id.link");
+        if (linked && !mine) valueRow(g, tr("face_id.label"), faceStatus);
+        else buttonRow(g, tr("face_id.label") + "  " + faceStatus, faceButton, false, this::toggleFaceId);
+        if (!screen.faceIdMessage.isBlank()) label(g, screen.faceIdMessage, AppKit.MUTED);
+        heading(g, "account.session");
+        buttonRow(g, tr("account.log_out_hint"), tr("account.log_out"), true, this::logout);
+    }
+
+    private void renderPersonalize(GuiGraphics g) {
+        heading(g, "personalize.theme");
+        int width = innerWidth();
+        int columns = Math.max(2, Math.min(3, width / 64));
+        int tileWidth = (width - (columns - 1) * 4) / columns;
+        ComputerTheme active = ComputerTheme.active();
+        ComputerTheme[] themes = ComputerTheme.values();
+        for (int index = 0; index < themes.length; index++) {
+            ComputerTheme theme = themes[index];
+            int column = index % columns;
+            int row = index / columns;
+            int tileX = paneX + column * (tileWidth + 4);
+            int tileY = cursorY + row * 34;
+            boolean selected = theme == active;
+            boolean hover = kit.hovered(tileX, tileY, tileWidth, 30);
+            g.fill(tileX, tileY, tileX + tileWidth, tileY + 30, hover || selected ? HOVER_FILL : AppKit.PANEL);
+            kit.outline(g, tileX, tileY, tileWidth, 30, selected ? PALE_GREEN : hover ? GREEN : DARK_GREEN);
+            ComputerTheme.pause();
+            try {
+                g.fill(tileX + 5, tileY + 5, tileX + 25, tileY + 25, theme.apply(0xFF030603));
+                g.fill(tileX + 7, tileY + 9, tileX + 23, tileY + 11, theme.apply(0xFF65FF65));
+                g.fill(tileX + 7, tileY + 14, tileX + 19, tileY + 16, theme.apply(0xFFB8FFB8));
+                g.fill(tileX + 7, tileY + 19, tileX + 21, tileY + 21, theme.apply(0xFF315531));
+                kit.outline(g, tileX + 5, tileY + 5, 20, 20, theme.apply(0xFF65FF65));
+            } finally {
+                ComputerTheme.resume();
+            }
+            g.drawString(font, Component.literal(screen.trimToWidth(tr("theme." + theme.id()), tileWidth - 32)), tileX + 30, tileY + 11, selected ? PALE_GREEN : GREEN, false);
+            kit.hit(tileX, tileY, tileWidth, 30, () -> ComputerTheme.select(theme));
+        }
+        cursorY += ((themes.length + columns - 1) / columns) * 34;
+        heading(g, "personalize.wallpaper");
+        List<ComputerGuideData.Wallpaper> wallpapers = screen.session.wallpaperPicker.unlockedWallpapers();
+        int thumbWidth = 64;
+        int thumbHeight = 36;
+        int perRow = Math.max(1, (width + 6) / (thumbWidth + 6));
+        for (int index = 0; index < wallpapers.size(); index++) {
+            ComputerGuideData.Wallpaper wallpaper = wallpapers.get(index);
+            int thumbX = paneX + (index % perRow) * (thumbWidth + 6);
+            int thumbY = cursorY + (index / perRow) * (thumbHeight + 6);
+            boolean selected = wallpaper.id().toString().equals(screen.session.wallpaperId);
+            boolean hover = kit.hovered(thumbX - 2, thumbY - 2, thumbWidth + 4, thumbHeight + 4);
+            screen.session.wallpaperPicker.drawWallpaperPreview(g, thumbX, thumbY, thumbWidth, thumbHeight, wallpaper.id().toString());
+            if (selected || hover) kit.outline(g, thumbX - 2, thumbY - 2, thumbWidth + 4, thumbHeight + 4, selected ? PALE_GREEN : GREEN);
+            if (hover) kit.tooltip(Component.translatable(wallpaper.titleKey()).getString());
+            kit.hit(thumbX - 2, thumbY - 2, thumbWidth + 4, thumbHeight + 4, () -> ComputerNetworking.selectWallpaper(wallpaper.id()));
+        }
+        cursorY += ((wallpapers.size() + perRow - 1) / perRow) * (thumbHeight + 6) + 2;
+        label(g, tr("personalize.wallpaper_hint"), AppKit.MUTED);
+    }
+
+    private void renderApps(GuiGraphics g) {
+        var preferences = AntOSSettings.preferences();
+        heading(g, "apps.text");
+        choiceRow(g, tr("apps.line_numbers"), new String[]{"auto", "on", "off"}, "choice.", preferences.editorLineNumbers,
+                value -> AntOSSettings.updatePreferences(p -> p.editorLineNumbers = value));
+        heading(g, "apps.paint");
+        toggleRow(g, tr("apps.paint_grid"), preferences.paintGrid, value -> {
+            AntOSSettings.updatePreferences(p -> p.paintGrid = value);
+            screen.session.paint.state.grid = value;
+        });
+        choiceRow(g, tr("apps.paint_brush"), new String[]{"1", "2", "3"}, "choice.brush_", String.valueOf(preferences.paintBrush), value -> {
+            int size = Integer.parseInt(value);
+            AntOSSettings.updatePreferences(p -> p.paintBrush = size);
+            screen.session.paint.state.brushSize = size;
+        });
+        heading(g, "apps.terminal");
+        toggleRow(g, tr("apps.terminal_history"), preferences.terminalKeepHistory, value -> {
+            AntOSSettings.updatePreferences(p -> p.terminalKeepHistory = value);
+            if (!value) AntOSSettings.clearTerminalHistory();
+        });
+        boolean confirmClear = confirmAction.equals("history");
+        buttonRow(g, tr("apps.terminal_clear_hint"), confirmClear ? tr("confirm") : tr("apps.terminal_clear"), confirmClear, () -> {
+            if (!confirmAction.equals("history")) {
+                confirm("history");
+                return;
+            }
+            confirmAction = "";
+            screen.session.terminal.clearHistory();
+            notice(tr("notice.history_cleared"));
+        });
+        heading(g, "apps.tasks");
+        choiceRow(g, tr("apps.tasks_zoom"), AntOSSettings.Preferences.TASK_MAP_ZOOMS.toArray(String[]::new), "choice.zoom_", preferences.taskMapZoom, value -> {
+            AntOSSettings.updatePreferences(p -> p.taskMapZoom = value);
+            screen.tasks.resetMapZoom();
+        });
+        heading(g, "apps.files");
+        toggleRow(g, tr("apps.files_places"), preferences.explorerPlaces, value -> {
+            AntOSSettings.updatePreferences(p -> p.explorerPlaces = value);
+            screen.session.files.state.sidebar = value;
+        });
+        choiceRow(g, tr("apps.files_sort"), new String[]{"name", "size"}, "choice.sort_", preferences.explorerSortBySize ? "size" : "name", value -> {
+            boolean size = value.equals("size");
+            AntOSSettings.updatePreferences(p -> p.explorerSortBySize = size);
+            screen.session.files.state.sortBySize = size;
+            screen.session.files.state.descending = false;
+        });
+    }
+
+    private void renderNotifications(GuiGraphics g) {
+        var preferences = AntOSSettings.preferences();
+        heading(g, "notifications.mail");
+        choiceRow(g, tr("notifications.style"), ALERT_STYLES, "choice.alert_", preferences.mailAlerts,
+                value -> AntOSSettings.updatePreferences(p -> p.mailAlerts = value));
+        toggleRow(g, tr("notifications.sound"), preferences.mailSound, value -> AntOSSettings.updatePreferences(p -> p.mailSound = value));
+        buttonRow(g, tr("notifications.test_hint"), tr("notifications.test"), false, () -> ComputerNotificationClientState.test("mail"));
+        heading(g, "notifications.tasks");
+        choiceRow(g, tr("notifications.style"), ALERT_STYLES, "choice.alert_", preferences.taskAlerts,
+                value -> AntOSSettings.updatePreferences(p -> p.taskAlerts = value));
+        toggleRow(g, tr("notifications.sound"), preferences.taskSound, value -> AntOSSettings.updatePreferences(p -> p.taskSound = value));
+        buttonRow(g, tr("notifications.test_hint"), tr("notifications.test"), false, () -> ComputerNotificationClientState.test("task"));
+        cursorY += 2;
+        label(g, tr("notifications.footer"), AppKit.MUTED);
+    }
+
+    private void renderStorage(GuiGraphics g) {
+        int textCount = 0;
+        int textBytes = 0;
+        int imageCount = 0;
+        int imageBytes = 0;
+        int folders = 0;
+        for (FileListing.Line line : FileListing.lines()) {
+            int size = 0;
+            if (line.size() != null) {
+                try {
+                    size = Integer.parseInt(line.size().trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            switch (line.type()) {
+                case "DIRECTORY" -> folders++;
+                case "IMAGE" -> {
+                    imageCount++;
+                    imageBytes += size;
+                }
+                default -> {
+                    textCount++;
+                    textBytes += size;
+                }
+            }
+        }
+        int used = textBytes + imageBytes;
+        int limit = ComputerFileSystem.MAX_TOTAL_SIZE;
+        heading(g, "storage.usage");
+        int width = innerWidth();
+        g.fill(paneX, cursorY, paneX + width, cursorY + 8, DARK_GREEN);
+        int textWidth = (int) Math.round(width * Math.min(1.0, textBytes / (double) limit));
+        int imageWidth = (int) Math.round(width * Math.min(1.0, imageBytes / (double) limit));
+        g.fill(paneX, cursorY, paneX + textWidth, cursorY + 8, GREEN);
+        g.fill(paneX + textWidth, cursorY, Math.min(paneX + width, paneX + textWidth + imageWidth), cursorY + 8, PALE_GREEN);
+        kit.outline(g, paneX, cursorY, width, 8, AppKit.SOFT);
+        cursorY += 12;
+        valueRow(g, tr("storage.used"), tr("storage.kilobytes", kilobytes(used), kilobytes(limit)));
+        valueRow(g, tr("storage.items"), tr("storage.count", ComputerFileSystemClientState.get().files().size(), ComputerFileSystem.MAX_NODES));
+        heading(g, "storage.breakdown");
+        legendRow(g, GREEN, tr("storage.text"), tr("storage.detail", textCount, kilobytes(textBytes)));
+        legendRow(g, PALE_GREEN, tr("storage.paintings"), tr("storage.detail", imageCount, kilobytes(imageBytes)));
+        legendRow(g, AppKit.SOFT, tr("storage.folders"), String.valueOf(folders));
+        cursorY += 4;
+        buttonRow(g, tr("storage.manage_hint"), tr("storage.open_files"), false, () -> screen.open("FILES"));
+    }
+
+    private void legendRow(GuiGraphics g, int color, String label, String value) {
+        g.fill(paneX + 3, cursorY + 4, paneX + 9, cursorY + 10, color);
+        int valueWidth = font.width(value);
+        g.drawString(font, Component.literal(label), paneX + 14, cursorY + 4, PALE_GREEN, false);
+        g.drawString(font, Component.literal(value), paneX + innerWidth() - valueWidth, cursorY + 4, GREEN, false);
+        cursorY += ROW - 2;
+    }
+
+    private void renderHelp(GuiGraphics g) {
+        heading(g, "help.tours");
+        buttonRow(g, tr("help.antos_tour"), tr("help.replay"), false, this::replayTour);
+        if (AntOSSettings.appEnabled("ANTAZON")) buttonRow(g, tr("help.antazon_tour"), tr("help.replay"), false, this::replayAntazon);
+        heading(g, "help.shortcuts");
+        field(g, tr("help.search"), search, tr("help.search_placeholder"));
+        String query = search.value.toLowerCase(Locale.ROOT).trim();
+        String currentApp = "";
+        int shown = 0;
+        for (String[] shortcut : SHORTCUTS) {
+            String app = shortcut[0];
+            String base = "shortcut." + app + "." + shortcut[1];
+            String keys = tr(base + ".keys");
+            String action = tr(base + ".action");
+            if (!query.isEmpty() && !keys.toLowerCase(Locale.ROOT).contains(query) && !action.toLowerCase(Locale.ROOT).contains(query)
+                    && !tr("shortcut_app." + app).toLowerCase(Locale.ROOT).contains(query)) continue;
+            if (!app.equals(currentApp)) {
+                currentApp = app;
+                cursorY += 3;
+                g.drawString(font, Component.literal(tr("shortcut_app." + app)), paneX, cursorY, GREEN, false);
+                cursorY += 12;
+            }
+            int keyWidth = Math.min(innerWidth() / 2, font.width(keys) + 8);
+            g.fill(paneX + 3, cursorY, paneX + 3 + keyWidth, cursorY + 12, AppKit.PANEL);
+            kit.outline(g, paneX + 3, cursorY, keyWidth, 12, AppKit.SOFT);
+            g.drawString(font, Component.literal(screen.trimToWidth(keys, keyWidth - 6)), paneX + 7, cursorY + 2, PALE_GREEN, false);
+            g.drawString(font, Component.literal(screen.trimToWidth(action, innerWidth() - keyWidth - 14)), paneX + keyWidth + 10, cursorY + 2, AppKit.MUTED, false);
+            cursorY += 14;
+            shown++;
+        }
+        if (shown == 0) label(g, tr("help.no_matches"), AppKit.MUTED);
+    }
+
+    private void renderAbout(GuiGraphics g) {
+        heading(g, "about.system");
+        valueRow(g, tr("about.version"), AntOS.MOD_VERSION);
+        var account = AnternetAccountClientState.latest();
+        valueRow(g, tr("about.account"), account == null || account.username() == null ? "-" : account.username());
+        valueRow(g, tr("about.theme"), tr("theme." + ComputerTheme.active().id()));
+        heading(g, "about.stats");
+        int fileCount = 0;
+        for (String line : ComputerFileSystemClientState.get().files()) if (!line.startsWith("DIRECTORY\t")) fileCount++;
+        valueRow(g, tr("about.files"), String.valueOf(fileCount));
+        valueRow(g, tr("about.disks"), String.valueOf(ComputerArchiveUnlockClientState.collectedDisks().size()));
+        if (AntOSSettings.appEnabled("TASKS")) {
+            if (ComputerTasksClientState.hasSnapshot()) {
+                int total = 0;
+                int complete = 0;
+                for (var task : ComputerTasksClientState.get()) {
+                    if (!task.visible()) continue;
+                    total++;
+                    if (task.complete()) complete++;
+                }
+                valueRow(g, tr("about.tasks"), tr("about.tasks_value", complete, total));
+            } else valueRow(g, tr("about.tasks"), "-");
+        }
+        if (AntOSSettings.appEnabled("ANTAZON")) valueRow(g, tr("about.antcoins"), String.valueOf(AntazonClientState.wallet()));
+    }
+
+    private void renderPasswordDialog(GuiGraphics g, int x, int y, int w, int h) {
+        kit.suppressHover(false);
+        g.fill(x, y, x + w, y + h, 0xB0030603);
+        kit.block(x, y, w, h);
+        int pw = Math.min(w - 12, 240);
+        int ph = 150;
+        int px = x + (w - pw) / 2;
+        int py = y + Math.max(4, (h - ph) / 2);
+        g.fill(px, py, px + pw, py + ph, BLACK);
+        screen.box(g, px, py, px + pw, py + ph, GREEN);
+        g.drawString(font, Component.literal(tr("password.title")), px + 8, py + 7, GREEN, false);
+        int fieldY = py + 21;
+        Field[] fields = {currentPassword, newPassword, confirmPassword};
+        String[] labels = {tr("password.current"), tr("password.new"), tr("password.confirm")};
+        for (int index = 0; index < fields.length; index++) {
+            Field field = fields[index];
+            g.drawString(font, Component.literal(labels[index]), px + 8, fieldY, AppKit.MUTED, false);
+            kit.field(g, px + 8, fieldY + 9, pw - 16, 16, field.shown(), field.cursor, focused == field, "");
+            kit.hit(px + 8, fieldY + 9, pw - 16, 16, () -> focus(field));
+            fieldY += 29;
+        }
+        String message = passwordPending ? tr("password.working") : passwordError;
+        g.drawString(font, Component.literal(screen.trimToWidth(message, pw - 16)), px + 8, py + ph - 37, passwordPending ? AppKit.MUTED : AppKit.ERROR, false);
+        int buttonWidth = Math.max(56, kit.labelWidth(tr("password.submit")));
+        kit.button(g, px + pw - 8 - buttonWidth, py + ph - 24, buttonWidth, 18, tr("password.submit"), false, !passwordPending, this::submitPassword);
+        kit.button(g, px + pw - 12 - buttonWidth * 2, py + ph - 24, buttonWidth, 18, tr("password.cancel"), false, true, this::closePasswordDialog);
+    }
+
+    private void openPasswordDialog() {
+        currentPassword.set("");
+        newPassword.set("");
+        confirmPassword.set("");
+        passwordError = "";
+        passwordPending = false;
+        passwordDialog = true;
+        focused = currentPassword;
+    }
+
+    private void closePasswordDialog() {
+        passwordDialog = false;
+        passwordPending = false;
+        currentPassword.set("");
+        newPassword.set("");
+        confirmPassword.set("");
+        focused = null;
+    }
+
+    private void submitPassword() {
+        if (passwordPending) return;
+        if (currentPassword.value.isEmpty()) passwordError = tr("password.need_current");
+        else if (newPassword.value.isEmpty()) passwordError = tr("password.need_new");
+        else if (!newPassword.value.equals(confirmPassword.value)) passwordError = tr("password.mismatch");
+        else {
+            passwordError = "";
+            passwordPending = true;
+            passwordRevision = AnternetAccountClientState.passwordChangeRevision();
+            AnternetAccountNetworking.changePassword(currentPassword.value, newPassword.value);
+        }
+    }
+
+    private void syncPassword() {
+        if (!passwordPending || AnternetAccountClientState.passwordChangeRevision() == passwordRevision) return;
+        passwordPending = false;
+        int result = AnternetAccountClientState.passwordChangeResult();
+        if (result == AnternetAccountResultPayload.PASSWORD_CHANGED) {
+            closePasswordDialog();
+            notice(tr("password.changed"));
+            return;
+        }
+        passwordError = switch (result) {
+            case AnternetAccountResultPayload.PASSWORD_CHANGE_DENIED -> tr("password.denied");
+            case AnternetAccountResultPayload.PASSWORD_CHANGE_RATE_LIMITED -> tr("password.rate_limited");
+            default -> tr("password.invalid");
+        };
+    }
+
+    private void syncProfile() {
+        if (!AntOSSettings.appEnabled("ANTMAIL")) return;
+        var mailbox = AntmailClientState.getMailbox();
+        var result = mailbox != null ? mailbox : AntmailClientState.get();
+        if (!profileLoaded && result != null && result.address() != null && !result.address().isBlank()) {
+            var profile = AntmailClientState.getProfile(result.address());
+            if (profile != null) {
+                displayName.set(profile.displayName());
+                iconItem.set(profile.avatarItem());
+                profileLoaded = true;
+            }
+        }
+        var operation = AntmailClientState.get();
+        if (profilePending && operation != null && operation != profileBaseline
+                && (operation.detail().startsWith("profile_") || operation.detail().startsWith("invalid_")
+                || operation.detail().equals("unauthorized") || operation.detail().equals("unconfigured"))) {
+            profilePending = false;
+            profileBaseline = null;
+            boolean saved = operation.detail().equals("profile_saved");
+            profileStatus = saved ? tr("account.profile_saved")
+                    : operation.detail().equals("invalid_item_id") ? tr("account.profile_bad_item")
+                    : operation.detail().equals("invalid_display_name") ? tr("account.profile_bad_name")
+                    : tr("account.profile_failed");
+            profileStatusColor = saved ? PALE_GREEN : AppKit.ERROR;
+        }
+    }
+
+    private void saveProfile() {
+        if (profilePending) return;
+        profileBaseline = AntmailClientState.get();
+        profilePending = true;
+        profileStatus = tr("account.profile_saving");
+        profileStatusColor = AppKit.MUTED;
+        AntmailNetworking.updateProfile(displayName.value.trim(), iconItem.value.trim());
+    }
+
+    private void toggleFaceId() {
+        if (screen.faceIdWaiting) return;
+        screen.faceIdMessage = "";
+        if (AnternetAccountClientState.faceIdLinked()) {
+            if (!screen.faceIdLinkedToCurrentAccount()) return;
+            screen.faceIdWaiting = true;
+            screen.faceIdExpectedLinked = false;
+            screen.faceIdRevisionAtRequest = AnternetAccountClientState.faceIdStatusRevision();
+            screen.faceIdMessage = tr("face_id.unlinking");
+            AnternetAccountNetworking.unlinkFaceId();
+        } else {
+            screen.submitFaceIdLink();
+        }
+    }
+
+    private void logout() {
+        ComputerNetworking.logout();
+        AnternetAccountNetworking.logout();
+        AnternetAccountClientState.clear();
+        AnternetAccountNetworking.checkFaceId();
+        screen.loggedIn = false;
+        screen.session.authenticated = false;
+        screen.session.windows.clear();
+        screen.session.antmail.state.pickingAttachment = false;
+        screen.activeWindow = null;
+    }
+
+    private void replayTour() {
+        screen.session.windows.clear();
+        screen.activeWindow = null;
+        screen.session.onboardingCompleted = false;
+        screen.session.onboardingStep = 0;
+    }
+
+    private void replayAntazon() {
+        screen.session.windows.clear();
+        screen.activeWindow = null;
+        ComputerNetworking.resetAntazonOnboarding();
+        AntazonClientState.clear();
+        screen.open("ANTAZON");
+    }
+
+    private void confirm(String action) {
+        confirmAction = action;
+        confirmUntil = System.currentTimeMillis() + 3000L;
+    }
+
+    private void notice(String text) {
+        notice = text;
+        noticeUntil = System.currentTimeMillis() + 2500L;
+    }
+
+    private static String kilobytes(int size) {
+        double value = size / 1024.0;
+        return value >= 10 || value == Math.floor(value) ? String.valueOf((int) Math.round(value)) : String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
+        Field before = focused;
+        if (!passwordDialog) focused = null;
+        kit.click(mouseX, mouseY, button);
+        if (passwordDialog && focused == null) focused = before;
+        return true;
+    }
+
+    void drag(double mouseY) {
+        kit.drag(mouseY);
+    }
+
+    void release() {
+        kit.release();
+    }
+
+    boolean scroll(Window window, double mouseX, double mouseY, double scrollY) {
+        if (passwordDialog) return true;
+        state.scroll = Math.max(0, Math.min(state.maximumScroll, state.scroll - (int) Math.signum(scrollY) * 16));
+        return true;
+    }
+
+    boolean type(Window window, char codePoint, int modifiers) {
+        if (focused == null) return false;
+        focused.type(codePoint);
+        if (focused == search) state.scroll = 0;
+        return true;
+    }
+
+    boolean key(Window window, int keyCode, int scanCode, int modifiers) {
+        boolean control = screen.hasControl(modifiers);
+        boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
+        if (passwordDialog) {
+            Field[] order = {currentPassword, newPassword, confirmPassword};
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) closePasswordDialog();
+            else if (keyCode == GLFW.GLFW_KEY_TAB) {
+                int index = 0;
+                for (int i = 0; i < order.length; i++) if (order[i] == focused) index = i;
+                focused = order[Math.floorMod(index + (shift ? -1 : 1), order.length)];
+            } else if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                if (focused == confirmPassword) submitPassword();
+                else {
+                    int index = 0;
+                    for (int i = 0; i < order.length; i++) if (order[i] == focused) index = i;
+                    focused = order[Math.min(order.length - 1, index + 1)];
+                }
+            } else if (focused != null) focused.key(keyCode, control);
+            return true;
+        }
+        if (focused == null) return false;
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            focused = null;
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+            if (focused == displayName || focused == iconItem) saveProfile();
+            focused = null;
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_TAB && (focused == displayName || focused == iconItem)) {
+            focused = focused == displayName ? iconItem : displayName;
+            return true;
+        }
+        focused.key(keyCode, control);
+        if (focused == search) state.scroll = 0;
+        return true;
+    }
+
+    private String tr(String key, Object... arguments) {
+        return Component.translatable("computer.antos.settings." + key, arguments).getString();
+    }
+
+    private static final class Field {
+        final int limit;
+        final boolean masked;
+        String value = "";
+        int cursor;
+
+        Field(int limit, boolean masked) {
+            this.limit = limit;
+            this.masked = masked;
+        }
+
+        void set(String text) {
+            value = text == null ? "" : text.substring(0, Math.min(limit, text.length()));
+            cursor = value.length();
+        }
+
+        String shown() {
+            return masked ? "*".repeat(value.length()) : value;
+        }
+
+        void type(char codePoint) {
+            if (codePoint < 32 || codePoint == 127 || value.length() >= limit) return;
+            value = value.substring(0, cursor) + codePoint + value.substring(cursor);
+            cursor++;
+        }
+
+        void key(int keyCode, boolean control) {
+            switch (keyCode) {
+                case GLFW.GLFW_KEY_BACKSPACE -> {
+                    if (cursor > 0) {
+                        value = value.substring(0, cursor - 1) + value.substring(cursor);
+                        cursor--;
+                    }
+                }
+                case GLFW.GLFW_KEY_DELETE -> {
+                    if (cursor < value.length()) value = value.substring(0, cursor) + value.substring(cursor + 1);
+                }
+                case GLFW.GLFW_KEY_LEFT -> cursor = Math.max(0, cursor - 1);
+                case GLFW.GLFW_KEY_RIGHT -> cursor = Math.min(value.length(), cursor + 1);
+                case GLFW.GLFW_KEY_HOME -> cursor = 0;
+                case GLFW.GLFW_KEY_END -> cursor = value.length();
+                case GLFW.GLFW_KEY_V -> {
+                    if (!control) return;
+                    String clip = Minecraft.getInstance().keyboardHandler.getClipboard();
+                    if (clip == null) return;
+                    for (char character : clip.replace("\r", "").replace("\n", " ").toCharArray()) type(character);
+                }
+                case GLFW.GLFW_KEY_A -> {
+                    if (control) cursor = value.length();
+                }
+                default -> { }
+            }
+        }
+    }
+
+    static final class State {
+        String category = "account";
+        boolean showList;
+        int scroll;
+        int maximumScroll;
+    }
+}

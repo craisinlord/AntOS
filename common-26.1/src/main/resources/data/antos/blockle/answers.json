@@ -1,0 +1,7 @@
+{
+  "replace": true,
+  "values": ["anvil", "apple", "arrow", "bread", "brick", "chain", "chest", "clock", "cocoa", "flint", "glass", "melon", "paper", "poppy", "sculk", "stone", "stick", "sugar", "torch", "vault", "wheat", "allay", "blaze", "camel", "drown", "ghast", "horse", "llama", "panda", "sheep", "slime", "squid", "stray", "witch", "lever", "sword"],
+  "items": {
+    "anvil": "minecraft:anvil", "apple": "minecraft:apple", "arrow": "minecraft:arrow", "bread": "minecraft:bread", "brick": "minecraft:brick", "chain": "minecraft:chain", "chest": "minecraft:chest", "clock": "minecraft:clock", "cocoa": "minecraft:cocoa_beans", "flint": "minecraft:flint", "glass": "minecraft:glass", "melon": "minecraft:melon_slice", "paper": "minecraft:paper", "poppy": "minecraft:poppy", "sculk": "minecraft:sculk", "stone": "minecraft:stone", "stick": "minecraft:stick", "sugar": "minecraft:sugar", "torch": "minecraft:torch", "vault": "minecraft:trial_key", "wheat": "minecraft:wheat", "allay": "minecraft:allay_spawn_egg", "blaze": "minecraft:blaze_spawn_egg", "camel": "minecraft:camel_spawn_egg", "drown": "minecraft:drowned_spawn_egg", "ghast": "minecraft:ghast_spawn_egg", "horse": "minecraft:horse_spawn_egg", "llama": "minecraft:llama_spawn_egg", "panda": "minecraft:panda_spawn_egg", "sheep": "minecraft:sheep_spawn_egg", "slime": "minecraft:slime_spawn_egg", "squid": "minecraft:squid_spawn_egg", "stray": "minecraft:stray_spawn_egg", "witch": "minecraft:witch_spawn_egg", "lever": "minecraft:lever", "sword": "minecraft:iron_sword"
+  }
+}
