@@ -1,0 +1,10 @@
+{
+  "type": "article",
+  "folder": "examplemod:creatures",
+  "sort_order": 10,
+  "category": "creatures",
+  "title": "literal:Creature Notes",
+  "description": ["guide.examplemod.entry.creature_notes.body"],
+  "cover_item": "minecraft:spider_eye",
+  "unlocked_by_default": true
+}

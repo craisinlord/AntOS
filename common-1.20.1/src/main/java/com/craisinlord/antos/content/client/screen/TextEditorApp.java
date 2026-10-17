@@ -256,7 +256,7 @@ final class TextEditorApp extends ComputerApp {
                     g.fill(edge, lineY - 1, edge + 3, lineY + 10, AppKit.SELECTION);
                 }
             }
-            if (end > start) g.drawString(font, Component.literal(state.content.substring(start, end)), textX, lineY, PALE_GREEN, false);
+            if (end > start) g.drawString(font, Component.literal(state.content.substring(start, end) + (rows.get(row)[2] == 1 ? "-" : "")), textX, lineY, PALE_GREEN, false);
             if (gutter && isLineStart(start)) {
                 String number = String.valueOf(lineNumber);
                 g.drawString(font, Component.literal(number), x + 2 + gutterWidth - 4 - font.width(number), lineY, AppKit.MUTED, false);
@@ -358,30 +358,8 @@ final class TextEditorApp extends ComputerApp {
         layoutContent = state.content;
         layoutWidth = textWidth;
         rows.clear();
-        String content = state.content;
-        int lineStart = 0;
-        while (true) {
-            int lineEnd = content.indexOf('\n', lineStart);
-            if (lineEnd < 0) lineEnd = content.length();
-            int start = lineStart;
-            do {
-                int width = 0;
-                int index = start;
-                int lastBreak = -1;
-                while (index < lineEnd) {
-                    char character = content.charAt(index);
-                    int characterWidth = font.width(String.valueOf(character));
-                    if (width + characterWidth > textWidth && index > start) break;
-                    width += characterWidth;
-                    if (character == ' ') lastBreak = index + 1;
-                    index++;
-                }
-                int end = index < lineEnd && lastBreak > start ? lastBreak : index;
-                rows.add(new int[]{start, end});
-                start = end;
-            } while (start < lineEnd);
-            if (lineEnd >= content.length()) break;
-            lineStart = lineEnd + 1;
+        for (EditableTextWrap.Line line : EditableTextWrap.wrap(state.content, textWidth, font::width)) {
+            rows.add(new int[]{line.start(), line.end(), line.hyphen() ? 1 : 0});
         }
         int[] starts = new int[rows.size() + 1];
         for (int index = 0; index < rows.size(); index++) starts[index + 1] = starts[index] + (isLineStart(rows.get(index)[0]) ? 1 : 0);

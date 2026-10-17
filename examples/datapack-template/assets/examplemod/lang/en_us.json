@@ -9,6 +9,7 @@
   "guide.examplemod.entry.field_notes.title": "Field Notes",
   "guide.examplemod.entry.field_notes.subtitle": "Observations from the meadow",
   "guide.examplemod.entry.field_notes.body": "Ants use landmarks and scent trails to find their way home.",
+  "guide.examplemod.entry.creature_notes.body": "Field observations collected during research. This page belongs to the Creatures subfolder inside Field Research.",
   "guide.examplemod.disk.field_notes.title": "Field Notes Disk",
   "guide.examplemod.disk.field_notes.description": "A pocket collection of meadow observations, fieldwork, and a desktop wallpaper.",
   "wallpaper.examplemod.meadow": "Ant Meadow",

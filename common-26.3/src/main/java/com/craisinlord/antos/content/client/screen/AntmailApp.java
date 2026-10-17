@@ -42,6 +42,7 @@ import static com.craisinlord.antos.content.client.screen.ComputerScreen.WIDTH;
 import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 
 final class AntmailApp extends ComputerApp {
+    private static final long STATUS_DURATION_MS = 6000L;
     final State state = new State();
     private java.util.UUID detailRequestedId;
     private long detailRequestedAt;
@@ -66,6 +67,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     void tick(boolean loggedIn) {
+        processSendResult();
         AntmailAnternetResultPayload mailResult = AntmailClientState.get();
         syncPaintAttachment();
         screen.session.text.sync();
@@ -83,17 +85,63 @@ final class AntmailApp extends ComputerApp {
                 && mailResult != state.retryBaseline
                 && state.retryMessageId.equals(mailResult.messageId())
                 && !"message_detail".equals(mailResult.detail())) {
-            state.status = statusMessage(mailResult);
+            setStatus(statusMessage(mailResult));
             state.retryMessageId = "";
             state.retryBaseline = null;
             state.retryTicks = 0;
             requestState(true);
         } else if (!state.retryMessageId.isBlank() && --state.retryTicks <= 0) {
-            state.status = Component.translatable("computer.antos.status.retry_timed_out").getString();
+            setStatus(Component.translatable("computer.antos.status.retry_timed_out").getString());
             state.retryMessageId = "";
             state.retryBaseline = null;
             requestState(true);
         }
+        if (!state.status.isEmpty() && System.currentTimeMillis() >= state.statusUntil) clearStatus();
+    }
+
+    void processSendResult() {
+        AntmailAnternetResultPayload sendOperation = AntmailClientState.getSendResult();
+        if (state.sendPending && sendOperation != null && sendOperation != state.sendBaseline) {
+            state.sendPending = false;
+            state.sendBaseline = null;
+            if (sendOperation.status() == 0 || sendOperation.status() == 1) {
+                state.draftId = null;
+                state.draftLoaded = true;
+                setStatus(statusMessage(sendOperation));
+                state.mode = "inbox";
+                state.focused = false;
+                state.recipient = "";
+                state.subject = "";
+                state.body = "";
+                state.bodyScroll = 0;
+                state.bodyMaximumScroll = 0;
+                state.attachText = false;
+                state.attachPaint = false;
+                state.attachCoins = false;
+                state.coinAmount = "";
+                state.cursor = 0;
+                state.selectionStart = -1;
+                state.paintAttachment = null;
+                state.paintLoadPendingPath = "";
+                state.textPath = "";
+                state.paintPath = "";
+                state.page = 0;
+                requestState(true);
+            } else {
+                state.focused = true;
+                setStatus(statusMessage(sendOperation));
+            }
+        }
+    }
+
+    private void setStatus(String status) {
+        state.status = status;
+        state.statusUntil = System.currentTimeMillis() + STATUS_DURATION_MS;
+    }
+
+    private void clearStatus() {
+        state.status = "";
+        state.statusUntil = 0L;
     }
 
     boolean hasUnreadMessages() {
@@ -220,9 +268,8 @@ final class AntmailApp extends ComputerApp {
                 List<AntmailBodyLine> bodyLines = wrapBody(body, navWidth - 10);
                 int bodyVisible = Math.max(1, (composeLayout.bodyBottom() - composeLayout.bodyTop()) / 11);
                 int bodyMaximum = Math.max(0, bodyLines.size() - bodyVisible);
-                int cursor = Math.max(0, Math.min(state.cursor, state.body.length()));
                 int cursorLine = state.body.isEmpty() ? 0
-                        : wrapBody(state.body.substring(0, cursor) + "|", navWidth - 10).size() - 1;
+                        : bodyLines.indexOf(cursorLine());
                 boolean followBodyCursor = bodyFocused && (!state.lastBodyFocused
                         || state.lastRenderedCursor != state.cursor
                         || !Objects.equals(state.lastRenderedBody, state.body));
@@ -238,7 +285,7 @@ final class AntmailApp extends ComputerApp {
                 int bodyEnd = Math.min(bodyLines.size(), state.bodyScroll + bodyVisible);
                 for (int line = state.bodyScroll; line < bodyEnd; line++) {
                     AntmailBodyLine bodyLine = bodyLines.get(line);
-                    g.drawString(font, Component.literal(body.substring(bodyLine.start(), bodyLine.end())), x,
+                    g.drawString(font, Component.literal(body.substring(bodyLine.start(), bodyLine.end()) + (bodyLine.hyphen() ? "-" : "")), x,
                             composeLayout.bodyTop() + (line - state.bodyScroll) * 11, PALE_GREEN, false);
                 }
                 if (bodyFocused && screen.caretVisible()) {
@@ -591,34 +638,7 @@ final class AntmailApp extends ComputerApp {
             }
         }
         AntmailAnternetResultPayload operation = AntmailClientState.get();
-        if (state.sendPending && operation != null && operation != state.sendBaseline && !operation.messageId().isBlank()) {
-            state.sendPending = false;
-            state.sendBaseline = null;
-            if (operation.status() == 0 || operation.status() == 1) {
-                if (state.draftId != null) AntmailNetworking.deleteDraft(state.draftId);
-                state.draftId = null;
-                state.draftLoaded = false;
-                state.status = statusMessage(operation);
-                state.mode = "inbox";
-                state.focused = false;
-                state.recipient = "";
-                state.subject = "";
-                state.body = "";
-                state.bodyScroll = 0;
-                state.bodyMaximumScroll = 0;
-                state.attachText = false;
-                state.attachPaint = false;
-                state.paintAttachment = null;
-                state.paintLoadPendingPath = "";
-                state.textPath = "";
-                state.paintPath = "";
-                state.page = 0;
-                requestState(true);
-            } else {
-                state.focused = true;
-                state.status = statusMessage(operation);
-            }
-        }
+        processSendResult();
         if (state.profilePending && operation != null && operation != state.profileBaseline
                 && (operation.detail().startsWith("profile_") || operation.detail().startsWith("invalid_")
                 || operation.detail().equals("unauthorized") || operation.detail().equals("unconfigured"))) {
@@ -629,10 +649,28 @@ final class AntmailApp extends ComputerApp {
                     : operation.detail().equals("invalid_display_name") ? "DISPLAY NAME TOO LONG"
                     : "PROFILE UPDATE FAILED";
         }
-        String displayStatus = state.status;
-        if (!displayStatus.isEmpty() && !state.mode.equals("compose") && !state.mode.equals("profile")) {
-            screen.drawBottomWrapped(g, displayStatus, x, y, h, 208, PALE_GREEN);
+        if (statusLineVisible() && result != null) {
+            int statusX = x;
+            int statusY = y + h - 14;
+            if (state.mode.equals("message") && state.sent) {
+                AntmailMessage message = selectedMessage(result);
+                if (message != null && !message.deliveryStatus().equals("DELIVERED")) {
+                    String retryLabel = state.retryMessageId.equals(message.id().toString()) ? "[ RETRYING... ]" : "[ RETRY DELIVERY ]";
+                    statusX += font.width(retryLabel) + 8;
+                    statusY = y + h - 20;
+                }
+            }
+            int statusWidth = x + w - statusX;
+            if (statusWidth > 8) {
+                screen.beginLayer(g);
+                g.fill(statusX, statusY - 2, statusX + statusWidth, statusY + 10, BLACK);
+                g.drawString(font, Component.literal(screen.trimToWidth(state.status, statusWidth - 2)), statusX, statusY, PALE_GREEN, false);
+            }
         }
+    }
+
+    private boolean statusLineVisible() {
+        return !state.status.isEmpty() && !state.mode.equals("compose") && !state.mode.equals("profile");
     }
 
     private List<net.minecraft.util.FormattedCharSequence> wrapBody(String text, boolean corrupted, int width) {
@@ -690,7 +728,7 @@ final class AntmailApp extends ComputerApp {
         state.field = 3;
         state.cursor = 0;
         state.selectionStart = -1;
-        state.status = "";
+        clearStatus();
     }
 
     private String localizedMailText(String value) {
@@ -797,7 +835,7 @@ final class AntmailApp extends ComputerApp {
         int subjectY = senderY + 28;
         int productY = subjectY + 12;
         int bodyTop = hasProduct ? productY + 13 : subjectY + 14;
-        int bodyBottom = Math.max(bodyTop + 1, y + h - (showRetry ? 29 : 4));
+        int bodyBottom = Math.max(bodyTop + 1, y + h - (showRetry ? 29 : statusLineVisible() ? 18 : 4));
         return new AntmailDetailLayout(actionY, senderY, subjectY, productY, bodyTop, bodyBottom);
     }
 
@@ -902,6 +940,7 @@ final class AntmailApp extends ComputerApp {
             }
         }
         if (index < 0) return;
+        clearStatus();
         state.originMode = originMode;
         state.sent = originMode.equals("sent");
         state.messageIndex = index;
@@ -933,6 +972,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
+        if (state.sendPending) return true;
         int contentX = x + 8;
         int contentY = y + 28;
         int contentW = w - 16;
@@ -988,7 +1028,7 @@ final class AntmailApp extends ComputerApp {
                 AntmailNetworking.moveToTrash(state.undoId, com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
             }
             state.undoId = null;
-            state.status = "ACTION UNDONE";
+            setStatus("ACTION UNDONE");
             returnToOrigin();
             requestState(true);
             return true;
@@ -997,6 +1037,7 @@ final class AntmailApp extends ComputerApp {
             state.searchFocused = false;
             state.pickingAttachment = false;
             state.attachmentMenu = false;
+            clearStatus();
             state.mode = "inbox";
             state.sent = false;
             state.page = 0;
@@ -1009,6 +1050,7 @@ final class AntmailApp extends ComputerApp {
             state.searchFocused = false;
             state.pickingAttachment = false;
             state.attachmentMenu = false;
+            clearStatus();
             state.mode = "sent";
             state.sent = true;
             state.page = 0;
@@ -1020,6 +1062,7 @@ final class AntmailApp extends ComputerApp {
             state.searchFocused = false;
             state.pickingAttachment = false;
             state.attachmentMenu = false;
+            clearStatus();
             state.mode = "drafts";
             state.sent = false;
             state.page = 0;
@@ -1032,6 +1075,7 @@ final class AntmailApp extends ComputerApp {
                 navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 20,
                 Math.max(88, font.width("MY PROFILE") + 14), 18, mouseX, mouseY)) {
             state.moreOpen = false;
+            clearStatus();
             state.mode = "archive";
             state.sent = false;
             state.listScroll = 0;
@@ -1041,6 +1085,7 @@ final class AntmailApp extends ComputerApp {
                 navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 38,
                 Math.max(88, font.width("MY PROFILE") + 14), 20, mouseX, mouseY)) {
             state.moreOpen = false;
+            clearStatus();
             state.mode = "trash";
             state.sent = false;
             state.listScroll = 0;
@@ -1051,6 +1096,7 @@ final class AntmailApp extends ComputerApp {
                 Math.max(88, font.width("MY PROFILE") + 14), 20, mouseX, mouseY)) {
             state.moreOpen = false;
             state.profileOriginMode = state.mode;
+            clearStatus();
             state.mode = "profile";
             state.searchFocused = false;
             state.focused = false;
@@ -1063,7 +1109,7 @@ final class AntmailApp extends ComputerApp {
             state.searchFocused = false;
             if (state.mode.equals("compose")) {
                 saveDraft();
-                state.status = "DRAFT SAVED";
+                setStatus("DRAFT SAVED");
             } else {
                 state.pickingAttachment = false;
                 state.mode = "compose";
@@ -1135,7 +1181,7 @@ final class AntmailApp extends ComputerApp {
                 int deleteX = contentX + navWidth - 20;
                 if (screen.inside(deleteX, contentY + 59 + (index - state.listScroll) * 21, 18, 20, mouseX, mouseY)) {
                     AntmailNetworking.deleteDraft(drafts.get(index).id());
-                    state.status = "DRAFT DELETED";
+                    setStatus("DRAFT DELETED");
                     requestState(true);
                 } else {
                     restoreDraft(drafts.get(index));
@@ -1170,15 +1216,15 @@ final class AntmailApp extends ComputerApp {
                     if (state.originMode.equals("archive")) {
                         AntmailNetworking.restoreFromArchive(message.id());
                         state.undoAction = "RESTORE_ARCHIVE";
-                        state.status = "MOVED TO INBOX";
+                        setStatus("MOVED TO INBOX");
                     } else if (state.originMode.equals("trash")) {
                         AntmailNetworking.restoreFromTrash(message.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
                         state.undoAction = "RESTORE_TRASH";
-                        state.status = "RESTORED TO INBOX";
+                        setStatus("RESTORED TO INBOX");
                     } else {
                         AntmailNetworking.archive(message.id(), state.sent);
                         state.undoAction = "ARCHIVE";
-                        state.status = "ARCHIVED";
+                        setStatus("ARCHIVED");
                     }
                     state.undoId = message.id();
                     state.undoFolder = state.originMode.equals("sent")
@@ -1198,14 +1244,14 @@ final class AntmailApp extends ComputerApp {
                     if (Objects.equals(state.confirmDeleteId, message.id())
                             && System.currentTimeMillis() < state.confirmDeleteUntil) {
                         AntmailNetworking.permanentlyDelete(message.id());
-                        state.status = "PERMANENTLY DELETED";
+                        setStatus("PERMANENTLY DELETED");
                         state.confirmDeleteId = null;
                         returnToOrigin();
                         requestState(true);
                     } else {
                         state.confirmDeleteId = message.id();
                         state.confirmDeleteUntil = System.currentTimeMillis() + 4000L;
-                        state.status = "SELECT DELETE AGAIN TO PERMANENTLY REMOVE";
+                        setStatus("SELECT DELETE AGAIN TO PERMANENTLY REMOVE");
                     }
                 } else {
                     AntmailNetworking.moveToTrash(message.id(), folderCode(state.originMode));
@@ -1213,7 +1259,7 @@ final class AntmailApp extends ComputerApp {
                     state.undoFolder = folderCode(state.originMode);
                     state.undoAction = "MOVE_TO_TRASH";
                     state.undoUntil = System.currentTimeMillis() + 6000L;
-                    state.status = "MOVED TO TRASH // UNDO AVAILABLE";
+                    setStatus("MOVED TO TRASH // UNDO AVAILABLE");
                     returnToOrigin();
                     requestState(true);
                 }
@@ -1222,12 +1268,13 @@ final class AntmailApp extends ComputerApp {
             if (state.originMode.equals("inbox") && message != null
                     && screen.inside(actionX + 44, detail.actionY(), 36, 18, mouseX, mouseY)) {
                 AntmailNetworking.markUnread(message.id());
-                state.status = "MARKED UNREAD";
+                setStatus("MARKED UNREAD");
                 returnToOrigin();
                 requestState(true);
                 return true;
             }
             if (screen.inside(contentX, detail.actionY(), 36, 18, mouseX, mouseY)) {
+                clearStatus();
                 returnToOrigin();
                 state.detailScroll = 0;
                 return true;
@@ -1239,7 +1286,7 @@ final class AntmailApp extends ComputerApp {
                 state.retryMessageId = message.id().toString();
                 state.retryTicks = 100;
                 AntmailNetworking.retry(message.id());
-                state.status = Component.translatable("computer.antos.status.retrying_delivery").getString();
+                setStatus(Component.translatable("computer.antos.status.retrying_delivery").getString());
                 return true;
             }
             if (message != null && mouseX >= contentX && mouseX < contentX + navWidth - 8) {
@@ -1382,6 +1429,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     boolean type(Window window, char codePoint, int modifiers) {
+        if (state.sendPending) return true;
         if (state.searchFocused && codePoint >= 32
                 && state.search.length() < 48) {
             state.search = state.search.substring(0, state.searchCursor)
@@ -1401,6 +1449,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
+        if (state.sendPending) return true;
         if (screen.activeWindow != null && screen.activeWindow.type.equals("ANTMAIL")
                 && state.pickingAttachment && keyCode == InputConstants.KEY_ESCAPE) {
             state.pickingAttachment = false;
@@ -1443,6 +1492,7 @@ final class AntmailApp extends ComputerApp {
             if (state.mode.equals("message")) {
                 AntmailMessage current = selectedMessage(AntmailClientState.getMailbox());
                 if (keyCode == InputConstants.KEY_ESCAPE || keyCode == InputConstants.KEY_BACKSPACE) {
+                    clearStatus();
                     returnToOrigin();
                     return true;
                 }
@@ -1453,7 +1503,7 @@ final class AntmailApp extends ComputerApp {
                     state.undoFolder = folderCode(state.originMode);
                     state.undoAction = state.originMode.equals("archive") ? "RESTORE_ARCHIVE" : "ARCHIVE";
                     state.undoUntil = System.currentTimeMillis() + 6000L;
-                    state.status = "ARCHIVED // UNDO AVAILABLE";
+                    setStatus("ARCHIVED // UNDO AVAILABLE");
                     returnToOrigin();
                     requestState(true);
                     return true;
@@ -1566,34 +1616,8 @@ final class AntmailApp extends ComputerApp {
     }
 
     private List<AntmailBodyLine> wrapBody(String value, int maxWidth) {
-        List<AntmailBodyLine> lines = new ArrayList<>();
-        int start = 0;
-        int index = 0;
-        int lineWidth = 0;
-        while (index < value.length()) {
-            int codePoint = value.codePointAt(index);
-            int next = index + Character.charCount(codePoint);
-            if (codePoint == '\n') {
-                lines.add(new AntmailBodyLine(start, index));
-                index = next;
-                start = index;
-                lineWidth = 0;
-                if (index == value.length()) lines.add(new AntmailBodyLine(start, start));
-                continue;
-            }
-            String character = value.substring(index, next);
-            int characterWidth = font.width(character);
-            if (lineWidth + characterWidth > maxWidth && index > start) {
-                lines.add(new AntmailBodyLine(start, index));
-                start = index;
-                lineWidth = 0;
-                continue;
-            }
-            lineWidth += characterWidth;
-            index = next;
-        }
-        if (start < value.length() || lines.isEmpty()) lines.add(new AntmailBodyLine(start, value.length()));
-        return lines;
+        return EditableTextWrap.wrap(value, maxWidth, font::width).stream()
+                .map(line -> new AntmailBodyLine(line.start(), line.end(), line.hyphen())).toList();
     }
 
     private AntmailBodyLine cursorLine() {
@@ -1631,7 +1655,7 @@ final class AntmailApp extends ComputerApp {
         return Math.max(1, contentWidth - 10);
     }
 
-    private record AntmailBodyLine(int start, int end) { }
+    private record AntmailBodyLine(int start, int end, boolean hyphen) { }
 
     private boolean hasSelection() { return state.selectionStart >= 0 && state.selectionStart != state.cursor; }
 
@@ -1707,57 +1731,61 @@ final class AntmailApp extends ComputerApp {
         state.focused = true;
         state.field = 1;
         state.cursor = 0;
-        state.status = Component.translatable("computer.antos.status.antazon_link_ready").getString();
+        setStatus(Component.translatable("computer.antos.status.antazon_link_ready").getString());
     }
 
     private void send() {
+        if (state.sendPending) return;
         if (!AntOSSettings.appEnabled("ANTAZON")) {
             state.attachCoins = false;
             if (state.field == 4) state.focused = false;
         }
         if (!AntmailAddress.isValidAddress(state.recipient)) {
-            state.status = Component.translatable("computer.antos.status.invalid_recipient").getString();
+            setStatus(Component.translatable("computer.antos.status.invalid_recipient").getString());
             return;
         }
         if (state.subject.isBlank() || state.body.isBlank()) {
-            state.status = Component.translatable("computer.antos.status.subject_body_required").getString();
+            setStatus(Component.translatable("computer.antos.status.subject_body_required").getString());
             return;
         }
         if (state.attachCoins) {
             try {
                 if (Long.parseLong(state.coinAmount) < 1) throw new NumberFormatException();
             } catch (NumberFormatException exception) {
-                state.status = Component.translatable("computer.antos.status.positive_antcoins_required").getString();
+                setStatus(Component.translatable("computer.antos.status.positive_antcoins_required").getString());
                 return;
             }
         }
         if (state.attachText && (screen.session.text.state.dirty || screen.session.text.state.path.isBlank() || screen.session.text.state.path.contains("untitled") || !screen.session.text.state.path.equals(state.textPath))) {
-                state.status = Component.translatable("computer.antos.status.save_text_file_first").getString();
+                setStatus(Component.translatable("computer.antos.status.save_text_file_first").getString());
             return;
         }
         if (state.attachPaint && !state.paintLoadPendingPath.isBlank()) {
-                state.status = Component.translatable("computer.antos.status.attachment_loading").getString();
+                setStatus(Component.translatable("computer.antos.status.attachment_loading").getString());
             return;
         }
         if (state.attachPaint && state.paintAttachment == null
                 && (screen.session.paint.state.dirty || screen.session.paint.state.name.isBlank() || screen.session.paint.state.name.startsWith("UNTITLED")
                 || !state.paintPath.endsWith(screen.session.paint.state.name))) {
-                state.status = Component.translatable("computer.antos.status.save_painting_first").getString();
+                setStatus(Component.translatable("computer.antos.status.save_painting_first").getString());
             return;
         }
         List<AntmailAttachment> attachments = composeAttachments();
         if (!AntmailNetworking.fits(state.recipient, state.subject, state.body, attachments)) {
-            state.status = Component.translatable("computer.antos.status.message_too_large").getString();
+            setStatus(Component.translatable("computer.antos.status.message_too_large").getString());
             return;
         }
-        state.sendBaseline = AntmailClientState.get();
-        AntmailNetworking.send(state.recipient, state.subject, state.body, attachments);
+        state.sendBaseline = AntmailClientState.getSendResult();
+        saveDraft();
+        if (!AntmailNetworking.send(state.recipient, state.subject, state.body, attachments, state.draftId)) {
+            state.sendBaseline = null;
+            setStatus(Component.translatable("computer.antos.status.message_too_large").getString());
+            return;
+        }
         if (state.attachCoins) com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonWallet();
-        state.status = Component.translatable("computer.antos.status.sending_message").getString();
+        setStatus(Component.translatable("computer.antos.status.sending_message").getString());
         state.sendPending = true;
         state.focused = false;
-        state.draftId = null;
-        state.draftLoaded = false;
         state.pickingAttachment = false;
     }
 
@@ -1768,12 +1796,18 @@ final class AntmailApp extends ComputerApp {
             state.draftLoaded = true;
             return;
         }
+        if (!state.recipient.isBlank() || !state.subject.isBlank() || !state.body.isBlank()) {
+            state.draftLoaded = true;
+            return;
+        }
         restoreDraft(mailbox.drafts().getLast());
-            state.status = Component.translatable("computer.antos.status.draft_recovered").getString();
+            setStatus(Component.translatable("computer.antos.status.draft_recovered").getString());
         state.draftLoaded = true;
     }
 
     private void restoreDraft(AntmailDraft draft) {
+        if (state.sendPending) return;
+        state.draftLoaded = true;
         state.draftId = draft.id();
         state.recipient = draft.recipient() == null ? "" : draft.recipient().fullAddress();
         state.subject = draft.subject();
@@ -1808,6 +1842,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     void saveDraft() {
+        if (state.sendPending) return;
         try {
             if (state.recipient.isBlank() && state.subject.isBlank() && state.body.isBlank()) return;
             AntmailAnternetResultPayload result = AntmailClientState.getMailbox();
@@ -1815,9 +1850,11 @@ final class AntmailApp extends ComputerApp {
             if (mailbox == null) return;
             AntmailDraft draft = new AntmailDraft(state.draftId, AntmailAddress.parse(mailbox.address().fullAddress()),
                     state.recipient.isBlank() ? null : AntmailAddress.parse(state.recipient), state.subject, state.body, composeAttachments());
-            if (!AntmailNetworking.saveDraft(draft)) state.status = Component.translatable("computer.antos.status.message_too_large").getString();
+            state.draftId = draft.id();
+            state.draftLoaded = true;
+            if (!AntmailNetworking.saveDraft(draft)) setStatus(Component.translatable("computer.antos.status.message_too_large").getString());
         } catch (RuntimeException ignored) {
-            state.status = Component.translatable("computer.antos.status.draft_save_error").getString();
+            setStatus(Component.translatable("computer.antos.status.draft_save_error").getString());
         }
     }
 
@@ -1846,10 +1883,10 @@ final class AntmailApp extends ComputerApp {
             state.paintPath = requestedPath;
             state.paintAttachment = AntmailAttachmentFiles.fromPaintFile(file);
             state.paintLoadPendingPath = "";
-            state.status = Component.translatable("computer.antos.status.painting_attached", file.filename()).getString();
+            setStatus(Component.translatable("computer.antos.status.painting_attached", file.filename()).getString());
         } catch (RuntimeException exception) {
             state.paintLoadPendingPath = "";
-            state.status = Component.translatable("computer.antos.status.invalid_paint_file").getString();
+            setStatus(Component.translatable("computer.antos.status.invalid_paint_file").getString());
         }
     }
 
@@ -1859,7 +1896,7 @@ final class AntmailApp extends ComputerApp {
                 String path = "/documents/" + text.fileName();
                 if (computerFileExists(path)) ComputerNetworking.saveFile(path, text.contents());
                 else ComputerNetworking.createFile(path, text.contents());
-                state.status = Component.translatable("computer.antos.status.attachment_saved", text.fileName()).getString();
+                setStatus(Component.translatable("computer.antos.status.attachment_saved", text.fileName()).getString());
             } else if (attachment instanceof AntmailAttachment.PaintImage paint) {
                 String name = paint.fileName().endsWith(".antpaint") ? paint.fileName() : paint.fileName() + ".antpaint";
                 AntPaintFile file = AntmailAttachmentFiles.toPaintFile(paint, UUID.randomUUID().toString(), 0L, 0L);
@@ -1867,13 +1904,13 @@ final class AntmailApp extends ComputerApp {
                 String path = "/pictures/" + name;
                 if (computerFileExists(path)) ComputerNetworking.saveFile(path, encoded);
                 else ComputerNetworking.createFile(path, encoded);
-                state.status = Component.translatable("computer.antos.status.attachment_saved", name).getString();
+                setStatus(Component.translatable("computer.antos.status.attachment_saved", name).getString());
             } else if (attachment instanceof AntmailAttachment.Antcoins coins) {
-                state.status = Component.translatable("computer.antos.status.coins_already_credited", coins.amount(), Component.translatable("computer.antos.currency.name")).getString();
+                setStatus(Component.translatable("computer.antos.status.coins_already_credited", coins.amount(), AntOSPlayerText.currencyName()).getString());
             }
             ComputerNetworking.listFiles();
         } catch (RuntimeException exception) {
-            state.status = Component.translatable("computer.antos.status.invalid_file").getString();
+            setStatus(Component.translatable("computer.antos.status.invalid_file").getString());
         }
     }
 
@@ -1883,6 +1920,7 @@ final class AntmailApp extends ComputerApp {
 
     static final class State {
         String status = "";
+        long statusUntil;
         boolean sendPending;
         AntmailAnternetResultPayload sendBaseline;
         String retryMessageId = "";

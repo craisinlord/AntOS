@@ -22,12 +22,14 @@ public final class ComputerAccessClientState {
         ComputerArchiveUnlockClientState.clearAll();
         ComputerFileSystemClientState.clearAll();
         com.craisinlord.antos.content.client.game.BlockleClientState.clearAll();
+        com.craisinlord.antos.content.client.game.GameRewardClientState.clearAll();
     }
 
     public static void update(ComputerAccessResultPayload result) {
         DiskRewardsClientState.update(result);
         ComputerProgramClientState.update(result);
         com.craisinlord.antos.content.client.game.BlockleClientState.update(result);
+        com.craisinlord.antos.content.client.game.GameRewardClientState.update(result);
         ComputerTasksClientState.update(result);
         ComputerStructureLocatorClientState.update(result);
         ComputerTerminalClientState.update(result);

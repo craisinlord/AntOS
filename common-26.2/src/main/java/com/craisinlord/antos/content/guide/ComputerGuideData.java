@@ -31,6 +31,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     private static final ComputerGuideData INSTANCE = new ComputerGuideData();
     private static final Identifier INTRODUCTION = Identifier.fromNamespaceAndPath("antos", "introduction");
     private static volatile Map<Identifier, Entry> entries = Map.of();
+    private static volatile Map<Identifier, ArchiveFolder> archiveFolders = Map.of();
     private static volatile Map<Identifier, Entry> fieldGuideEntries = Map.of();
     private static volatile java.util.Set<Identifier> fieldGuideConflicts = java.util.Set.of();
     private static volatile Map<Identifier, Disk> disks = Map.of();
@@ -94,6 +95,31 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public static Component archiveTitle(Entry entry) {
         String key = entry.titleKey();
         return key.startsWith("literal:") ? Component.literal(key.substring("literal:".length())) : Component.translatable(key);
+    }
+
+    public static ArchiveFolder archiveFolder(Identifier id) {
+        return id == null ? null : archiveFolders.get(id);
+    }
+
+    public static Identifier archiveFolderId(Entry entry) {
+        return entry.folder() != null && archiveFolders.containsKey(entry.folder()) ? entry.folder() : null;
+    }
+
+    public static List<Identifier> archiveFolderPath(Identifier id) {
+        ArchiveFolder folder = archiveFolder(id);
+        if (folder == null) return List.of();
+        return folder.parent() == null ? List.of(id) : List.of(folder.parent(), id);
+    }
+
+    public static boolean archiveFolderContains(Identifier ancestor, Identifier folderId) {
+        if (ancestor == null) return true;
+        ArchiveFolder folder = archiveFolder(folderId);
+        return folder != null && (ancestor.equals(folder.id()) || ancestor.equals(folder.parent()));
+    }
+
+    public static Component archiveFolderTitle(ArchiveFolder folder) {
+        String key = folder.titleKey();
+        return key.startsWith("literal:") ? Component.literal(key.substring(8)) : Component.translatable(key);
     }
 
     public static long definitionRevision() {
@@ -349,7 +375,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         JsonArray unlockedArray = new JsonArray();
         unlockedEntries.forEach(id -> unlockedArray.add(id.toString()));
         root.add("unlocked_entries", unlockedArray);
-        encodeDefinitions(allEntries(), disks, categories, wallpapers).entrySet().forEach(value -> root.add(value.getKey(), value.getValue()));
+        encodeDefinitions(allEntries(), disks, categories, wallpapers, archiveFolders).entrySet().forEach(value -> root.add(value.getKey(), value.getValue()));
         encodeNetworkSettings(root);
         return root.toString();
     }
@@ -369,21 +395,22 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public record ArchiveDefinitions(String json, String hash) { }
 
     private record ArchiveDefinitionsCache(Map<Identifier, Entry> entries, Map<Identifier, Disk> disks, Map<Identifier, DiskCategory> categories,
-                                           Map<Identifier, Wallpaper> wallpapers, ArchiveDefinitions value) { }
+                                           Map<Identifier, Wallpaper> wallpapers, Map<Identifier, ArchiveFolder> folders, ArchiveDefinitions value) { }
 
     public static ArchiveDefinitions archiveDefinitions() {
         Map<Identifier, Entry> currentEntries = allEntries();
         Map<Identifier, Disk> currentDisks = disks;
         Map<Identifier, DiskCategory> currentCategories = categories;
         Map<Identifier, Wallpaper> currentWallpapers = wallpapers;
+        Map<Identifier, ArchiveFolder> currentFolders = archiveFolders;
         ArchiveDefinitionsCache cached = archiveDefinitionsCache;
         if (cached != null && cached.entries() == currentEntries && cached.disks() == currentDisks
-                && cached.categories() == currentCategories && cached.wallpapers() == currentWallpapers) {
+                && cached.categories() == currentCategories && cached.wallpapers() == currentWallpapers && cached.folders() == currentFolders) {
             return cached.value();
         }
-        String json = encodeDefinitions(currentEntries, currentDisks, currentCategories, currentWallpapers).toString();
+        String json = encodeDefinitions(currentEntries, currentDisks, currentCategories, currentWallpapers, currentFolders).toString();
         ArchiveDefinitions value = new ArchiveDefinitions(json, hash(json));
-        archiveDefinitionsCache = new ArchiveDefinitionsCache(currentEntries, currentDisks, currentCategories, currentWallpapers, value);
+        archiveDefinitionsCache = new ArchiveDefinitionsCache(currentEntries, currentDisks, currentCategories, currentWallpapers, currentFolders, value);
         return value;
     }
 
@@ -406,7 +433,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     private static JsonObject encodeDefinitions(Map<Identifier, Entry> entrySource, Map<Identifier, Disk> diskSource,
-                                                Map<Identifier, DiskCategory> categorySource, Map<Identifier, Wallpaper> wallpaperSource) {
+                                                Map<Identifier, DiskCategory> categorySource, Map<Identifier, Wallpaper> wallpaperSource,
+                                                Map<Identifier, ArchiveFolder> folderSource) {
         JsonObject root = new JsonObject();
         JsonArray entryArray = new JsonArray();
         entrySource.values().stream().sorted(Comparator.comparing((Entry entry) -> entry.id().toString())).forEach(entry -> {
@@ -415,6 +443,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             if (!entry.type().equals("article")) object.addProperty("type", entry.type());
             if (!entry.category().equals("general")) object.addProperty("category", entry.category());
             object.addProperty("title", entry.titleKey());
+            if (entry.folder() != null) object.addProperty("folder", entry.folder().toString());
+            if (entry.sortOrder() != 0) object.addProperty("sort_order", entry.sortOrder());
             if (!entry.subtitleKey().isEmpty()) object.addProperty("subtitle", entry.subtitleKey());
             if (!entry.descriptionKeys().isEmpty()) {
                 JsonArray descriptions = new JsonArray();
@@ -455,6 +485,18 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             entryArray.add(object);
         });
         root.add("entries", entryArray);
+        JsonArray folderArray = new JsonArray();
+        folderSource.values().stream().sorted(Comparator.comparing(folder -> folder.id().toString())).forEach(folder -> {
+            JsonObject object = new JsonObject();
+            object.addProperty("id", folder.id().toString());
+            object.addProperty("title", folder.titleKey());
+            object.addProperty("icon_item", folder.iconItem());
+            if (!folder.greenTint()) object.addProperty("green_tint", false);
+            if (folder.parent() != null) object.addProperty("parent", folder.parent().toString());
+            object.addProperty("sort_order", folder.sortOrder());
+            folderArray.add(object);
+        });
+        root.add("archive_folders", folderArray);
 
         JsonArray diskArray = new JsonArray();
         diskSource.values().stream().sorted(Comparator.comparing((Disk disk) -> disk.id().toString())).forEach(disk -> {
@@ -506,10 +548,16 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
             Map<Identifier, Entry> loadedEntries = new HashMap<>();
+            Map<Identifier, ArchiveFolder> loadedFolders = new HashMap<>();
             Map<Identifier, Disk> loadedDisks = new HashMap<>();
             Map<Identifier, DiskCategory> loadedCategories = new HashMap<>();
             Map<Identifier, Wallpaper> loadedWallpapers = new HashMap<>();
             Map<Identifier, Task> loadedTasks = new HashMap<>();
+            JsonArray folderArray = root.getAsJsonArray("archive_folders");
+            if (folderArray != null) for (JsonElement element : folderArray) {
+                JsonObject object = element.getAsJsonObject();
+                parseArchiveFolder(Identifier.parse(string(object, "id", "")), object, loadedFolders);
+            }
             JsonArray entryArray = root.getAsJsonArray("entries");
             if (entryArray != null) {
                 for (JsonElement element : entryArray) {
@@ -547,6 +595,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 return true;
             });
             entries = Map.copyOf(loadedEntries);
+            archiveFolders = normalizeArchiveFolders(loadedFolders);
             fieldGuideEntries = Map.copyOf(loadedFieldGuideEntries);
             disks = Map.copyOf(loadedDisks);
             categories = Map.copyOf(loadedCategories);
@@ -563,6 +612,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     @Override
     protected LoadedData prepare(ResourceManager resourceManager, ProfilerFiller profiler) {
         Map<Identifier, Entry> loadedEntries = new HashMap<>();
+        Map<Identifier, ArchiveFolder> loadedFolders = new HashMap<>();
         Map<Identifier, Disk> loadedDisks = new HashMap<>();
         Map<Identifier, DiskCategory> loadedCategories = new HashMap<>();
         Map<Identifier, Wallpaper> loadedWallpapers = new HashMap<>();
@@ -571,6 +621,14 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         Map<Identifier, TaskCategory> loadedTaskCategories = new HashMap<>();
         Map<Identifier, TaskGroup> loadedTaskGroups = new HashMap<>();
         Map<Identifier, TaskLink> loadedTaskLinks = new HashMap<>();
+        for (Map.Entry<Identifier, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources("computer/archive_folder", path -> path.getPath().endsWith(".json")).entrySet()) {
+            Identifier id = resourceId(resource.getKey(), "computer/archive_folder");
+            try {
+                parseArchiveFolder(id, readJson(resource.getValue()), loadedFolders);
+            } catch (Exception exception) {
+                AntOS.LOGGER.error("Failed to load computer archive folder {}", resource.getKey(), exception);
+            }
+        }
         for (Map.Entry<Identifier, net.minecraft.server.packs.resources.Resource> resource : resourceManager.listResources("computer/entry", path -> path.getPath().endsWith(".json")).entrySet()) {
             Identifier id = resourceId(resource.getKey(), "computer/entry");
             try {
@@ -667,7 +725,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             }).toList();
             return new Disk(disk.id(), disk.category(), disk.titleKey(), disk.entries(), disk.wallpaper(), disk.tasks(), disk.descriptionKey(), disk.hidden(), rewards, disk.features());
         });
-        LoadedData data = new LoadedData(Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks), Map.copyOf(loadedRewardPools),
+        LoadedData data = new LoadedData(normalizeArchiveFolders(loadedFolders), Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks), Map.copyOf(loadedRewardPools),
                 Map.copyOf(loadedTaskCategories), Map.copyOf(loadedTaskGroups), Map.copyOf(loadedTaskLinks), com.craisinlord.antos.content.computer.ComputerDiskFiles.load(resourceManager),
                 com.craisinlord.antos.content.computer.ComputerProgramData.load(resourceManager),
                 com.craisinlord.antos.content.computer.terminal.TerminalCommandData.load(resourceManager, loadedRewardPools));
@@ -676,7 +734,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         snapshotEntries.putAll(data.entries());
         JsonObject snapshot = new JsonObject();
         snapshot.add("unlocked_entries", new JsonArray());
-        encodeDefinitions(snapshotEntries, data.disks(), data.categories(), data.wallpapers()).entrySet().forEach(value -> snapshot.add(value.getKey(), value.getValue()));
+        encodeDefinitions(snapshotEntries, data.disks(), data.categories(), data.wallpapers(), data.archiveFolders()).entrySet().forEach(value -> snapshot.add(value.getKey(), value.getValue()));
         encodeNetworkSettings(snapshot);
         int snapshotLength = snapshot.toString().length();
         if (snapshotLength > com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS) {
@@ -695,6 +753,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     @Override
     protected void apply(LoadedData data, ResourceManager resourceManager, ProfilerFiller profiler) {
         entries = data.entries();
+        archiveFolders = data.archiveFolders();
         disks = data.disks();
         com.craisinlord.antos.content.computer.ComputerDiskData.apply(data.disks(), data.diskFiles(), data.programs());
         com.craisinlord.antos.content.computer.terminal.TerminalCommandData.apply(data.terminalCommands());
@@ -713,6 +772,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     private static void validateLoadedData(LoadedData data, ResourceManager resourceManager) {
+        for (Entry entry : data.entries().values()) {
+            if (entry.folder() != null && !data.archiveFolders().containsKey(entry.folder()))
+                AntOS.LOGGER.warn("Archive entry {} refers to missing folder {}; it is shown at the Archive root", entry.id(), entry.folder());
+        }
         java.util.Set<Identifier> advancementIds = resourceManager.listResources("advancement", path -> path.getPath().endsWith(".json"))
                 .keySet().stream().map(path -> resourceId(path, "advancement")).collect(java.util.stream.Collectors.toSet());
         java.util.Set<Identifier> antmailIds = resourceManager.listResources("antmail/message", path -> path.getPath().endsWith(".json"))
@@ -869,6 +932,47 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return Identifier.fromNamespaceAndPath(path.getNamespace(), value);
     }
 
+    private static void parseArchiveFolder(Identifier id, JsonElement element, Map<Identifier, ArchiveFolder> target) {
+        JsonObject object = element.getAsJsonObject();
+        String parentValue = string(object, "parent", "");
+        Identifier parent = parentValue.isBlank() ? null : Identifier.tryParse(parentValue);
+        if (!parentValue.isBlank() && parent == null)
+            AntOS.LOGGER.warn("Archive folder {} has invalid parent {}; it is shown at the Archive root", id, parentValue);
+        target.put(id, new ArchiveFolder(id, string(object, "title", "literal:" + id.getPath()),
+                string(object, "icon_item", "minecraft:book"), boundedSortOrder(object), parent, !Boolean.FALSE.equals(optionalFlag(object, "green_tint"))));
+    }
+
+    private static Map<Identifier, ArchiveFolder> normalizeArchiveFolders(Map<Identifier, ArchiveFolder> definitions) {
+        Map<Identifier, ArchiveFolder> result = new HashMap<>();
+        for (ArchiveFolder folder : definitions.values()) {
+            java.util.Set<Identifier> path = new java.util.HashSet<>();
+            path.add(folder.id());
+            Identifier parent = folder.parent();
+            int depth = 0;
+            String problem = null;
+            while (parent != null) {
+                if (!path.add(parent)) {
+                    problem = "a cyclic parent relationship";
+                    break;
+                }
+                ArchiveFolder ancestor = definitions.get(parent);
+                if (ancestor == null) {
+                    problem = "a missing parent " + parent;
+                    break;
+                }
+                depth++;
+                parent = ancestor.parent();
+            }
+            if (problem == null && depth > 1) problem = "more than one level of subfolders";
+            if (problem != null) {
+                AntOS.LOGGER.warn("Archive folder {} has {}; it is shown at the Archive root", folder.id(), problem);
+                folder = new ArchiveFolder(folder.id(), folder.titleKey(), folder.iconItem(), folder.sortOrder(), null, folder.greenTint());
+            }
+            result.put(folder.id(), folder);
+        }
+        return Map.copyOf(result);
+    }
+
     private static void parseEntry(Identifier id, JsonElement element, Map<Identifier, Entry> target) {
         if (!element.isJsonObject()) {
             return;
@@ -876,6 +980,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         JsonObject object = element.getAsJsonObject();
         String type = string(object, "type", "article");
         String category = string(object, "category", "general");
+        String folderValue = string(object, "folder", "");
+        Identifier folder = folderValue.isBlank() ? null : Identifier.tryParse(folderValue);
+        if (!folderValue.isBlank() && folder == null)
+            AntOS.LOGGER.warn("Archive entry {} has invalid folder {}; it is shown at the Archive root", id, folderValue);
         String title = string(object, "title", "guide.antos.missing_title");
         String subtitle = string(object, "subtitle", "");
         List<String> description = strings(object.get("description"));
@@ -903,7 +1011,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 && object.get("unlocked_by_default").getAsBoolean();
         target.put(id, new Entry(id, type, category, title, subtitle, description, item, entity, enchantment, recipe, structure, structureTag, dimension, searchRadius, locator,
                 coverItem, coverEntity, coverPotion, rotation, renderScale, greenTint, unlockedByDefault, gallery(object.get("gallery")),
-                string(object, "gallery_title", "")));
+                string(object, "gallery_title", ""), folder, boundedSortOrder(object)));
     }
 
     private static List<GalleryItem> gallery(JsonElement element) {
@@ -1513,7 +1621,16 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                          List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
                          String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
                          String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
-                         boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey) {
+                         boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, Identifier folder, int sortOrder) {
+        public Entry(Identifier id, String type, String category, String titleKey, String subtitleKey,
+                     List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
+                     String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
+                     String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
+                     boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey) {
+            this(id, type, category, titleKey, subtitleKey, descriptionKeys, itemId, entityId, enchantmentId, recipeId, structureId, structureTagId,
+                    dimensionId, searchRadius, locatorId, coverItemId, coverEntityId, coverPotionId, rotation, renderScale, greenTint, unlockedByDefault,
+                    gallery, galleryTitleKey, null, 0);
+        }
         public Entry(Identifier id, String type, String category, String titleKey, String subtitleKey,
                      List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
                      String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
@@ -1522,6 +1639,15 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             this(id, type, category, titleKey, subtitleKey, descriptionKeys, itemId, entityId, enchantmentId, recipeId, structureId, structureTagId,
                     dimensionId, searchRadius, locatorId, coverItemId, coverEntityId, coverPotionId, rotation, renderScale, greenTint, unlockedByDefault,
                     List.of(), "");
+        }
+    }
+
+    public record ArchiveFolder(Identifier id, String titleKey, String iconItem, int sortOrder, Identifier parent, boolean greenTint) {
+        public ArchiveFolder(Identifier id, String titleKey, String iconItem, int sortOrder, Identifier parent) {
+            this(id, titleKey, iconItem, sortOrder, parent, true);
+        }
+        public ArchiveFolder(Identifier id, String titleKey, String iconItem, int sortOrder) {
+            this(id, titleKey, iconItem, sortOrder, null);
         }
     }
 
@@ -1591,7 +1717,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public record RewardPool(Identifier id, List<RewardPoolEntry> entries) { }
     public record RewardPoolEntry(Identifier itemId, Identifier poolId, int weight, int count) { }
 
-    record LoadedData(Map<Identifier, Entry> entries, Map<Identifier, Disk> disks, Map<Identifier, DiskCategory> categories, Map<Identifier, Wallpaper> wallpapers, Map<Identifier, Task> tasks, Map<Identifier, RewardPool> rewardPools,
+    record LoadedData(Map<Identifier, ArchiveFolder> archiveFolders, Map<Identifier, Entry> entries, Map<Identifier, Disk> disks, Map<Identifier, DiskCategory> categories, Map<Identifier, Wallpaper> wallpapers, Map<Identifier, Task> tasks, Map<Identifier, RewardPool> rewardPools,
                       Map<Identifier, TaskCategory> taskCategories, Map<Identifier, TaskGroup> taskGroups, Map<Identifier, TaskLink> taskLinks,
                       Map<Identifier, String> diskFiles, Map<Identifier, com.craisinlord.antos.content.computer.ComputerProgramData.Program> programs,
                       Map<Identifier, com.craisinlord.antos.content.computer.terminal.TerminalCommandData.Definition> terminalCommands) {

@@ -1,4 +1,6 @@
 {
+  "computer.antos.archive.open": "[ CLICK FOLDER OR ENTRY TO OPEN ]",
+  "computer.antos.archive.folder_entries": "FOLDER // %s ENTRIES",
   "computer.antos.app.disks.name": "DISKS",
   "computer.antos.app.disks.title": "Disks Library",
   "computer.antos.app.disks.window_title": "DISKS LIBRARY",

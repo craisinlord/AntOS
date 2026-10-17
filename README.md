@@ -41,6 +41,18 @@ AntOS creates `config/antos.json` on first launch. Restart the game or server af
   "unlockAllGameEntries": false,
   "showIntroductionEntry": true,
   "blockleDailyAntcoinReward": 10,
+  "builtInGames": {
+    "chess": true,
+    "minesweeper": true
+  },
+  "gameRewards": {
+    "chessEasy": 5,
+    "chessNormal": 10,
+    "chessHard": 20,
+    "chessExpert": 40,
+    "minesweeperSmall": 5,
+    "minesweeperLarge": 15
+  },
   "sendAntazonUnlockEmail": true,
   "desktopApps": {
     "archive": true,
@@ -64,6 +76,8 @@ AntOS creates `config/antos.json` on first launch. Restart the game or server af
 | `unlockAllGameEntries` | Server | `false` | Unlocks every registered game without its disk. |
 | `showIntroductionEntry` | Server (synced) | `true` | Shows the built-in "SYSTEM INITIALIZED" Introduction page in every Archive. |
 | `blockleDailyAntcoinReward` | Server | `10` | AntCoins for solving Blockle, once per profile per Minecraft day. A popup shows the award. `0` disables it. No AntCoins are awarded or shown while Antazon is disabled. |
+| `builtInGames.chess`, `builtInGames.minesweeper` | Client | `true` | Installs Chess or Minesweeper on every computer. Set to `false` to require the matching disk instead (`antos:chess`, `antos:minesweeper`). AntOS doesn't define those disks; a pack that turns this off supplies the disk JSON and its drops. |
+| `gameRewards.<mode>` | Server | see above | AntCoins for winning a Chess level or a Minesweeper size, once per mode per profile per Minecraft day. `0` disables that reward. Nothing is paid while Antazon is disabled. |
 | `sendAntazonUnlockEmail` | Server | `true` | Sends the Antazon Dispatch email when listings unlock. |
 | `desktopApps.<app>` | Client | `true` | Set to `false` to hide an app. **Antazon and Tasks default to `false`**; set `desktopApps.antazon` and `desktopApps.tasks` to `true` to enable them. A config that omits `disks` keeps the Disks Library enabled. |
 
@@ -89,6 +103,7 @@ Every file's ID is `<namespace>:<path>`, where `<path>` is the file path under t
 | Content | Path |
 | --- | --- |
 | Archive entry | `data/<ns>/computer/entry/<path>.json` |
+| Archive folder | `data/<ns>/computer/archive_folder/<path>.json` |
 | Floppy disk | `data/<ns>/computer/disk/<path>.json` |
 | Disk category | `data/<ns>/computer/category/<path>.json` |
 | Disk/command file source | `data/<ns>/computer/disk_file/<path>.<ext>` (ID keeps the extension) |
@@ -198,10 +213,69 @@ Several timers take either `..._minecraft_days` or `..._real_hours`; set one, no
 | `structure_tag`, `dimension`, `search_radius` | Structure locating. |
 | `locator` | A Java [locator](#archive-locators) for targets that aren't vanilla structures. Needs `dimension`. |
 | `unlocked_by_default` | `true` makes the entry available on every computer without a disk. Default `false`. |
+| `folder` | Optional namespaced Archive folder ID, such as `examplemod:field_research`. Omit to show the entry at the Archive root. |
+| `sort_order` | Optional integer ordering inside the folder or among loose root entries. Default `0`; lower values appear first. Ties use the displayed title, then entry ID. |
 | `green_tint` | Default `true`. See [previews](#previews). |
 | `gallery`, `gallery_title` | A row of small previews under the text. See below. |
 
 Entries are normally unlocked by a disk's `entries`, a task's `archive` reward, a terminal command, or FTB Quests.
+
+### Archive folders
+
+Folders organize Archive entries using any structure the pack author chooses: chapters, locations, research topics, mods, or something else. AntOS never assigns folders automatically based on a mod or namespace. Folders are separate from an entry's `category` and from floppy disk categories.
+
+Define a folder at `data/<namespace>/computer/archive_folder/<path>.json`. For example, `data/examplemod/computer/archive_folder/field_research.json`:
+
+```json
+{
+  "title": "guide.examplemod.archive_folder.field_research",
+  "icon_item": "minecraft:spyglass",
+  "sort_order": 10
+}
+```
+
+| Field | Notes |
+| --- | --- |
+| `title` | Translation key for the folder name. Use `literal:Field Research` for a name that does not need a resource-pack translation. Defaults to the folder ID's path. |
+| `icon_item` | Item ID displayed on the folder. Default `minecraft:book`. |
+| `green_tint` | Default `true`. Set `false` to show the folder's icon in its normal colors. Each folder and subfolder controls its own icon tint; this does not change the tint of entries inside it. |
+| `parent` | Optional namespaced folder ID. Omit for a top-level folder; set it to a top-level folder's ID to create a subfolder. One level of subfolders is supported. |
+| `sort_order` | Integer ordering among folders, from `-100000` to `100000`. Default `0`; lower values appear first. Ties use the displayed folder title, then folder ID. Entry `sort_order` uses the same range. |
+
+Assign an entry to the folder with its full ID:
+
+```json
+{
+  "type": "article",
+  "folder": "examplemod:field_research",
+  "sort_order": 20,
+  "category": "creatures",
+  "title": "guide.examplemod.entry.field_notes.title",
+  "description": ["guide.examplemod.entry.field_notes.body"],
+  "cover_item": "minecraft:book"
+}
+```
+
+To add a subfolder, define another folder such as `data/examplemod/computer/archive_folder/creatures.json`:
+
+```json
+{
+  "title": "literal:Creatures",
+  "parent": "examplemod:field_research",
+  "icon_item": "minecraft:spider_eye",
+  "sort_order": 10
+}
+```
+
+An entry with `"folder": "examplemod:creatures"` then appears under `Archive > Field Research > Creatures`. Folder IDs and parent relationships are explicit; a slash in a folder's JSON path does not create a parent relationship automatically.
+
+The Archive root shows top-level folders first, followed by loose entries. Opening a folder shows its visible subfolders first, followed by entries assigned directly to it. Each group uses `sort_order`, displayed title, and ID ordering. A parent may contain both subfolders and its own entries. Folder counts include all unlocked entries beneath that folder, including entries in its subfolders.
+
+Each breadcrumb segment is clickable, so `Archive > Field Research > Creatures` can return directly to either ancestor. The back arrow moves up one folder level; while viewing an entry, it returns to the list that opened that entry. Escape leaves an entry, unfocuses search, or moves up one folder level, in that order. Returning to a previous list restores its search and scroll position, including when a breadcrumb skips a level.
+
+Searching at the root searches all unlocked entries. Searching inside a parent searches that folder and its subfolders; searching inside a subfolder searches only that subfolder. Results show their full folder path. Empty folders stay hidden until an entry anywhere beneath them becomes available, so a parent with no direct entries can still appear when a subfolder has an unlocked entry. Folders do not unlock entries: disks, tasks, and other existing unlock sources continue to control availability.
+
+Each entry can belong to one folder. The maximum hierarchy is `Archive > Folder > Subfolder`. Existing folders without `parent` stay at the root, and existing entries without `folder` stay loose at the root. Entries referencing missing folders also appear at the root, with a warning in the server log. Missing or invalid parents, self-parenting, cycles, and excessive nesting promote the affected folders to the root with warnings; their assigned entries are retained. Validation uses the original parent graph, so descendants of a broken parent chain are also promoted, independently of file load order. Folder definitions, parent relationships, and entry assignments sync from the server with the rest of the Archive data.
 
 ### Galleries
 
@@ -1044,7 +1118,9 @@ ArchiveLocatorRegistry.register(
 
 ### Native games
 
-Register code-based games with `ComputerGameRegistry`. Each game has a namespaced ID and an installing disk ID, and its session implements `tick`, `render`, `keyPressed`, and `charTyped`. See `ComputerGame` and `ComputerGameRegistry`.
+Register code-based games with `ComputerGameRegistry`. Each game has a namespaced ID and an installing disk ID, and its session implements `tick`, `render`, `keyPressed`, and `charTyped`. Sessions can also override `mouseClicked(mouseX, mouseY, button)` and the `render` overload that takes `mouseX, mouseY`; both use coordinates relative to the game area's top-left corner. The game area is the Games window below its BACK header: 374×190 by default and 396×178 maximized. Lay out from the `width` and `height` passed to `render`; drawing is clipped to that area. See `ComputerGame` and `ComputerGameRegistry`.
+
+AntOS ships Blockle, Chess (four AI levels) and Minesweeper (two board sizes). Chess and Minesweeper are adapted from Create: Cybernetics by Perigrine3 under the MIT License; see `licenses/createcybernetics-MIT.txt`.
 
 ### Custom objectives
 

@@ -22,8 +22,10 @@ public interface ComputerGame {
     interface Session {
         default void tick() {}
         void render(GuiGraphics graphics, Font font, int x, int y, int width, int height);
+        default void render(GuiGraphics graphics, Font font, int x, int y, int width, int height, int mouseX, int mouseY) { render(graphics, font, x, y, width, height); }
         default boolean keyPressed(int keyCode) { return false; }
         default boolean charTyped(char codePoint) { return false; }
+        default boolean mouseClicked(double mouseX, double mouseY, int button) { return false; }
         default void close() {}
     }
 }

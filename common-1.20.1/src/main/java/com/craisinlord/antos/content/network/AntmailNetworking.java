@@ -45,7 +45,11 @@ public final class AntmailNetworking {
     }
 
     public static boolean send(String recipient, String subject, String body, List<AntmailAttachment> attachments) {
-        return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), "", 0L, 0L));
+        return send(recipient, subject, body, attachments, null);
+    }
+
+    public static boolean send(String recipient, String subject, String body, List<AntmailAttachment> attachments, UUID draftId) {
+        return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), draftId == null ? "" : draftId.toString(), 0L, 0L));
     }
 
     public static void markRead(UUID messageId) {

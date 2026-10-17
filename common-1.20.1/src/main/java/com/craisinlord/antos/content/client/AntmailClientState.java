@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class AntmailClientState {
     private static final int MAX_CACHED_DETAILS_PER_MAILBOX = 32;
     private static volatile AntmailAnternetResultPayload result;
+    private static volatile AntmailAnternetResultPayload sendResult;
     private static volatile AntmailAnternetResultPayload mailbox;
     private static volatile long version;
     private static volatile Snapshot snapshot;
@@ -34,6 +35,11 @@ public final class AntmailClientState {
         AntmailDebug.log("S2C result status=" + payload.status() + " detail=" + payload.detail()
                 + " addressPresent=" + !payload.address().isBlank() + " dataChars=" + payload.data().length()
                 + " version=" + payload.version());
+        if (payload.detail().startsWith("send:")) {
+            payload = new AntmailAnternetResultPayload(payload.status(), payload.address(), payload.messageId(),
+                    payload.detail().substring(5), payload.data(), payload.version());
+            sendResult = payload;
+        }
         result = payload;
         if ("unchanged".equals(payload.detail())) {
             if (mailbox != null) {
@@ -99,6 +105,7 @@ public final class AntmailClientState {
 
     public static void clear() {
         result = null;
+        sendResult = null;
         mailbox = null;
         snapshot = null;
         refreshRequested = false;
@@ -109,6 +116,10 @@ public final class AntmailClientState {
 
     public static AntmailAnternetResultPayload get() {
         return result;
+    }
+
+    public static AntmailAnternetResultPayload getSendResult() {
+        return sendResult;
     }
 
     public static AntmailAnternetResultPayload getMailbox() {

@@ -1,0 +1,7 @@
+{
+  "title": "literal:Creatures",
+  "parent": "examplemod:field_research",
+  "icon_item": "minecraft:spider_eye",
+  "green_tint": false,
+  "sort_order": 10
+}

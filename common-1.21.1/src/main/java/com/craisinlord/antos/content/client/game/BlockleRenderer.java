@@ -35,11 +35,10 @@ public final class BlockleRenderer {
     private static void renderBoard(GuiGraphics graphics, Font font, int x, int y, int width, int height,
                                     List<String> guesses, List<String> colors, String input, String status, String phase,
                                     ResourceLocation answerId) {
-        graphics.drawString(font, Component.literal("BLOCKLE"), x, y, 0xFF65FF65, false);
         int cell = 18;
         int gap = 3;
         int boardX = x + Math.max(0, (width - cell * 5 - gap * 4) / 2);
-        int boardY = y + 18;
+        int boardY = y + 4;
         for (int row = 0; row < 6; row++) {
             String guess = row < guesses.size() ? guesses.get(row) : row == guesses.size() ? input : "";
             String rowColors = row < colors.size() ? colors.get(row) : "";
@@ -61,7 +60,7 @@ public final class BlockleRenderer {
         }
         String message = status.isBlank() ? "ENTER TO SUBMIT" : status;
         if (phase.equals("PLAYING") && input.length() < 5) message = input.length() + "/5 LETTERS";
-        graphics.drawString(font, Component.literal(message), x, y + 145, PALE, false);
+        graphics.drawString(font, Component.literal(message), x, y + 136, PALE, false);
         if (!phase.equals("PLAYING") && answerId != null) {
             if (!answerId.equals(answerStackId)) {
                 answerStack = BuiltInRegistries.ITEM.getOptional(answerId).map(ItemStack::new).orElse(ItemStack.EMPTY);
@@ -69,7 +68,7 @@ public final class BlockleRenderer {
             }
             if (!answerStack.isEmpty()) {
                 graphics.setColor(0.35F, 1.0F, 0.35F, 1.0F);
-                graphics.renderItem(answerStack, x + width - 28, y + 137);
+                graphics.renderItem(answerStack, x + width - 28, y + 132);
                 graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
             }
         }

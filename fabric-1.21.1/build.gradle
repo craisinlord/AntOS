@@ -139,6 +139,51 @@ tasks.register('diskEngineTest', JavaExec) {
     doFirst { workingDir.mkdirs() }
 }
 
+def archiveFolderTestClasses = layout.buildDirectory.dir('classes/java/archiveFolderTest')
+
+tasks.register('compileArchiveFolderTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source file('../common-1.21.1/src/test/java/com/craisinlord/antos/content/client/screen/ArchiveFolderTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = archiveFolderTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.register('archiveFolderTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies Archive folder sync, unlocking, ordering, search, and navigation.'
+    dependsOn tasks.named('compileArchiveFolderTests')
+    classpath = files(archiveFolderTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.client.screen.ArchiveFolderTest'
+    workingDir = layout.buildDirectory.dir('archive-folder-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
+def textFeedbackTestClasses = layout.buildDirectory.dir('classes/java/textFeedbackTest')
+
+tasks.register('compileTextFeedbackTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files(
+            '../common-1.21.1/src/test/java/com/craisinlord/antos/content/client/screen/EditableTextWrapTest.java',
+            '../common-1.21.1/src/test/java/com/craisinlord/antos/content/client/screen/AntmailDraftTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = textFeedbackTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+['textFeedbackTest': 'EditableTextWrapTest', 'antmailDraftTest': 'AntmailDraftTest'].each { name, testClass ->
+    tasks.register(name, JavaExec) {
+        group = 'verification'
+        dependsOn tasks.named('compileTextFeedbackTests')
+        classpath = files(textFeedbackTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+        mainClass = "com.craisinlord.antos.content.client.screen.${testClass}"
+        workingDir = layout.buildDirectory.dir('text-feedback-tests').get().asFile
+        doFirst { workingDir.mkdirs() }
+    }
+}
+
 processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') { expand 'version': project.version }

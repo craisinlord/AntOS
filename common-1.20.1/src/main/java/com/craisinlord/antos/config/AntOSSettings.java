@@ -152,6 +152,28 @@ public final class AntOSSettings {
         return Math.max(0L, config.blockleDailyAntcoinReward);
     }
 
+    public static synchronized boolean gameBuiltIn(String gameId) {
+        BuiltInGames games = config.builtInGames;
+        return switch (gameId) {
+            case "chess" -> games.chess;
+            case "minesweeper" -> games.minesweeper;
+            default -> false;
+        };
+    }
+
+    public static synchronized long gameAntcoinReward(String mode) {
+        GameRewards rewards = config.gameRewards;
+        return switch (mode) {
+            case "chess_easy" -> Math.max(0L, rewards.chessEasy);
+            case "chess_normal" -> Math.max(0L, rewards.chessNormal);
+            case "chess_hard" -> Math.max(0L, rewards.chessHard);
+            case "chess_expert" -> Math.max(0L, rewards.chessExpert);
+            case "minesweeper_small" -> Math.max(0L, rewards.minesweeperSmall);
+            case "minesweeper_large" -> Math.max(0L, rewards.minesweeperLarge);
+            default -> -1L;
+        };
+    }
+
     public static synchronized boolean sendAntazonUnlockEmail() {
         return config.sendAntazonUnlockEmail;
     }
@@ -187,6 +209,8 @@ public final class AntOSSettings {
         private boolean unlockAllGameEntries;
         private boolean showIntroductionEntry = true;
         private long blockleDailyAntcoinReward = 10L;
+        private BuiltInGames builtInGames = new BuiltInGames();
+        private GameRewards gameRewards = new GameRewards();
         private boolean sendAntazonUnlockEmail = true;
         private Set<String> antazonUnlockEmailsSent = new HashSet<>();
         private boolean inventoryComputerButton;
@@ -203,6 +227,8 @@ public final class AntOSSettings {
             preferences.normalize();
             if (terminalHistory == null) terminalHistory = new HashMap<>();
             if (desktopApps == null) desktopApps = new DesktopApps();
+            if (builtInGames == null) builtInGames = new BuiltInGames();
+            if (gameRewards == null) gameRewards = new GameRewards();
             if (completedComputerTours == null) completedComputerTours = new HashSet<>();
             if (taskGroupCollapsed == null) taskGroupCollapsed = new HashMap<>();
             if (antazonUnlockEmailsSent == null) antazonUnlockEmailsSent = new HashSet<>();
@@ -251,6 +277,20 @@ public final class AntOSSettings {
             if (editorLineNumbers == null || !List.of("auto", "on", "off").contains(editorLineNumbers)) editorLineNumbers = "auto";
             paintBrush = Math.max(1, Math.min(3, paintBrush));
         }
+    }
+
+    private static final class BuiltInGames {
+        private boolean chess = true;
+        private boolean minesweeper = true;
+    }
+
+    private static final class GameRewards {
+        private long chessEasy = 5L;
+        private long chessNormal = 10L;
+        private long chessHard = 20L;
+        private long chessExpert = 40L;
+        private long minesweeperSmall = 5L;
+        private long minesweeperLarge = 15L;
     }
 
     private static final class DesktopApps {

@@ -28,11 +28,16 @@ final class ArchiveApp extends ComputerApp {
     private int detailWidth = -1;
     private List<ComputerGuideData.Entry> filterSource;
     private String filterQuery;
+    private ResourceLocation filterFolder;
+    private List<ComputerGuideData.Entry> browseSource;
+    private List<BrowseItem> browseResult;
     private List<ComputerGuideData.Entry> filterResult;
     private final List<GalleryButton> galleryButtons = new java.util.ArrayList<>();
+    private final List<BreadcrumbButton> breadcrumbButtons = new java.util.ArrayList<>();
 
     void select(ComputerGuideData.Entry entry) {
         state.entryId = entry.id();
+        state.searchFocused = false;
         state.detailScroll = 0;
         ComputerNetworking.recordArchiveViewed(entry.id());
         if (!entry.structureId().isBlank() || !entry.locatorId().isBlank()) {
@@ -54,7 +59,9 @@ final class ArchiveApp extends ComputerApp {
         List<ResourceLocation> unlocked = com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get();
         List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(diskIds, unlocked);
 
+        List<BrowseItem> items = browseItems(entries);
         galleryButtons.clear();
+        breadcrumbButtons.clear();
         ComputerGuideData.Entry selected = null;
         if (state.entryId != null) {
             selected = ComputerGuideData.availableEntry(diskIds, unlocked, state.entryId);
@@ -63,7 +70,7 @@ final class ArchiveApp extends ComputerApp {
 
         if (selected != null) {
             screen.archiveGreenTint = selected.greenTint();
-            g.drawString(font, Component.literal("< BACK // RECOVERED FILES"), x, y, GREEN, false);
+            renderBreadcrumbs(g, x, y, w);
             g.fill(x, y + 16, x + w, y + 18, GREEN);
             g.drawString(font, Component.literal(screen.trimToWidth(AntOSPlayerText.apply(ComputerGuideData.archiveTitle(selected).getString()), w)), x, y + 27, GREEN, false);
             int contentBottom = y + h - 20;
@@ -97,18 +104,17 @@ final class ArchiveApp extends ComputerApp {
             return;
         }
 
-        List<ComputerGuideData.Entry> filteredEntries = filterEntries(entries);
-        g.drawString(font, Component.literal("RECOVERED FILES // " + filteredEntries.size() + "/" + entries.size()), x, y, GREEN, false);
+        renderBreadcrumbs(g, x, y, w - 8);
         g.fill(x, y + 14, x + w - 8, y + 35, BLACK);
         screen.box(g, x, y + 14, x + w - 8, y + 35, state.searchFocused ? GREEN : PALE_GREEN);
         String searchText = state.search.isBlank() && !state.searchFocused ? "SEARCH TITLE OR DESCRIPTION" : state.search;
         g.drawString(font, Component.literal(screen.trimToWidth(searchText + (state.searchFocused && screen.caretVisible() ? "|" : ""), w - 16)), x + 6, y + 20,
                 state.search.isBlank() ? PALE_GREEN : GREEN, false);
         if (entries.isEmpty()) {
-            g.drawString(font, Component.literal("NO ARCHIVE DATA"), x, y + 28, PALE_GREEN, false);
+            g.drawString(font, Component.literal("NO ARCHIVE DATA"), x, y + 52, PALE_GREEN, false);
             return;
         }
-        if (filteredEntries.isEmpty()) {
+        if (items.isEmpty()) {
             g.drawString(font, Component.literal("NO MATCHING ENTRIES"), x, y + 52, PALE_GREEN, false);
             return;
         }
@@ -117,7 +123,7 @@ final class ArchiveApp extends ComputerApp {
         int thumbnailSize = maximized ? 44 : 28;
         int listTop = y + 40;
         int visibleRows = Math.max(1, (h - 58) / cellHeight);
-        int totalRows = (filteredEntries.size() + columns - 1) / columns;
+        int totalRows = (items.size() + columns - 1) / columns;
         int maximumScroll = Math.max(0, totalRows - visibleRows);
         state.scroll = Math.max(0, Math.min(state.scroll, maximumScroll));
         int startRow = state.scroll;
@@ -134,8 +140,9 @@ final class ArchiveApp extends ComputerApp {
             int rowTop = listTop + (rowIndex - startRow) * cellHeight;
             for (int column = 0; column < columns; column++) {
                 int index = rowIndex * columns + column;
-                if (index >= filteredEntries.size()) break;
-                ComputerGuideData.Entry entry = filteredEntries.get(index);
+                if (index >= items.size()) break;
+                BrowseItem item = items.get(index);
+                ComputerGuideData.Entry entry = item.entry();
                 int cellWidth = (w - 8) / columns;
                 int cellX = x + column * cellWidth;
                 int thumbX = maximized ? cellX + (cellWidth - thumbnailSize) / 2 : cellX + 3;
@@ -143,31 +150,181 @@ final class ArchiveApp extends ComputerApp {
                 int textX = maximized ? cellX + 3 : cellX + thumbnailSize + 10;
                 int textY = maximized ? rowTop + thumbnailSize + 5 : rowTop + 7;
                 boolean hover = screen.inside(cellX, rowTop, cellWidth - 2, cellHeight - 2, screen.session.archiveMouseX, screen.session.archiveMouseY);
-            if (hover) screen.drawHover(g, cellX, rowTop, cellWidth - 2, cellHeight - 2);
+                if (hover) screen.drawHover(g, cellX, rowTop, cellWidth - 2, cellHeight - 2);
                 g.fill(thumbX, thumbY, thumbX + thumbnailSize, thumbY + thumbnailSize, BLACK);
-                renderThumbnail(g, entry, thumbX + thumbnailSize / 2, thumbY + thumbnailSize / 2, hover, thumbnailSize);
+                if (entry != null) renderThumbnail(g, entry, thumbX + thumbnailSize / 2, thumbY + thumbnailSize / 2, hover, thumbnailSize);
+                else renderFolderThumbnail(g, item.folder(), thumbX, thumbY, thumbnailSize);
                 int textWidth = maximized ? cellWidth - 8 : cellWidth - thumbnailSize - 12;
-                g.drawString(font, Component.literal(screen.trimToWidth(AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString()), textWidth)), textX, textY, GREEN, false);
-                g.drawString(font, Component.literal(screen.trimToWidth(entry.category().toUpperCase(), textWidth)), textX, textY + 12, PALE_GREEN, false);
+                g.drawString(font, Component.literal(screen.trimToWidth(item.title(), textWidth)), textX, textY, GREEN, false);
+                g.drawString(font, Component.literal(screen.trimToWidth(state.search.isBlank() && entry != null ? entry.category().toUpperCase(Locale.ROOT) : item.subtitle(), textWidth)), textX, textY + 12, PALE_GREEN, false);
             }
         }
         int shownStart = startRow * columns;
-        int shownEnd = Math.min(filteredEntries.size(), (startRow + visibleRows) * columns);
-        if (totalRows > visibleRows) g.drawString(font, Component.literal("SCROLL " + (shownStart + 1) + "-" + shownEnd + " / " + filteredEntries.size()), x, y + h - 12, PALE_GREEN, false);
-        else g.drawString(font, Component.literal("[ CLICK ENTRY TO OPEN ]"), x, y + h - 12, PALE_GREEN, false);
+        int shownEnd = Math.min(items.size(), (startRow + visibleRows) * columns);
+        if (totalRows > visibleRows) g.drawString(font, Component.literal("SCROLL " + (shownStart + 1) + "-" + shownEnd + " / " + items.size()), x, y + h - 12, PALE_GREEN, false);
+        else g.drawString(font, Component.translatable("computer.antos.archive.open"), x, y + h - 12, PALE_GREEN, false);
+    }
+
+    private static String folderPathTitle(ResourceLocation folderId) {
+        return ComputerGuideData.archiveFolderPath(folderId).stream()
+                .map(ComputerGuideData::archiveFolder).map(folder -> AntOSPlayerText.apply(ComputerGuideData.archiveFolderTitle(folder).getString()))
+                .collect(java.util.stream.Collectors.joining(" > "));
+    }
+
+    private void renderBreadcrumbs(GuiGraphics g, int x, int y, int w) {
+        int cursor = x;
+        int separatorWidth = font.width(" > ");
+        if (state.entryId != null || state.folderId != null) {
+            g.drawString(font, Component.literal("<"), cursor, y, GREEN, false);
+            breadcrumbButtons.add(new BreadcrumbButton(cursor, y, cursor + 10, y + 13, null, true));
+            cursor += 14;
+        }
+        List<ResourceLocation> path = new java.util.ArrayList<>();
+        path.add(null);
+        path.addAll(ComputerGuideData.archiveFolderPath(state.folderId));
+        for (int index = 0; index < path.size(); index++) {
+            ResourceLocation folderId = path.get(index);
+            String title = folderId == null ? Component.translatable("computer.antos.app.archive.name").getString()
+                    : AntOSPlayerText.apply(ComputerGuideData.archiveFolderTitle(ComputerGuideData.archiveFolder(folderId)).getString());
+            int remaining = path.size() - index;
+            int available = Math.max(1, x + w - cursor - (remaining - 1) * separatorWidth);
+            String label = screen.trimToWidth(title, Math.max(1, available / remaining));
+            int width = font.width(label);
+            boolean hover = screen.inside(cursor, y, width, 13, screen.session.archiveMouseX, screen.session.archiveMouseY);
+            g.drawString(font, Component.literal(label), cursor, y, hover ? GREEN : PALE_GREEN, false);
+            breadcrumbButtons.add(new BreadcrumbButton(cursor, y, cursor + width, y + 13, folderId, false));
+            cursor += width;
+            if (index + 1 < path.size()) {
+                g.drawString(font, Component.literal(" > "), cursor, y, PALE_GREEN, false);
+                cursor += separatorWidth;
+            }
+        }
+    }
+
+    private boolean clickBreadcrumb(double mouseX, double mouseY) {
+        for (BreadcrumbButton button : List.copyOf(breadcrumbButtons)) {
+            if (mouseX < button.left() || mouseX >= button.right() || mouseY < button.top() || mouseY >= button.bottom()) continue;
+            if (button.back()) goBack();
+            else navigateTo(button.folder());
+            return true;
+        }
+        return false;
+    }
+
+    private void openFolder(ResourceLocation folder) {
+        if (ComputerGuideData.archiveFolder(folder) == null || java.util.Objects.equals(state.folderId, folder)) return;
+        state.history.add(new BrowseLocation(state.folderId, state.search, state.scroll));
+        state.folderId = folder;
+        state.entryId = null;
+        state.search = "";
+        state.scroll = 0;
+        state.searchFocused = false;
+        scrollbarDragging = null;
+    }
+
+    private void navigateTo(ResourceLocation folder) {
+        if (ComputerGuideData.archiveFolder(folder) == null) folder = null;
+        state.entryId = null;
+        state.detailScroll = 0;
+        state.searchFocused = false;
+        scrollbarDragging = null;
+        if (java.util.Objects.equals(state.folderId, folder)) return;
+        state.folderId = folder;
+        for (int index = state.history.size() - 1; index >= 0; index--) {
+            BrowseLocation location = state.history.get(index);
+            if (java.util.Objects.equals(location.folder(), folder)) {
+                state.history.subList(index, state.history.size()).clear();
+                state.search = location.search();
+                state.scroll = location.scroll();
+                return;
+            }
+        }
+        List<ResourceLocation> path = ComputerGuideData.archiveFolderPath(folder);
+        state.history.removeIf(location -> location.folder() != null && !path.contains(location.folder()));
+        state.search = "";
+        state.scroll = 0;
+    }
+
+    private void openParent() {
+        ComputerGuideData.ArchiveFolder folder = ComputerGuideData.archiveFolder(state.folderId);
+        navigateTo(folder == null ? null : folder.parent());
+    }
+
+    private void goBack() {
+        if (state.entryId != null) {
+            state.entryId = null;
+            state.detailScroll = 0;
+            state.searchFocused = false;
+        } else {
+            openParent();
+        }
     }
 
     private List<ComputerGuideData.Entry> filterEntries(List<ComputerGuideData.Entry> entries) {
-        String query = state.search.trim().toLowerCase(Locale.ROOT);
-        if (query.isEmpty()) return entries;
         validateTextCaches();
-        if (filterSource == entries && query.equals(filterQuery)) return filterResult;
+        if (filterSource != entries) {
+            while (state.folderId != null && entries.stream().noneMatch(entry -> ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))) openParent();
+        }
+        String query = state.search.trim().toLowerCase(Locale.ROOT);
+        if (filterSource == entries && query.equals(filterQuery) && java.util.Objects.equals(filterFolder, state.folderId)) return filterResult;
         if (searchText.size() > entries.size() * 2 + 64) searchText.clear();
-        List<ComputerGuideData.Entry> result = entries.stream().filter(entry -> searchText.computeIfAbsent(entry, this::entrySearchText).contains(query)).toList();
+        List<ComputerGuideData.Entry> result = entries.stream()
+                .filter(entry -> ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))
+                .filter(entry -> query.isEmpty() || searchText.computeIfAbsent(entry, this::entrySearchText).contains(query))
+                .sorted(java.util.Comparator.comparingInt(ComputerGuideData.Entry::sortOrder)
+                        .thenComparing(entry -> AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString()), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(entry -> entry.id().toString())).toList();
         filterSource = entries;
         filterQuery = query;
+        filterFolder = state.folderId;
         filterResult = result;
         return result;
+    }
+
+    private List<BrowseItem> browseItems(List<ComputerGuideData.Entry> entries) {
+        List<ComputerGuideData.Entry> filtered = filterEntries(entries);
+        if (browseSource == filtered && browseResult != null) return browseResult;
+        List<BrowseItem> result = new java.util.ArrayList<>();
+        if (state.search.isBlank()) {
+            java.util.Map<ResourceLocation, Integer> counts = new java.util.HashMap<>();
+            for (ComputerGuideData.Entry entry : filtered) {
+                ResourceLocation folder = ComputerGuideData.archiveFolderId(entry);
+                for (ResourceLocation ancestor : ComputerGuideData.archiveFolderPath(folder)) counts.merge(ancestor, 1, Integer::sum);
+            }
+            counts.keySet().stream().map(ComputerGuideData::archiveFolder)
+                    .filter(folder -> java.util.Objects.equals(folder.parent(), state.folderId))
+                    .sorted(java.util.Comparator.comparingInt(ComputerGuideData.ArchiveFolder::sortOrder)
+                            .thenComparing(folder -> AntOSPlayerText.apply(ComputerGuideData.archiveFolderTitle(folder).getString()), String.CASE_INSENSITIVE_ORDER)
+                            .thenComparing(folder -> folder.id().toString()))
+                    .forEach(folder -> result.add(new BrowseItem(null, folder, counts.get(folder.id()))));
+            filtered.stream().filter(entry -> java.util.Objects.equals(ComputerGuideData.archiveFolderId(entry), state.folderId))
+                    .forEach(entry -> result.add(new BrowseItem(entry, null, 0)));
+        } else {
+            filtered.forEach(entry -> result.add(new BrowseItem(entry, null, 0)));
+        }
+        browseSource = filtered;
+        browseResult = List.copyOf(result);
+        return browseResult;
+    }
+
+    private void renderFolderThumbnail(GuiGraphics g, ComputerGuideData.ArchiveFolder folder, int x, int y, int size) {
+        screen.archiveGreenTint = folder.greenTint();
+        g.fill(x, y + 2, x + size / 2, y + 6, PALE_GREEN);
+        screen.box(g, x, y + 5, x + size, y + size, GREEN);
+        screen.renderArchiveAsset(g, folder.iconItem(), "", "", "", x + size / 2, y + size / 2 + 2, size - 8, 0.0F, 1.0F);
+    }
+
+    private record BrowseItem(ComputerGuideData.Entry entry, ComputerGuideData.ArchiveFolder folder, int count) {
+        String title() {
+            return AntOSPlayerText.apply(entry == null ? ComputerGuideData.archiveFolderTitle(folder).getString() : ComputerGuideData.archiveTitle(entry).getString());
+        }
+
+        String subtitle() {
+            if (entry == null) return Component.translatable("computer.antos.archive.folder_entries", count).getString();
+            ComputerGuideData.ArchiveFolder parent = ComputerGuideData.archiveFolder(ComputerGuideData.archiveFolderId(entry));
+            return parent == null ? entry.category().toUpperCase(Locale.ROOT)
+                    : folderPathTitle(parent.id());
+        }
     }
 
     private void validateTextCaches() {
@@ -181,6 +338,8 @@ final class ArchiveApp extends ComputerApp {
             searchText.clear();
             detailLines.clear();
             filterSource = null;
+            browseSource = null;
+            browseResult = null;
             filterQuery = null;
             filterResult = null;
         }
@@ -302,16 +461,12 @@ final class ArchiveApp extends ComputerApp {
         int contentY = y + 28;
         int contentW = w - 16;
         int contentH = h - 34;
-        List<ComputerGuideData.Entry> entries = filterEntries(ComputerGuideData.entriesFor(screen.workspaceDiskIds(),
+        List<BrowseItem> entries = browseItems(ComputerGuideData.entriesFor(screen.workspaceDiskIds(),
                 com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get()));
         int archiveX = x + 8;
         int archiveY = y + 28;
+        if (clickBreadcrumb(mouseX, mouseY)) return true;
         if (state.entryId != null) {
-            if (screen.inside(archiveX, archiveY, w - 16, 20, mouseX, mouseY)) {
-                state.entryId = null;
-                state.detailScroll = 0;
-                return true;
-            }
             for (GalleryButton galleryButton : List.copyOf(galleryButtons)) {
                 if (mouseX < galleryButton.left() || mouseX >= galleryButton.right() || mouseY < galleryButton.top() || mouseY >= galleryButton.bottom()) continue;
                 ComputerGuideData.Entry target = ComputerGuideData.availableEntry(screen.workspaceDiskIds(),
@@ -346,8 +501,9 @@ final class ArchiveApp extends ComputerApp {
             int rowTop = gridTop + relativeRow * cellHeight;
             if (relativeRow >= 0 && relativeRow < visibleRows && index < entries.size()
                     && screen.inside(cellX, rowTop, cellWidth - 2, cellHeight - 2, mouseX, mouseY)) {
-                ComputerGuideData.Entry openedEntry = entries.get(index);
-                select(openedEntry);
+                BrowseItem opened = entries.get(index);
+                if (opened.entry() != null) select(opened.entry());
+                else openFolder(opened.folder().id());
             }
         }
         return true;
@@ -360,7 +516,7 @@ final class ArchiveApp extends ComputerApp {
             int columns = window.maximized ? 3 : 1;
             int cellHeight = window.maximized ? 72 : 38;
             int visibleRows = Math.max(1, (screen.windowHeight(window) - 34 - 58) / cellHeight);
-            int totalRows = (filterEntries(entries).size() + columns - 1) / columns;
+            int totalRows = (browseItems(entries).size() + columns - 1) / columns;
             int maximum = Math.max(0, totalRows - visibleRows);
             state.scroll = Math.max(0, Math.min(maximum,
                     state.scroll - (int) Math.signum(scrollY)));
@@ -372,7 +528,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     boolean type(Window window, char codePoint, int modifiers) {
-        if (state.searchFocused && codePoint >= 32 && state.search.length() < 48) {
+        if (state.entryId == null && state.searchFocused && codePoint >= 32 && state.search.length() < 48) {
             state.search += codePoint;
             state.scroll = 0;
             return true;
@@ -382,8 +538,7 @@ final class ArchiveApp extends ComputerApp {
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
         if (state.entryId != null && keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            state.entryId = null;
-            state.detailScroll = 0;
+            goBack();
             return true;
         }
         if (state.searchFocused) {
@@ -397,6 +552,10 @@ final class ArchiveApp extends ComputerApp {
                 return true;
             }
         }
+        if (state.folderId != null && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            openParent();
+            return true;
+        }
         return false;
     }
 
@@ -406,7 +565,7 @@ final class ArchiveApp extends ComputerApp {
         int columns = window.maximized ? 3 : 1;
         int cellHeight = window.maximized ? 72 : 38;
         int visibleRows = Math.max(1, (screen.windowHeight(window) - 34 - 58) / cellHeight);
-        int totalRows = (filterEntries(entries).size() + columns - 1) / columns;
+        int totalRows = (browseItems(entries).size() + columns - 1) / columns;
         int maximum = Math.max(0, totalRows - visibleRows);
         if (maximum == 0) {
             state.scroll = 0;
@@ -422,8 +581,14 @@ final class ArchiveApp extends ComputerApp {
 
     private record GalleryButton(int left, int top, int right, int bottom, ResourceLocation target) { }
 
+    private record BrowseLocation(ResourceLocation folder, String search, int scroll) { }
+
+    private record BreadcrumbButton(int left, int top, int right, int bottom, ResourceLocation folder, boolean back) { }
+
     static final class State {
         ResourceLocation entryId;
+        ResourceLocation folderId;
+        final List<BrowseLocation> history = new java.util.ArrayList<>();
         int scroll;
         String search = "";
         boolean searchFocused;

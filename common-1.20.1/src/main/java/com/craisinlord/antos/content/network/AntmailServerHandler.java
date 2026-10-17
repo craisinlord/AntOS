@@ -42,13 +42,14 @@ public final class AntmailServerHandler {
             } else if (payload.action() != AntmailAnternetPayload.STATE) {
                 String messageId = payload.action() == AntmailAnternetPayload.SEND ? UUID.randomUUID().toString()
                         : payload.first().length() <= 64 ? payload.first() : "";
-                result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", messageId, "rate_limited", "");
+                result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", messageId,
+                        payload.action() == AntmailAnternetPayload.SEND ? "send:rate_limited" : "rate_limited", "");
             }
             return;
         }
         var account = AnternetAccountHandler.session(player);
         if (account == null) {
-            result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "unauthorized", "");
+            result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", payload.action() == AntmailAnternetPayload.SEND ? "send:unauthorized" : "unauthorized", "");
             return;
         }
         switch (payload.action()) {
@@ -59,7 +60,7 @@ public final class AntmailServerHandler {
                         Boolean.parseBoolean(payload.second()), Boolean.parseBoolean(payload.third()));
             }
             case AntmailAnternetPayload.MESSAGE -> handle(player, new AntmailMessageRequestPayload(payload.first()));
-            case AntmailAnternetPayload.SEND -> handle(player, new AntmailSendPayload(payload.first(), payload.second(), payload.third(), payload.fourth()));
+            case AntmailAnternetPayload.SEND -> handleSend(player, new AntmailSendPayload(payload.first(), payload.second(), payload.third(), payload.fourth()), payload.fifth());
             case AntmailAnternetPayload.READ -> handle(player, new AntmailReadPayload(payload.first(), Boolean.parseBoolean(payload.second())));
             case AntmailAnternetPayload.DELETE -> handle(player, new AntmailDeletePayload(payload.first(), Boolean.parseBoolean(payload.second())));
             case AntmailAnternetPayload.DRAFT -> {
@@ -183,21 +184,26 @@ public final class AntmailServerHandler {
     }
 
     public static void handle(ServerPlayer player, AntmailSendPayload payload) {
+        handleSend(player, payload, "");
+    }
+
+    private static void handleSend(ServerPlayer player, AntmailSendPayload payload, String draftIdInput) {
         ComputerWorkspace computer = authorizedComputer(player);
         if (computer == null) {
-            result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "unauthorized", "");
+            sendResult(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", UUID.randomUUID().toString(), "unauthorized", "");
             return;
         }
         AntmailServerData data = AntmailServerData.access(player.server);
         AntmailAddress sender = addressFor(player, data);
         if (sender == null) {
-            result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "unconfigured", "");
+            sendResult(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", UUID.randomUUID().toString(), "unconfigured", "");
             return;
         }
         long antcoins = 0L;
         UUID senderAccount = computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
         boolean debited = false;
         try {
+            UUID draftId = draftIdInput.isBlank() ? null : UUID.fromString(draftIdInput);
             AntmailAddress recipient = AntmailAddress.parse(payload.recipient());
             List<AntmailAttachment> attachments = AntmailWire.decodeAttachments(payload.attachments());
             if (!com.craisinlord.antos.config.AntOSSettings.appEnabled("ANTAZON")
@@ -220,10 +226,14 @@ public final class AntmailServerHandler {
             } else if (antcoins > 0) {
                 AntazonServerData.access(player.server).credit(recipientAccount, antcoins);
             }
-            result(player, delivery.status().ordinal(), sender.fullAddress(), message.id().toString(), delivery.detail(), "");
+            if (draftId != null && (delivery.status() == AntmailDeliveryResult.Status.DELIVERED
+                    || delivery.status() == AntmailDeliveryResult.Status.QUEUED)) {
+                if (data.mailboxOrCreate(sender).removeDraft(draftId)) data.touchMailbox(sender);
+            }
+            sendResult(player, delivery.status().ordinal(), sender.fullAddress(), message.id().toString(), delivery.detail(), "");
         } catch (RuntimeException exception) {
             if (debited) AntazonServerData.access(player.server).credit(senderAccount, antcoins);
-            result(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), "", "", "invalid_message", "");
+            sendResult(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), "", UUID.randomUUID().toString(), "invalid_message", "");
         }
     }
 
@@ -518,6 +528,10 @@ public final class AntmailServerHandler {
 
     private static AntmailAddress addressFor(ServerPlayer player, AntmailServerData data) {
         return data.addressFor(player);
+    }
+
+    private static void sendResult(ServerPlayer player, int status, String address, String messageId, String detail, String data) {
+        result(player, status, address, messageId, "send:" + detail, data);
     }
 
     private static void result(ServerPlayer player, int status, String address, String messageId, String detail, String data) {

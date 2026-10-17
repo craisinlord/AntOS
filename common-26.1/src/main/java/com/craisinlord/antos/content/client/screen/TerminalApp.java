@@ -175,10 +175,10 @@ final class TerminalApp extends ComputerApp {
         int end = segment[1];
         int split = Math.max(start, Math.min(end, promptLength));
         int promptColor = busy || revealing() ? AppKit.MUTED : passwordDisk != null ? AppKit.PLACEHOLDER : GREEN;
-        if (split > start) g.drawString(font, Component.literal(promptText.substring(start, split)), textX, lineY, promptColor, false);
+        if (split > start) g.drawString(font, Component.literal(promptText.substring(start, split) + (end == split && segment[2] == 1 ? "-" : "")), textX, lineY, promptColor, false);
         if (end > split) {
             int offset = font.width(promptText.substring(start, split));
-            g.drawString(font, Component.literal(promptText.substring(split, end)), textX + offset, lineY, PALE_GREEN, false);
+            g.drawString(font, Component.literal(promptText.substring(split, end) + (segment[2] == 1 ? "-" : "")), textX + offset, lineY, PALE_GREEN, false);
         }
     }
 
@@ -248,18 +248,9 @@ final class TerminalApp extends ComputerApp {
         promptLength = prompt.length();
         promptText = prompt + displayInput();
         List<int[]> rows = new ArrayList<>();
-        int start = 0;
-        int width = 0;
-        for (int index = 0; index < promptText.length(); index++) {
-            int characterWidth = font.width(String.valueOf(promptText.charAt(index)));
-            if (width + characterWidth > textWidth && index > start) {
-                rows.add(new int[]{start, index});
-                start = index;
-                width = 0;
-            }
-            width += characterWidth;
+        for (EditableTextWrap.Line line : EditableTextWrap.wrap(promptText, textWidth, font::width)) {
+            rows.add(new int[]{line.start(), line.end(), line.hyphen() ? 1 : 0});
         }
-        rows.add(new int[]{start, promptText.length()});
         promptRows = rows;
         promptStartRow = visuals.size();
     }

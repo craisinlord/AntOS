@@ -31,12 +31,28 @@ final class GamesApp extends ComputerApp {
     private String programKey = "";
     private String pendingRun = "";
     private int pendingSequence = -1;
+    private int gameX;
+    private int gameY;
+    private int gameWidth;
+    private int gameHeight;
 
     void render(GuiGraphics g, Window window, int x, int y, int w, int h, int mouseX, int mouseY) {
         hits.clear();
         if (window.gameOpen) {
-            g.drawString(font, Component.literal("INSTALLED GAMES / ESC TO RETURN"), x, y, GREEN, false);
-            gameSession(window).ifPresent(game -> game.render(g, font, x, y + 16, 214, 155));
+            button(g, x, y, 48, 18, "< BACK", mouseX, mouseY, () -> closeGame(window));
+            ResourceLocation id = ResourceLocation.tryParse(window.gameId);
+            ComputerGame game = id == null ? null : ComputerGameRegistry.get(id);
+            if (game != null) g.drawString(font, Component.literal(screen.trimToWidth(game.title(), w - 60)), x + 58, y + 5, GREEN, false);
+            gameX = x;
+            gameY = y + 26;
+            gameWidth = w;
+            gameHeight = Math.max(1, h - 26);
+            screen.enableComputerScissor(g, gameX, gameY, gameX + gameWidth, gameY + gameHeight);
+            try {
+                gameSession(window).ifPresent(session -> session.render(g, font, gameX, gameY, gameWidth, gameHeight, mouseX - gameX, mouseY - gameY));
+            } finally {
+                g.disableScissor();
+            }
             return;
         }
         if (window.programOpen) { renderProgram(g, x, y, w, h, mouseX, mouseY); return; }
@@ -174,6 +190,12 @@ final class GamesApp extends ComputerApp {
         ComputerNetworking.chooseProgram(pendingRun, pendingSequence, index);
     }
 
+    private void closeGame(Window window) {
+        gameSession(window).ifPresent(ComputerGame.Session::close);
+        gameSessions.remove(ResourceLocation.tryParse(window.gameId));
+        window.gameOpen = false;
+    }
+
     private void back() { if (screen.activeWindow != null) screen.activeWindow.programOpen = false; scroll = 0; pendingSequence = -1; }
 
     private List<ComputerGame> installedGames() {
@@ -208,7 +230,12 @@ final class GamesApp extends ComputerApp {
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
-        if (button == 0 && !window.gameOpen) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); break; }
+        if (window.gameOpen) {
+            if (button == 0) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); return true; }
+            if (screen.inside(gameX, gameY, gameWidth, gameHeight, mouseX, mouseY)) gameSession(window).ifPresent(game -> game.mouseClicked(mouseX - gameX, mouseY - gameY, button));
+            return true;
+        }
+        if (button == 0) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); break; }
         return true;
     }
 
@@ -223,7 +250,7 @@ final class GamesApp extends ComputerApp {
             if (keyCode == GLFW.GLFW_KEY_DOWN || keyCode == GLFW.GLFW_KEY_UP) { scroll = Math.max(0, Math.min(maximumScroll, scroll + (keyCode == GLFW.GLFW_KEY_DOWN ? 22 : -22))); return true; }
         }
         if (window.gameOpen) {
-            if (keyCode == GLFW.GLFW_KEY_ESCAPE) { gameSession(window).ifPresent(ComputerGame.Session::close); gameSessions.remove(ResourceLocation.tryParse(window.gameId)); window.gameOpen = false; return true; }
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) { closeGame(window); return true; }
             if (gameSession(window).map(game -> game.keyPressed(keyCode)).orElse(false)) return true;
         }
         return false;

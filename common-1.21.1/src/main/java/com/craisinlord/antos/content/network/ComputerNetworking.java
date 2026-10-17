@@ -49,7 +49,7 @@ public final class ComputerNetworking {
                     ComputerAccessPayload.DESKTOP_WALLPAPER, ComputerAccessPayload.TASK_STATE,
                     ComputerAccessPayload.ARCHIVE_VIEWED, ComputerAccessPayload.LOCATE_STRUCTURE,
                     ComputerAccessPayload.BLOCKLE_STATE,
-                    ComputerAccessPayload.BLOCKLE_GUESS, ComputerAccessPayload.ANTAZON_STATE,
+                    ComputerAccessPayload.BLOCKLE_GUESS, ComputerAccessPayload.GAME_REWARD, ComputerAccessPayload.ANTAZON_STATE,
                     ComputerAccessPayload.ANTAZON_PURCHASE, ComputerAccessPayload.ANTAZON_WISHLIST,
                     ComputerAccessPayload.ANTAZON_ORDERS, ComputerAccessPayload.ANTAZON_REVIEW,
                     ComputerAccessPayload.ANTAZON_WALLET, ComputerAccessPayload.ANTAZON_SELL,
@@ -183,6 +183,10 @@ public final class ComputerNetworking {
 
     public static void submitBlockleGuess(String guess) {
         send(ComputerAccessPayload.BLOCKLE_GUESS, guess);
+    }
+
+    public static void claimGameReward(String mode) {
+        send(ComputerAccessPayload.GAME_REWARD, mode);
     }
 
     public static void requestAntazon() {
