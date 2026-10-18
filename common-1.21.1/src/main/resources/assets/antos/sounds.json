@@ -1,0 +1,62 @@
+{
+  "ui.click": {
+    "sounds": [
+      "antos:ui/click"
+    ]
+  },
+  "ui.open": {
+    "sounds": [
+      "antos:ui/open"
+    ]
+  },
+  "ui.close": {
+    "sounds": [
+      "antos:ui/close"
+    ]
+  },
+  "ui.minimize": {
+    "sounds": [
+      "antos:ui/minimize"
+    ]
+  },
+  "ui.maximize": {
+    "sounds": [
+      "antos:ui/maximize"
+    ]
+  },
+  "ui.command": {
+    "sounds": [
+      "antos:ui/command"
+    ]
+  },
+  "ui.login": {
+    "sounds": [
+      "antos:ui/login"
+    ]
+  },
+  "ui.save": {
+    "sounds": [
+      "antos:ui/save"
+    ]
+  },
+  "ui.disk": {
+    "sounds": [
+      "antos:ui/disk"
+    ]
+  },
+  "ui.error": {
+    "sounds": [
+      "antos:ui/error"
+    ]
+  },
+  "ui.order": {
+    "sounds": [
+      "antos:ui/order"
+    ]
+  },
+  "ui.sale": {
+    "sounds": [
+      "antos:ui/sale"
+    ]
+  }
+}

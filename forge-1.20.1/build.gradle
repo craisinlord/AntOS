@@ -41,7 +41,10 @@ tasks.register('generateAntOSVersion') {
 
 sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated/sources/antosVersion/java'))
 tasks.named('compileJava') { dependsOn tasks.named('generateAntOSVersion') }
-tasks.withType(JavaCompile).configureEach { options.compilerArgs += ['-Xmaxerrs', '10000'] }
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xmaxerrs', '10000']
+}
 tasks.named('sourcesJar') { dependsOn tasks.named('generateAntOSVersion') }
 
 tasks.withType(AbstractCopyTask).configureEach {

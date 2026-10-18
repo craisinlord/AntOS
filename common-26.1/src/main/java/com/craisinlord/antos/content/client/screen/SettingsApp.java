@@ -35,7 +35,7 @@ final class SettingsApp extends ComputerApp {
     private static final int SIDEBAR = 96;
     private static final int ROW = 18;
     private static final int SELECTED_FILL = 0xFF204820;
-    private static final String[] CATEGORIES = {"account", "personalize", "apps", "notifications", "storage", "help", "about"};
+    private static final String[] CATEGORIES = {"account", "personalize", "accessibility", "apps", "notifications", "storage", "help", "about"};
     private static final String[] ALERT_STYLES = {"toast", "actionbar", "both", "off"};
     private static final String[][] SHORTCUTS = {
             {"text", "save"}, {"text", "save_as"}, {"text", "open"}, {"text", "new"}, {"text", "find"}, {"text", "rename"},
@@ -50,7 +50,7 @@ final class SettingsApp extends ComputerApp {
     };
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final Field displayName = new Field(32, false);
     private final Field iconItem = new Field(64, false);
     private final Field search = new Field(32, false);
@@ -170,6 +170,7 @@ final class SettingsApp extends ComputerApp {
             switch (state.category) {
                 case "account" -> renderAccount(g);
                 case "personalize" -> renderPersonalize(g);
+                case "accessibility" -> renderAccessibility(g);
                 case "apps" -> renderApps(g);
                 case "notifications" -> renderNotifications(g);
                 case "storage" -> renderStorage(g);
@@ -323,9 +324,16 @@ final class SettingsApp extends ComputerApp {
             ComputerTheme.pause();
             try {
                 g.fill(tileX + 5, tileY + 5, tileX + 25, tileY + 25, theme.apply(0xFF030603));
-                g.fill(tileX + 7, tileY + 9, tileX + 23, tileY + 11, theme.apply(0xFF65FF65));
-                g.fill(tileX + 7, tileY + 14, tileX + 19, tileY + 16, theme.apply(0xFFB8FFB8));
-                g.fill(tileX + 7, tileY + 19, tileX + 21, tileY + 21, theme.apply(0xFF315531));
+                if (theme == ComputerTheme.RAINBOW) {
+                    int[] colors = {0xFFFF3030, 0xFFFFA020, 0xFFFFFF30, 0xFF30E050, 0xFF3080FF, 0xFFA050FF};
+                    for (int colorIndex = 0; colorIndex < colors.length; colorIndex++) {
+                        g.fill(tileX + 7 + colorIndex * 3, tileY + 9, tileX + 9 + colorIndex * 3, tileY + 21, colors[colorIndex]);
+                    }
+                } else {
+                    g.fill(tileX + 7, tileY + 9, tileX + 23, tileY + 11, theme.apply(0xFF65FF65));
+                    g.fill(tileX + 7, tileY + 14, tileX + 19, tileY + 16, theme.apply(0xFFB8FFB8));
+                    g.fill(tileX + 7, tileY + 19, tileX + 21, tileY + 21, theme.apply(0xFF315531));
+                }
                 kit.outline(g, tileX + 5, tileY + 5, 20, 20, theme.apply(0xFF65FF65));
             } finally {
                 ComputerTheme.resume();
@@ -352,6 +360,47 @@ final class SettingsApp extends ComputerApp {
         }
         cursorY += ((wallpapers.size() + perRow - 1) / perRow) * (thumbHeight + 6) + 2;
         label(g, tr("personalize.wallpaper_hint"), AppKit.MUTED);
+    }
+
+    private void renderAccessibility(ThemedGraphics g) {
+        heading(g, "accessibility.display");
+        label(g, tr("accessibility.hint"), AppKit.MUTED);
+        var preferences = AntOSSettings.preferences();
+        choiceRow(g, tr("accessibility.brightness"), new String[]{"standard", "soft", "dim"}, "accessibility.brightness_", preferences.displayBrightness,
+                value -> AntOSSettings.updatePreferences(p -> p.displayBrightness = value));
+        label(g, tr("accessibility.brightness_hint_" + preferences.displayBrightness), AppKit.MUTED);
+        choiceRow(g, tr("accessibility.ui_size"), new String[]{"standard", "large", "largest"}, "accessibility.ui_size_", preferences.uiSize,
+                value -> AntOSSettings.updatePreferences(p -> p.uiSize = value));
+        toggleRow(g, tr("accessibility.reduce_effects"), preferences.reduceEffects,
+                value -> AntOSSettings.updatePreferences(p -> p.reduceEffects = value));
+        label(g, tr("accessibility.reduce_effects_hint"), AppKit.MUTED);
+        heading(g, "accessibility.preview");
+        renderDisplayPreview(g);
+        buttonRow(g, tr("accessibility.reset_hint"), tr("accessibility.reset"), false, () ->
+                AntOSSettings.updatePreferences(p -> {
+                    p.displayBrightness = "standard";
+                    p.uiSize = "standard";
+                    p.reduceEffects = false;
+                }));
+    }
+
+    /** Drawn with the normal app colors so the active brightness and theme apply exactly as they do everywhere else. */
+    private void renderDisplayPreview(ThemedGraphics g) {
+        int previewX = paneX + 2;
+        int previewWidth = innerWidth() - 4;
+        int textWidth = previewWidth - 12;
+        g.fill(previewX, cursorY, previewX + previewWidth, cursorY + 58, AppKit.PANEL);
+        kit.outline(g, previewX, cursorY, previewWidth, 58, GREEN);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample"), textWidth)), previewX + 6, cursorY + 6, GREEN, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample_body"), textWidth)), previewX + 6, cursorY + 17, PALE_GREEN, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample_muted"), textWidth)), previewX + 6, cursorY + 28, AppKit.MUTED, false);
+        int buttonY = cursorY + 39;
+        int buttonWidth = Math.max(1, Math.min(70, (previewWidth - 18) / 3));
+        kit.button(g, previewX + 6, buttonY, buttonWidth, 14, tr("accessibility.sample_button"), false, true, () -> { });
+        kit.button(g, previewX + 10 + buttonWidth, buttonY, buttonWidth, 14, tr("accessibility.sample_disabled"), false, false, () -> { });
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample_error"), Math.max(1, previewWidth - 2 * buttonWidth - 20))),
+                previewX + 14 + 2 * buttonWidth, buttonY + 3, AppKit.ERROR, false);
+        cursorY += 63;
     }
 
     private void renderApps(ThemedGraphics g) {

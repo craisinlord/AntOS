@@ -276,9 +276,14 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
 
     private static void fire(MinecraftServer server, AntmailServerData data, AntmailAddress address, ResourceLocation id, Definition definition) {
         if (definition == null || data.isScheduled(address, id) || definition.once() && data.isClaimed(address, id)) return;
-        long today = server.overworld().getDayTime() / 24000L;
-        data.schedule(address, id, today + Math.max(0, definition.trigger().delay()));
-        if (definition.trigger().delay() <= 0) processScheduled(server, data, address, id);
+        long now = server.overworld().getDayTime();
+        long today = now / 24000L;
+        long delayDays = Math.max(0, definition.trigger().delay());
+        long delayTicks = Math.max(0L, definition.trigger().delayTicks());
+        long dueTime = (today + delayDays) * 24000L + delayTicks;
+        if (delayDays == 0L) dueTime = now + delayTicks;
+        data.scheduleAtTime(address, id, dueTime);
+        if (delayDays <= 0L && delayTicks <= 0L) processScheduled(server, data, address, id);
     }
 
     private static void processSchedule(MinecraftServer server, AntmailServerData data, Map<AntmailAddress, ServerPlayer> online) {
@@ -304,7 +309,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
             data.unschedule(entry);
             return;
         }
-        if (dayTime / 24000L < entry.dueDay()) return;
+        if (dayTime < entry.dueTime()) return;
         ServerPlayer player = pass.player(entry.address());
         if (player == null && definition.conditions() != null && definition.conditions().needsPlayer()) {
             data.parkUntilOnline(entry);
@@ -476,7 +481,10 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         int weight = triggerObject.has("weight") ? Math.max(1, triggerObject.get("weight").getAsInt()) : 1;
         int delay = triggerObject.has("delay") ? Math.max(0, triggerObject.get("delay").getAsInt())
                 : object.has("delay") ? Math.max(0, object.get("delay").getAsInt()) : 0;
-        Trigger trigger = new Trigger(type, value, pool, weight, delay, triggerObject.has("subscription_only") && triggerObject.get("subscription_only").getAsBoolean());
+        int delayMinutes = triggerObject.has("delay_minutes") ? Math.max(0, triggerObject.get("delay_minutes").getAsInt()) : 0;
+        int delaySeconds = triggerObject.has("delay_seconds") ? Math.max(0, triggerObject.get("delay_seconds").getAsInt()) : 0;
+        long delayTicks = (long) delayMinutes * 1200L + (long) delaySeconds * 20L;
+        Trigger trigger = new Trigger(type, value, pool, weight, delay, delayTicks, triggerObject.has("subscription_only") && triggerObject.get("subscription_only").getAsBoolean());
         boolean once = object.has("once") ? object.get("once").getAsBoolean() : !type.equals("random");
 
         Conditions conditions = null;
@@ -573,8 +581,9 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         }
     }
 
-    public record Trigger(String type, String value, ResourceLocation pool, int weight, int delay, boolean subscriptionOnly) {
-        public Trigger(String type, String value, ResourceLocation pool, int weight, int delay) { this(type, value, pool, weight, delay, false); }
+    public record Trigger(String type, String value, ResourceLocation pool, int weight, int delay, long delayTicks, boolean subscriptionOnly) {
+        public Trigger(String type, String value, ResourceLocation pool, int weight, int delay, boolean subscriptionOnly) { this(type, value, pool, weight, delay, 0L, subscriptionOnly); }
+        public Trigger(String type, String value, ResourceLocation pool, int weight, int delay) { this(type, value, pool, weight, delay, 0L, false); }
         double chance() {
             try {
                 return Math.max(0.0D, Math.min(1.0D, Double.parseDouble(value)));

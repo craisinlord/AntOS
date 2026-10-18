@@ -38,7 +38,7 @@ final class FileExplorerApp extends ComputerApp {
     private static final String[] PLACES = {"/", ComputerFileSystem.DOCUMENTS, ComputerFileSystem.PICTURES, ComputerFileSystem.SYSTEM};
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final FileDialog dialog = new FileDialog(this, kit);
     private final List<Drop> drops = new ArrayList<>();
     private List<Entry> visibleEntries = List.of();

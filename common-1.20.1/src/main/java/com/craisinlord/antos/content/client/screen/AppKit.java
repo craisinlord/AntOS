@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntConsumer;
@@ -18,7 +19,7 @@ final class AppKit {
     static final int MUTED = 0xFF6E926E;
     static final int SOFT = 0xFF315531;
     static final int PLACEHOLDER = 0xFF7EA77E;
-    static final int DISABLED = 0xFF476047;
+    static final int DISABLED = 0xFF587458;
     static final int ERROR = 0xFFFF7777;
     static final int SELECTION = 0xFF2A5E2A;
 
@@ -31,6 +32,8 @@ final class AppKit {
     private double clickY;
     private int clickButton;
     private int[] clip;
+    private int focusIndex = -1;
+    private boolean keyboardFocus;
 
     AppKit(ComputerApp app) {
         this.app = app;
@@ -76,6 +79,37 @@ final class AppKit {
         hits.add(new Hit(x, y, w, h, action));
     }
 
+    void focusTarget(int x, int y, int w, int h, Runnable action) {
+        hits.add(new Hit(x, y, w, h, action));
+    }
+
+    boolean focusNext(boolean reverse) {
+        if (hits.isEmpty()) return false;
+        focusIndex = focusIndex < 0 ? reverse ? hits.size() - 1 : 0
+                : Math.floorMod(focusIndex + (reverse ? -1 : 1), hits.size());
+        keyboardFocus = true;
+        return true;
+    }
+
+    boolean activateFocused() {
+        if (!keyboardFocus || focusIndex < 0 || focusIndex >= hits.size()) return false;
+        AntOSUiSounds.action(hits.get(focusIndex).action());
+        return true;
+    }
+
+    void drawFocus(GuiGraphics g) {
+        if (!keyboardFocus || focusIndex < 0 || focusIndex >= hits.size()) return;
+        Hit hit = hits.get(focusIndex);
+        g.pose().pushPose();
+        try {
+            g.pose().translate(0.0F, 0.0F, 180.0F);
+            outline(g, hit.x() - 2, hit.y() - 2, hit.w() + 4, hit.h() + 4, BLACK);
+            outline(g, hit.x() - 1, hit.y() - 1, hit.w() + 2, hit.h() + 2, PALE_GREEN);
+        } finally {
+            g.pose().popPose();
+        }
+    }
+
     void block(int x, int y, int w, int h) {
         hits.add(new Hit(x, y, w, h, () -> { }));
     }
@@ -87,6 +121,8 @@ final class AppKit {
         for (int index = hits.size() - 1; index >= 0; index--) {
             Hit hit = hits.get(index);
             if (ComputerScreen.inside(hit.x(), hit.y(), hit.w(), hit.h(), mouseX, mouseY)) {
+                focusIndex = index;
+                keyboardFocus = false;
                 hit.action().run();
                 return true;
             }
@@ -161,7 +197,7 @@ final class AppKit {
             g.pose().popPose();
         }
         if (hover && !tip.isEmpty()) tooltip = tip;
-        if (enabled) hit(x, y, w, h, action);
+        if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 
     void iconButton(GuiGraphics g, int x, int y, int size, ResourceLocation icon, boolean active, boolean enabled, String tip, Runnable action) {
@@ -170,7 +206,7 @@ final class AppKit {
         outline(g, x, y, size, size, active ? PALE_GREEN : hover ? GREEN : DARK_GREEN);
         icon(g, icon, x + (size - 16) / 2, y + (size - 16) / 2, 16, enabled);
         if (!suppressHover && app.screen.hovered(x, y, size, size) && !tip.isEmpty()) tooltip = tip;
-        if (enabled) hit(x, y, size, size, action);
+        if (enabled) hit(x, y, size, size, () -> AntOSUiSounds.action(action));
     }
 
     void icon(GuiGraphics g, ResourceLocation texture, int x, int y, int size, boolean enabled) {
@@ -194,8 +230,11 @@ final class AppKit {
 
     void drawTooltip(GuiGraphics g, int left, int top, int right, int bottom) {
         if (tooltip.isEmpty()) return;
-        int width = app.font.width(tooltip) + 10;
-        int height = 15;
+        int availableWidth = Math.max(1, right - left - 10);
+        var lines = app.font.split(Component.literal(tooltip), availableWidth);
+        int count = Math.min(lines.size(), Math.max(1, (bottom - top - 6) / 11));
+        int width = Math.min(right - left, lines.stream().limit(count).mapToInt(app.font::width).max().orElse(0) + 10);
+        int height = count * 11 + 6;
         int x = Math.max(left, Math.min(right - width, app.screen.session.mouseX + 8));
         int y = app.screen.session.mouseY + 12;
         if (y + height > bottom) y = app.screen.session.mouseY - height - 4;
@@ -205,7 +244,7 @@ final class AppKit {
             g.pose().translate(0.0F, 0.0F, 200.0F);
             g.fill(x, y, x + width, y + height, BLACK);
             outline(g, x, y, width, height, GREEN);
-            g.drawString(app.font, Component.literal(tooltip), x + 5, y + 4, PALE_GREEN, false);
+            for (int index = 0; index < count; index++) g.drawString(app.font, lines.get(index), x + 5, y + 4 + index * 11, PALE_GREEN, false);
         } finally {
             g.pose().popPose();
         }

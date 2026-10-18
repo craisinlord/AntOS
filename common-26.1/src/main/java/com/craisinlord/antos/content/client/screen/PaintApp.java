@@ -38,7 +38,7 @@ final class PaintApp extends ComputerApp {
     };
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final FileDialog dialog = new FileDialog(this, kit);
     private int canvasX;
     private int canvasY;

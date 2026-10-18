@@ -4,7 +4,7 @@
   "sender_avatar_item": "minecraft:compass",
   "subject": "I found more",
   "body": "The echoes line up with old village records. Check the map I sent with this message.",
-  "trigger": { "type": "mail_read", "value": "examplemod:field_rumor", "delay": 1 },
+  "trigger": { "type": "mail_read", "value": "examplemod:field_rumor", "delay_minutes": 3, "delay_seconds": 15 },
   "delivery": {
     "on": "read",
     "items": [

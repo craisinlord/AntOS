@@ -1843,8 +1843,7 @@ final class TasksApp extends ComputerApp {
                         com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get()).stream()
                         .anyMatch(entry -> entry.id().equals(archiveButton.entryId()));
                 if (unlocked) {
-                    screen.session.archive.state.entryId = archiveButton.entryId(); screen.session.archive.state.detailScroll = 0;
-                    ComputerNetworking.recordArchiveViewed(archiveButton.entryId());
+                    screen.session.archive.select(ComputerGuideData.entry(archiveButton.entryId()));
                     screen.open("ARCHIVE");
                 }
                 return true;

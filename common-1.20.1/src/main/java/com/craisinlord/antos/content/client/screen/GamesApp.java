@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.api.client.game.ComputerGameRegistry;
@@ -257,7 +258,7 @@ final class GamesApp extends ComputerApp {
     }
 
     private void panel(GuiGraphics g, int x, int y, int w, int h, boolean hover) { g.fill(x, y, x + w, y + h, hover ? 0xFF173C2C : 0xFF0A2118); g.renderOutline(x, y, w, h, 0xFF315E43); }
-    private void button(GuiGraphics g, int x, int y, int w, int h, String text, int mouseX, int mouseY, Runnable action) { panel(g, x, y, w, h, screen.inside(x, y, w, h, mouseX, mouseY)); g.drawString(font, Component.literal(text), x + 5, y + 5, GREEN, false); hits.add(new Hit(x, y, w, h, action)); }
+    private void button(GuiGraphics g, int x, int y, int w, int h, String text, int mouseX, int mouseY, Runnable action) { panel(g, x, y, w, h, screen.inside(x, y, w, h, mouseX, mouseY)); g.drawString(font, Component.literal(text), x + 5, y + 5, GREEN, false); hits.add(new Hit(x, y, w, h, () -> AntOSUiSounds.action(action))); }
     private static String value(JsonObject root, String key) { return root.has(key) ? root.get(key).getAsString() : ""; }
     private static int number(JsonObject root, String key) { return root.has(key) ? root.get(key).getAsInt() : 0; }
     private record Entry(ResourceLocation id, String title, String kind, boolean program) { }

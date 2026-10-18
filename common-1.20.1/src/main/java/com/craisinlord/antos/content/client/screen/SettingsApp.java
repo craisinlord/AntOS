@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.AntOSUiSounds;
+import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntazonClientState;
@@ -35,7 +37,7 @@ final class SettingsApp extends ComputerApp {
     private static final int SIDEBAR = 96;
     private static final int ROW = 18;
     private static final int SELECTED_FILL = 0xFF204820;
-    private static final String[] CATEGORIES = {"account", "personalize", "apps", "notifications", "storage", "help", "about"};
+    private static final String[] CATEGORIES = {"account", "personalize", "accessibility", "apps", "notifications", "storage", "help", "about"};
     private static final String[] ALERT_STYLES = {"toast", "actionbar", "both", "off"};
     private static final String[][] SHORTCUTS = {
             {"text", "save"}, {"text", "save_as"}, {"text", "open"}, {"text", "new"}, {"text", "find"}, {"text", "rename"},
@@ -50,7 +52,7 @@ final class SettingsApp extends ComputerApp {
     };
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final Field displayName = new Field(32, false);
     private final Field iconItem = new Field(64, false);
     private final Field search = new Field(32, false);
@@ -170,6 +172,7 @@ final class SettingsApp extends ComputerApp {
             switch (state.category) {
                 case "account" -> renderAccount(g);
                 case "personalize" -> renderPersonalize(g);
+                case "accessibility" -> renderAccessibility(g);
                 case "apps" -> renderApps(g);
                 case "notifications" -> renderNotifications(g);
                 case "storage" -> renderStorage(g);
@@ -223,7 +226,7 @@ final class SettingsApp extends ComputerApp {
         kit.outline(g, trackX, trackY, 24, 12, value ? GREEN : AppKit.SOFT);
         int knobX = value ? trackX + 14 : trackX + 2;
         g.fill(knobX, trackY + 2, knobX + 8, trackY + 10, value ? PALE_GREEN : AppKit.MUTED);
-        kit.hit(paneX, cursorY, width, ROW - 2, () -> change.accept(!value));
+        kit.hit(paneX, cursorY, width, ROW - 2, () -> AntOSUiSounds.action(() -> change.accept(!value)));
         cursorY += ROW;
     }
 
@@ -243,7 +246,7 @@ final class SettingsApp extends ComputerApp {
         for (int index = 0; index < values.length; index++) {
             String value = values[index];
             screen.drawFilterButton(g, chipX, chipY, widths[index], value.equals(selected), tr(prefix + value));
-            kit.hit(chipX, chipY, widths[index], 17, () -> change.accept(value));
+            kit.hit(chipX, chipY, widths[index], 17, () -> AntOSUiSounds.action(() -> change.accept(value)));
             chipX += widths[index] + 3;
         }
         cursorY += inline ? ROW + 2 : ROW + 16;
@@ -323,9 +326,16 @@ final class SettingsApp extends ComputerApp {
             ComputerTheme.pause();
             try {
                 g.fill(tileX + 5, tileY + 5, tileX + 25, tileY + 25, theme.apply(0xFF030603));
-                g.fill(tileX + 7, tileY + 9, tileX + 23, tileY + 11, theme.apply(0xFF65FF65));
-                g.fill(tileX + 7, tileY + 14, tileX + 19, tileY + 16, theme.apply(0xFFB8FFB8));
-                g.fill(tileX + 7, tileY + 19, tileX + 21, tileY + 21, theme.apply(0xFF315531));
+                if (theme == ComputerTheme.RAINBOW) {
+                    int[] colors = {0xFFFF3030, 0xFFFFA020, 0xFFFFFF30, 0xFF30E050, 0xFF3080FF, 0xFFA050FF};
+                    for (int colorIndex = 0; colorIndex < colors.length; colorIndex++) {
+                        g.fill(tileX + 7 + colorIndex * 3, tileY + 9, tileX + 9 + colorIndex * 3, tileY + 21, colors[colorIndex]);
+                    }
+                } else {
+                    g.fill(tileX + 7, tileY + 9, tileX + 23, tileY + 11, theme.apply(0xFF65FF65));
+                    g.fill(tileX + 7, tileY + 14, tileX + 19, tileY + 16, theme.apply(0xFFB8FFB8));
+                    g.fill(tileX + 7, tileY + 19, tileX + 21, tileY + 21, theme.apply(0xFF315531));
+                }
                 kit.outline(g, tileX + 5, tileY + 5, 20, 20, theme.apply(0xFF65FF65));
             } finally {
                 ComputerTheme.resume();
@@ -352,6 +362,51 @@ final class SettingsApp extends ComputerApp {
         }
         cursorY += ((wallpapers.size() + perRow - 1) / perRow) * (thumbHeight + 6) + 2;
         label(g, tr("personalize.wallpaper_hint"), AppKit.MUTED);
+    }
+
+    private void renderAccessibility(GuiGraphics g) {
+        heading(g, "accessibility.display");
+        label(g, tr("accessibility.hint"), AppKit.MUTED);
+        var preferences = AntOSSettings.preferences();
+        choiceRow(g, tr("accessibility.brightness"), new String[]{"standard", "soft", "dim"}, "accessibility.brightness_", preferences.displayBrightness,
+                value -> AntOSSettings.updatePreferences(p -> p.displayBrightness = value));
+        label(g, tr("accessibility.brightness_hint_" + preferences.displayBrightness), AppKit.MUTED);
+        choiceRow(g, tr("accessibility.ui_size"), new String[]{"standard", "large", "largest"}, "accessibility.ui_size_", preferences.uiSize,
+                value -> AntOSSettings.updatePreferences(p -> p.uiSize = value));
+        toggleRow(g, tr("accessibility.reduce_effects"), preferences.reduceEffects,
+                value -> AntOSSettings.updatePreferences(p -> p.reduceEffects = value));
+        label(g, tr("accessibility.reduce_effects_hint"), AppKit.MUTED);
+        heading(g, "accessibility.gameplay");
+        toggleRow(g, tr("accessibility.pause"), preferences.pauseWhileOpen,
+                value -> AntOSSettings.updatePreferences(p -> p.pauseWhileOpen = value));
+        label(g, tr("accessibility.pause_hint"), AppKit.MUTED);
+        heading(g, "accessibility.preview");
+        renderDisplayPreview(g);
+        buttonRow(g, tr("accessibility.reset_hint"), tr("accessibility.reset"), false, () ->
+                AntOSSettings.updatePreferences(p -> {
+                    p.displayBrightness = "standard";
+                    p.uiSize = "standard";
+                    p.reduceEffects = false;
+                }));
+    }
+
+    /** Drawn with the normal app colors so the active brightness and theme apply exactly as they do everywhere else. */
+    private void renderDisplayPreview(GuiGraphics g) {
+        int previewX = paneX + 2;
+        int previewWidth = innerWidth() - 4;
+        int textWidth = previewWidth - 12;
+        g.fill(previewX, cursorY, previewX + previewWidth, cursorY + 58, AppKit.PANEL);
+        kit.outline(g, previewX, cursorY, previewWidth, 58, GREEN);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample"), textWidth)), previewX + 6, cursorY + 6, GREEN, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample_body"), textWidth)), previewX + 6, cursorY + 17, PALE_GREEN, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample_muted"), textWidth)), previewX + 6, cursorY + 28, AppKit.MUTED, false);
+        int buttonY = cursorY + 39;
+        int buttonWidth = Math.max(1, Math.min(70, (previewWidth - 18) / 3));
+        kit.button(g, previewX + 6, buttonY, buttonWidth, 14, tr("accessibility.sample_button"), false, true, () -> { });
+        kit.button(g, previewX + 10 + buttonWidth, buttonY, buttonWidth, 14, tr("accessibility.sample_disabled"), false, false, () -> { });
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.sample_error"), Math.max(1, previewWidth - 2 * buttonWidth - 20))),
+                previewX + 14 + 2 * buttonWidth, buttonY + 3, AppKit.ERROR, false);
+        cursorY += 63;
     }
 
     private void renderApps(GuiGraphics g) {
@@ -404,6 +459,13 @@ final class SettingsApp extends ComputerApp {
 
     private void renderNotifications(GuiGraphics g) {
         var preferences = AntOSSettings.preferences();
+        heading(g, "notifications.interface");
+        toggleRow(g, tr("notifications.interface_sounds"), preferences.interfaceSounds,
+                value -> AntOSSettings.updatePreferences(p -> p.interfaceSounds = value));
+        choiceRow(g, tr("notifications.interface_volume"), new String[]{"0", "20", "40", "60", "80", "100"}, "choice.volume_", Integer.toString(preferences.interfaceVolume),
+                value -> AntOSSettings.updatePreferences(p -> p.interfaceVolume = Integer.parseInt(value)));
+        buttonRow(g, tr("notifications.interface_preview_hint"), tr("notifications.interface_preview"), false, AntOSUiSounds::preview);
+        label(g, tr("notifications.interface_hint"), AppKit.MUTED);
         heading(g, "notifications.mail");
         choiceRow(g, tr("notifications.style"), ALERT_STYLES, "choice.alert_", preferences.mailAlerts,
                 value -> AntOSSettings.updatePreferences(p -> p.mailAlerts = value));
@@ -660,6 +722,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void logout() {
+        AntOSUiSounds.play(Cue.CLOSE);
         ComputerNetworking.logout();
         AnternetAccountNetworking.logout();
         AnternetAccountClientState.clear();

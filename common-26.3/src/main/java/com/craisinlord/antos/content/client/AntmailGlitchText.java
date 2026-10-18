@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client;
 
+import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.antmail.AntmailRenderMarkers;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -58,6 +59,7 @@ public final class AntmailGlitchText {
     }
 
     public static int jitter(int lineIndex) {
+        if (AntOSSettings.reduceEffects()) return 0;
         long bucket = System.currentTimeMillis() / 90L;
         int roll = hash(lineIndex, bucket) % 100;
         return roll < 6 ? -1 : roll < 12 ? 1 : 0;
@@ -79,8 +81,9 @@ public final class AntmailGlitchText {
         return flicker(sender, burst ? 60 : 8, salt);
     }
 
+    /** Reduce screen effects keeps the red corruption styling but stops the characters from scrambling. */
     private static int noise(int codePoint, int index, long bucket, int percent) {
-        if (Character.isWhitespace(codePoint)) return codePoint;
+        if (Character.isWhitespace(codePoint) || AntOSSettings.reduceEffects()) return codePoint;
         int roll = hash(index, bucket);
         return roll % 100 < percent ? NOISE.charAt((roll / 100) % NOISE.length()) : codePoint;
     }

@@ -1,0 +1,26 @@
+AntOS computer interface sounds
+Source: https://opengameart.org/content/zx-spectrum-beeper-sound-effects
+Author: Shiru / shiru8bit
+Pack: ZX Spectrum beeper sound effects (BeepFX samples), September 5, 2019
+License selected: CC0 1.0
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The author permits choosing CC0 or CC-BY 3.0. AntOS uses these samples under CC0.
+Original download: https://opengameart.org/sites/default/files/beepfx_samples.zip
+
+All clips are adapted to mono OGG Vorbis at 44.1 kHz, shortened, faded, filtered,
+and adjusted in playback speed to soften the original 1-bit harmonics.
+Open and close are quieter, lower-register beeps with a 1 kHz low-pass filter.
+
+ui/click.ogg: 35_switch_2.wav
+ui/open.ogg: 42_select_3.wav, playback speed 0.72
+ui/close.ogg: 42_select_3.wav, reversed, playback speed 0.65
+ui/minimize.ogg: 47_select_7.wav
+ui/maximize.ogg: 43_select_4.wav
+ui/command.ogg: 52_roboblip.wav
+ui/login.ogg: 40_select_1.wav and 41_select_2.wav
+ui/save.ogg: 28_item_1.wav
+ui/disk.ogg: 55_old_computer.wav and 44_select_5.wav
+ui/error.ogg: 14_harsh_beep_3.wav, two low-pitched pulses
+ui/order.ogg: 55_old_computer.wav and two rising 42_select_3.wav pulses
+ui/sale.ogg: 55_old_computer.wav, 42_select_3.wav and 43_select_4.wav, lower confirmation

@@ -99,6 +99,7 @@ public final class ArchiveFolderTest {
         nestedFolders();
         invalidHierarchy();
         folderTint();
+        uiLayout();
         System.out.println("Archive folder tests passed: nested folders, sync, unlocks, ordering, search, breadcrumbs, navigation, validation, and reloads");
     }
 
@@ -250,9 +251,9 @@ public final class ArchiveFolderTest {
         ComputerGuideData.applyNetworkSnapshot(snapshot.replace("\"parent\":\"pack:research\",\"sort_order\":10", "\"parent\":\"pack:chapter\",\"sort_order\":10"));
         browse(app, available());
         check(app.state.folderId.equals(id("pack:creatures")), "visible folder remains open after reparenting");
-        clickBreadcrumb(app, null, true);
+        invoke(app, "goUp");
         check(app.state.folderId.equals(id("pack:chapter")) && app.state.search.isEmpty(), "back uses reloaded parent rather than stale history");
-        clickBreadcrumb(app, null, true);
+        invoke(app, "goUp");
         check(app.state.folderId == null && app.state.search.equals("root query") && app.state.scroll == 7,
                 "reparenting retains saved root state");
     }
@@ -320,6 +321,83 @@ public final class ArchiveFolderTest {
 
     private static List<ComputerGuideData.Entry> available() {
         return ComputerGuideData.entriesFor(List.of(), List.of());
+    }
+
+    private static void uiLayout() throws Exception {
+        for (int width : new int[]{214, 284, 396}) {
+            for (int height : new int[]{176, 196, 204}) {
+                for (boolean gallery : new boolean[]{false, true}) {
+                    for (int folders : new int[]{0, 1, 5}) {
+                        for (int entries : new int[]{0, 1, 20}) {
+                            ArchiveLayout layout = ArchiveLayout.create(width, height, gallery, folders, entries);
+                            check(layout.cells().size() == folders + entries, "all entries have one layout cell");
+                            check(layout.viewportHeight() > 0 && layout.maximumScroll() >= 0, "viewport and scroll range are valid");
+                            for (ArchiveLayout.Cell cell : layout.cells()) {
+                                check(cell.x() >= 0 && cell.x() + cell.width() <= width - 8, "cells fit horizontally");
+                                check(cell.y() >= 14 && cell.y() + cell.height() <= layout.contentHeight(), "cells fit content height");
+                                int scroll = layout.reveal(cell.index(), 0);
+                                check(scroll >= 0 && scroll <= layout.maximumScroll(), "focus reveal stays in scroll range");
+                                check(cell.y() >= scroll && cell.y() + cell.height() <= scroll + layout.viewportHeight(), "focused cell is fully visible");
+                                for (ArchiveLayout.Section section : layout.sections())
+                                    check(cell.y() >= section.y() + ArchiveLayout.HEADING || cell.y() + cell.height() <= section.y(), "headings never overlap cells");
+                            }
+                            for (int index = 1; index < layout.cells().size(); index++) {
+                                var first = layout.cells().get(index - 1);
+                                var second = layout.cells().get(index);
+                                check(first.y() != second.y() || first.x() + first.width() <= second.x(), "peer cells never overlap");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ArchiveLayout list = ArchiveLayout.create(284, 196, false, 2, 20);
+        ArchiveLayout grid = ArchiveLayout.create(396, 204, true, 2, 20);
+        check(list.columns() == 1 && grid.columns() == 3, "view mode controls columns independently of maximizing");
+        check(grid.move(0, 1, 0) == 1 && grid.move(1, 1, 0) == 1, "horizontal navigation stays in its group row");
+        check(grid.move(1, 0, 1) == 3 && grid.move(3, 0, -1) == 1, "vertical gallery navigation crosses section headings by column");
+        check(list.move(-1, 0, 1) == 0 && list.move(0, 0, -1) == 0, "navigation handles missing focus and bounds");
+
+        ComputerGuideData.applyNetworkSnapshot(SNAPSHOT);
+        ArchiveApp app = new ArchiveApp();
+        List<?> items = browse(app, available());
+        set(app, "visibleItems", items);
+        set(app, "layout", ArchiveLayout.create(284, 196, false, 2, 2));
+        check(app.key(null, GLFW.GLFW_KEY_END, 0, 0), "End focuses last browser item");
+        check(app.state.focusKey.equals("entry:pack:missing"), "keyboard focus uses stable entry identity");
+        check(app.key(null, GLFW.GLFW_KEY_HOME, 0, 0), "Home focuses first browser item");
+        check(app.state.focusKey.equals("folder:pack:chapter"), "keyboard focus includes folders");
+        app.state.scroll = 4;
+        app.state.search = "research";
+        invoke(app, "openFolder", ResourceLocation.class, id("pack:research"));
+        invoke(app, "goBack");
+        check(app.state.folderId == null && app.state.search.equals("research") && app.state.scroll == 4
+                && app.state.focusKey.equals("folder:pack:chapter"), "Back restores search, scroll, and focus");
+        app.state.search = "";
+        invoke(app, "openFolder", ResourceLocation.class, id("pack:research"));
+        app.state.focusKey = "entry:pack:z_key";
+        app.state.gallery = true;
+        app.state.search = "alpha";
+        app.state.scroll = 11;
+        invoke(app, "rememberView");
+        app.state.entryId = id("pack:z_key");
+        app.state.detailScroll = 8;
+        set(app, "openedEntry", id("pack:z_key"));
+        invoke(app, "goBack");
+        check(app.state.entryId == null && app.state.gallery && app.state.scroll == 11 && app.state.search.equals("alpha")
+                && app.state.focusKey.equals("entry:pack:z_key"), "entry Back restores the exact gallery search view");
+        check(app.key(null, GLFW.GLFW_KEY_F, 0, GLFW.GLFW_MOD_CONTROL) && app.state.searchFocused, "Ctrl+F focuses search");
+        app.state.search = "test\uD83D\uDC1C";
+        app.key(null, GLFW.GLFW_KEY_BACKSPACE, 0, 0);
+        check(app.state.search.equals("test"), "Backspace removes an entire Unicode code point");
+        invoke(app, "setGallery", boolean.class, false);
+        check(!app.state.gallery && app.state.focusKey.equals("entry:pack:z_key"), "view changes retain focused identity");
+    }
+
+    private static void set(Object target, String name, Object value) throws Exception {
+        var field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     private static List<?> browse(ArchiveApp app, List<ComputerGuideData.Entry> entries) throws Exception {

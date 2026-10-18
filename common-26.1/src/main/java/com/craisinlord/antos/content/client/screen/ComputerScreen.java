@@ -124,6 +124,8 @@ public final class ComputerScreen extends Screen {
     private String diskRewardToastKey = "";
     private int observedResult = -1;
     private Window dragging;
+    private int desktopFocusIndex = -1;
+    private boolean desktopKeyboardFocus;
     private int dragX;
     private int dragY;
     Window activeWindow;
@@ -319,7 +321,8 @@ public final class ComputerScreen extends Screen {
     }
 
     float uiScale() {
-        return Math.min(1.0F, Math.min((width - 24.0F) / WIDTH, (height - 24.0F) / HEIGHT));
+        float availableScale = Math.max(0.1F, Math.min((width - 24.0F) / WIDTH, (height - 24.0F) / HEIGHT));
+        return Math.min(AntOSSettings.antosUiScale(), availableScale);
     }
 
     private void renderBoot(ThemedGraphics g, int l, int t) {
@@ -459,6 +462,10 @@ public final class ComputerScreen extends Screen {
             if (app.equals("ANTMAIL") && session.antmail.hasUnreadMessages()) drawNotificationBadge(g, x + 35, y + 6);
             if (app.equals("ANTAZON") && session.antazon.hasUnseenDeals()) drawNotificationBadge(g, x + 35, y + 6);
             g.drawString(font, Component.translatable(appNameKey(app)), x, y + 35, GREEN, false);
+            if (desktopKeyboardFocus && desktopFocusIndex == i) {
+                box(g, x - 10, y - 10, x + 76, y + 53, BLACK);
+                box(g, x - 9, y - 9, x + 75, y + 52, PALE_GREEN);
+            }
         }
     }
 
@@ -806,11 +813,38 @@ public final class ComputerScreen extends Screen {
             else if (window.type.equals("ANTAZON")) session.antazon.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("GAMES")) games.render(g, window, cx, cy, w - 16, h - 34, mouseX, mouseY);
             else if (window.type.equals("WALLPAPERS")) session.wallpaperPicker.render(g, cx, cy, h - 34);
+            if (window == activeWindow) {
+                AppKit kit = windowAppKit(window);
+                if (kit != null) {
+                    kit.focusTarget(controlsLeft, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, () -> {
+                        window.minimized = true;
+                        if (activeWindow == window) activeWindow = null;
+                    });
+                    kit.focusTarget(controlsLeft + WINDOW_CONTROL_WIDTH, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, () -> toggleMaximized(window));
+                    kit.focusTarget(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, () -> {
+                        if (window.type.equals("ANTMAIL")) session.antmail.windowClosed();
+                        session.windows.remove(window);
+                        if (activeWindow == window) activeWindow = null;
+                    });
+                    kit.drawFocus(g);
+                }
+            }
         } finally {
             g.disableScissor();
         }
     }
 
+    private AppKit windowAppKit(Window window) {
+        return switch (window.type) {
+            case "ARCHIVE" -> session.archive.kit;
+            case "FILES" -> session.files.kit;
+            case "PAINT" -> session.paint.kit;
+            case "SETTINGS" -> session.settings.kit;
+            case "TERMINAL" -> session.terminal.kit;
+            case "TEXT" -> session.text.kit;
+            default -> null;
+        };
+    }
     int renderTaskItemRecipe(ThemedGraphics g, String itemId, int x, int y, int w) {
         if (Minecraft.getInstance().level != null) {
             try {
@@ -1423,7 +1457,7 @@ public final class ComputerScreen extends Screen {
         for (int i = 0; i < desktopApps.size(); i++) {
             int x = desktopIconX(l, i);
             int y = desktopIconY(t, i);
-            if (inside(x - 8, y - 8, 84, 61, mouseX, mouseY)) { open(desktopApps.get(i)); return true; }
+            if (inside(x - 8, y - 8, 84, 61, mouseX, mouseY)) { desktopFocusIndex = i; desktopKeyboardFocus = false; open(desktopApps.get(i)); return true; }
         }
         return true;
     }
@@ -1610,6 +1644,25 @@ public final class ComputerScreen extends Screen {
             }
             return true;
         }
+        if (activeWindow == null) {
+            int count = renderedDesktopApps().size();
+            if (keyCode == InputConstants.KEY_TAB) {
+                if (count == 0) return true;
+                desktopFocusIndex = desktopKeyboardFocus ? Math.floorMod(desktopFocusIndex + ((modifiers & InputConstants.MOD_SHIFT) != 0 ? -1 : 1), count) : 0;
+                desktopKeyboardFocus = true;
+                return true;
+            }
+            if (desktopKeyboardFocus && count > 0) {
+                int next = desktopFocusIndex;
+                if (keyCode == InputConstants.KEY_LEFT) next--;
+                else if (keyCode == InputConstants.KEY_RIGHT) next++;
+                else if (keyCode == InputConstants.KEY_UP) next -= 4;
+                else if (keyCode == InputConstants.KEY_DOWN) next += 4;
+                else if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER || keyCode == InputConstants.KEY_SPACE) { open(renderedDesktopApps().get(desktopFocusIndex)); return true; }
+                else next = desktopFocusIndex;
+                if (next != desktopFocusIndex) { desktopFocusIndex = Math.floorMod(next, count); return true; }
+            }
+        }
         boolean handled = activeWindow != null && switch (activeWindow.type) {
             case "TASKS" -> tasks.key(activeWindow, keyCode, scanCode, modifiers);
             case "DISKS" -> session.disks.key(keyCode, modifiers);
@@ -1624,7 +1677,14 @@ public final class ComputerScreen extends Screen {
             case "ANTAZON" -> session.antazon.key(keyCode);
             default -> false;
         };
-        return handled || super.keyPressed(event);
+        if (handled) return true;
+        if (activeWindow != null) {
+            AppKit kit = windowAppKit(activeWindow);
+            if (kit != null && keyCode == InputConstants.KEY_TAB) return kit.focusNext((modifiers & InputConstants.MOD_SHIFT) != 0);
+            if (kit != null && (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER || keyCode == InputConstants.KEY_SPACE)
+                    && kit.activateFocused()) return true;
+        }
+        return super.keyPressed(event);
     }
 
     int mouseX() {
@@ -1757,9 +1817,9 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         Window(String type, String title, int x, int y) {
             this.type = type;
             this.title = title;
-            this.height = type.equals("ANTAZON") || type.equals("SETTINGS") || type.equals("DISKS") || type.equals("GAMES") ? 250 : 210;
+            this.height = type.equals("ANTAZON") || type.equals("SETTINGS") || type.equals("DISKS") || type.equals("GAMES") ? 250 : type.equals("ARCHIVE") ? 230 : 210;
             this.renderHeight = this.height;
-            this.width = type.equals("TASKS") || type.equals("ANTAZON") || type.equals("DISKS") || type.equals("GAMES") || type.equals("SETTINGS") ? 390 : type.equals("FILES") ? 300 : 230;
+            this.width = type.equals("TASKS") || type.equals("ANTAZON") || type.equals("DISKS") || type.equals("GAMES") || type.equals("SETTINGS") ? 390 : (type.equals("FILES") || type.equals("ARCHIVE")) ? 300 : 230;
             this.renderWidth = this.width;
             this.x = x;
             this.y = y;

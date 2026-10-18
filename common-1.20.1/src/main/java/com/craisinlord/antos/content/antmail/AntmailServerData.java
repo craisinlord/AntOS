@@ -134,7 +134,7 @@ public final class AntmailServerData extends SavedData {
             try {
                 CompoundTag entry = scheduledTags.getCompound(i);
                 ScheduledMail scheduledMail = new ScheduledMail(AntmailAddress.parse(entry.getString("Address")),
-                        ResourceLocation.tryParse(entry.getString("Id")), entry.getLong("DueDay"));
+                        ResourceLocation.tryParse(entry.getString("Id")), entry.getLong("DueDay"), entry.contains("DueTime") ? entry.getLong("DueTime") : entry.getLong("DueDay") * 24000L);
                 data.addScheduled(scheduledMail);
             } catch (RuntimeException ignored) {
             }
@@ -253,6 +253,7 @@ public final class AntmailServerData extends SavedData {
             row.putString("Address", entry.address().fullAddress());
             row.putString("Id", entry.definitionId().toString());
             row.putLong("DueDay", entry.dueDay());
+            row.putLong("DueTime", entry.dueTime());
             scheduledTags.add(row);
         }
         tag.put("Scheduled", scheduledTags);
@@ -412,7 +413,12 @@ public final class AntmailServerData extends SavedData {
     }
 
     public synchronized void schedule(AntmailAddress address, ResourceLocation definitionId, long dueDay) {
-        if (addScheduled(new ScheduledMail(address, definitionId, dueDay))) setDirty();
+        scheduleAtTime(address, definitionId, dueDay * 24000L);
+    }
+
+    public synchronized void scheduleAtTime(AntmailAddress address, ResourceLocation definitionId, long dueTime) {
+        long dueDay = Math.floorDiv(dueTime, 24000L);
+        if (addScheduled(new ScheduledMail(address, definitionId, dueDay, dueTime))) setDirty();
     }
 
     private boolean addScheduled(ScheduledMail entry) {
@@ -742,7 +748,10 @@ public final class AntmailServerData extends SavedData {
         return deliver(server, message);
     }
 
-    public record ScheduledMail(AntmailAddress address, ResourceLocation definitionId, long dueDay) {
+    public record ScheduledMail(AntmailAddress address, ResourceLocation definitionId, long dueDay, long dueTime) {
+        public ScheduledMail(AntmailAddress address, ResourceLocation definitionId, long dueDay) {
+            this(address, definitionId, dueDay, dueDay * 24000L);
+        }
     }
 
     private record MailboxIndex(int inboxSize, boolean purgeable, Set<AntmailAddress> correspondents) {

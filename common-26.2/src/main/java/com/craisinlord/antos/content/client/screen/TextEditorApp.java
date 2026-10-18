@@ -29,7 +29,7 @@ final class TextEditorApp extends ComputerApp {
     private static final String UNTITLED = "/documents/untitled.txt";
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final FileDialog dialog = new FileDialog(this, kit);
     private final List<int[]> rows = new ArrayList<>();
     private String layoutContent;

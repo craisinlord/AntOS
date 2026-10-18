@@ -13,6 +13,7 @@ public final class ComputerAccessClientState {
 
     public static void clearAll() {
         RESULTS.clear();
+        ComputerDesktopClientState.clearAll();
         DiskRewardsClientState.clearAll();
         ComputerProgramClientState.clearAll();
         ComputerTasksClientState.clearAll();
@@ -35,6 +36,7 @@ public final class ComputerAccessClientState {
         ComputerTerminalClientState.update(result);
         AntazonClientState.update(result);
         ComputerNotificationClientState.update(result);
+        ComputerDesktopClientState.update(result);
         if (result.data().startsWith(com.craisinlord.antos.content.network.ComputerAccessPayload.ARCHIVE_STATE + "\0")) {
             String[] envelope = result.data().split("\u0000", 4);
             if (envelope.length >= 3) {

@@ -83,6 +83,28 @@ AntOS creates `config/antos.json` on first launch. Restart the game or server af
 
 The file also stores client state (last username, tour progress, collapsed task groups, terminal history). Leave those keys alone.
 
+### Pause and interface sounds
+
+In AntOS **Settings → Accessibility**, **Pause world while AntOS is open** pauses a private single-player world while using the computer or Antroid Phone, including sign-in and the introduction tour. It defaults to off. Multiplayer and worlds opened to LAN keep running. The preference takes effect immediately and is saved locally for that Minecraft installation.
+
+AntOS apps and GUI animations continue while paused. World-time features, such as scheduled deliveries and daily rewards, wait for the world to resume. Encrypted-disk password retry cooldowns use elapsed time so they can expire while paused.
+
+**Settings → Notifications → Interface sounds** controls the retro clicks and tones for buttons, windows, login, saves, terminal commands, disk activation, and Antazon transactions. Window open and close sounds use quiet, lower-register beeps with softened high frequencies. Antazon plays a rising confirmation after an accepted order or checkout and a separate lower confirmation after a successful sale; rejected transactions play the error cue. A checkout plays one cue for the whole response, including partially accepted carts, and an empty cart is silent. Interface sounds default to enabled at 60% volume. The volume choices run from 0% to 100%; **Preview** plays the sound set at the selected volume. Minecraft's Master volume also applies. Mail and task notification sounds keep their separate controls. There are no typing, hover, or continuous background sounds.
+
+These client preferences are stored under `preferences` in `config/antos.json`:
+
+```json
+{
+  "pauseWhileOpen": false,
+  "interfaceSounds": true,
+  "interfaceVolume": 60
+}
+```
+
+Resource packs can replace `assets/antos/sounds/ui/<name>.ogg` or override `assets/antos/sounds.json`. The sound event IDs are `antos:ui.click`, `antos:ui.open`, `antos:ui.close`, `antos:ui.minimize`, `antos:ui.maximize`, `antos:ui.login`, `antos:ui.save`, `antos:ui.command`, `antos:ui.disk`, `antos:ui.order`, `antos:ui.sale`, and `antos:ui.error`. The bundled sounds are adapted from [Shiru's ZX Spectrum beeper sound effects](https://opengameart.org/content/zx-spectrum-beeper-sound-effects), using the author's CC0 license option; source mappings and the license are included in the mod's `licenses/` directory.
+
+Window borders focus and raise the clicked window and block clicks to apps or desktop icons behind it. Borders do not resize windows. Scrolling over a window's frame or title bar cannot scroll another window underneath it.
+
 ## Quick start
 
 1. Copy [`examples/datapack-template`](examples/datapack-template) into your pack's data pack (or your mod's resources) and rename `examplemod` to your namespace. AntOS reads content from every namespace.
@@ -269,9 +291,13 @@ To add a subfolder, define another folder such as `data/examplemod/computer/arch
 
 An entry with `"folder": "examplemod:creatures"` then appears under `Archive > Field Research > Creatures`. Folder IDs and parent relationships are explicit; a slash in a folder's JSON path does not create a parent relationship automatically.
 
-The Archive root shows top-level folders first, followed by loose entries. Opening a folder shows its visible subfolders first, followed by entries assigned directly to it. Each group uses `sort_order`, displayed title, and ID ordering. A parent may contain both subfolders and its own entries. Folder counts include all unlocked entries beneath that folder, including entries in its subfolders.
+The Archive root shows top-level folders first, followed by loose entries. Opening a folder shows its visible subfolders first, followed by entries assigned directly to it. Each group uses `sort_order`, displayed title, and ID ordering. A parent may contain both subfolders and its own entries. Folder counts include all unlocked entries beneath that folder, including entries in its subfolders. Folder artwork keeps a recognizable folder silhouette and renders its configured `icon_item` centered inside the folder without a background box, including modded items and resource-pack item textures. Entry covers retain their item, entity, potion, enchantment, and recipe previews, with a document icon when no preview is available.
 
-Each breadcrumb segment is clickable, so `Archive > Field Research > Creatures` can return directly to either ancestor. The back arrow moves up one folder level; while viewing an entry, it returns to the list that opened that entry. Escape leaves an entry, unfocuses search, or moves up one folder level, in that order. Returning to a previous list restores its search and scroll position, including when a breadcrumb skips a level.
+Archive opens in list view in a wider default window. The toolbar switches between list and gallery views; maximizing preserves the selected view. Gallery columns adapt to the available width. The chosen view remains available throughout the current computer session, and switching views retains the focused entry where possible.
+
+Each breadcrumb segment is clickable, so `Archive > Field Research > Creatures` can return directly to either ancestor. Long paths collapse earlier segments into a menu while retaining the current location. Hovering truncated titles or paths reveals their full text. Back returns to the previous view, including searches, opened entries, and breadcrumb jumps, restoring its search, focus, view mode, and scroll position. Up follows the folder hierarchy; from an entry it opens that entry's assigned folder, or the root for a loose entry. Escape leaves an entry, unfocuses search, or moves up one folder level, in that order.
+
+Use `Ctrl+F` to focus search, `Tab`/`Shift+Tab` to move between controls and content, arrow keys to focus entries, and `Enter` to open them. `Home` and `End` select the first or last entry. Gallery navigation follows the visual rows and columns. While reading, arrow keys, `Page Up`/`Page Down`, `Home`, and `End` scroll the article. The article view has its own scrollbar, wrapping titles and subtitles, and separated text and preview sections.
 
 Searching at the root searches all unlocked entries. Searching inside a parent searches that folder and its subfolders; searching inside a subfolder searches only that subfolder. Results show their full folder path. Empty folders stay hidden until an entry anywhere beneath them becomes available, so a parent with no direct entries can still appear when a subfolder has an unlocked entry. Folders do not unlock entries: disks, tasks, and other existing unlock sources continue to control availability.
 
@@ -709,6 +735,8 @@ Every profile automatically gets `<username>@antmail.com`. Data-driven messages 
 | --- | --- |
 | `once` | Defaults to `true` (`false` for `random`). `false` allows sending again. |
 | `delay` | Delay in Minecraft days. |
+| `delay_minutes` | Additional delay in whole in-game minutes. |
+| `delay_seconds` | Additional delay in whole in-game seconds; one second is 20 ticks. The delay fields add together and are stored against world time, so they survive restarts and pause while the world is closed. Conditions and delivery windows are still checked when the message becomes due. |
 | `conditions` | `advancements`, `not_advancements`, `mail_read`, `tasks_complete`, `dimension`. Each takes one ID or a list. |
 | `deliver_window` | Minecraft-time window for arrival. Messages wait in a queue until conditions and window allow. |
 | `antcoins` | Positive whole number credited on delivery, shown as a transfer line. Repeating mail pays each time. Nothing is paid or shown while Antazon is disabled. |

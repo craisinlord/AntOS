@@ -41,7 +41,7 @@ final class TerminalApp extends ComputerApp {
     private static final Pattern INLINE_PASSWORD = Pattern.compile("(?i)^\\s*decrypt\\s+\\S+\\s+(.+)$");
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final List<Visual> visuals = new ArrayList<>();
     private Identifier passwordDisk;
     private long decryptionRevision;

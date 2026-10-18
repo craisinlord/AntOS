@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.AntOSUiSounds;
+import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
 import com.craisinlord.antos.content.computer.ComputerFileSystem;
@@ -29,7 +31,7 @@ final class TextEditorApp extends ComputerApp {
     private static final String UNTITLED = "/documents/untitled.txt";
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final FileDialog dialog = new FileDialog(this, kit);
     private final List<int[]> rows = new ArrayList<>();
     private String layoutContent;
@@ -105,6 +107,7 @@ final class TextEditorApp extends ComputerApp {
         String path = state.pendingPath;
         state.pendingPath = "";
         if (!success) {
+            AntOSUiSounds.play(Cue.ERROR);
             notice(tr("notice.failed", AppKit.fileError(error)), AppKit.ERROR);
             return;
         }
@@ -112,12 +115,14 @@ final class TextEditorApp extends ComputerApp {
             case "save" -> {
                 state.savedContent = state.pendingContent;
                 state.dirty = !state.content.equals(state.pendingContent);
+                AntOSUiSounds.play(Cue.SAVE);
                 notice(tr("notice.saved"), PALE_GREEN);
             }
             case "save_as" -> {
                 state.path = path;
                 state.savedContent = state.pendingContent;
                 state.dirty = !state.content.equals(state.pendingContent);
+                AntOSUiSounds.play(Cue.SAVE);
                 notice(tr("notice.saved"), PALE_GREEN);
             }
             case "rename" -> {

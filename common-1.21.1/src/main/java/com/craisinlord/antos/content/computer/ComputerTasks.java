@@ -259,7 +259,8 @@ public final class ComputerTasks {
         if (sendDefinitions) encoded.append(",\"definitions\":").append(definitions.json());
         if (sendState) encoded.append(",\"state\":").append(state);
         encoded.append('}');
-        if (encoded.length() + 64 > com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS) {
+        String packed = compress(encoded.toString());
+        if (packed.length() + 64 > com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS) {
             if (OVERSIZED_TASK_STATES.add(workspaceKey)) AntOS.LOGGER.error("Task snapshot for Anternet workspace {} exceeds the network payload limit; reduce task/objective definitions",
                     workspaceKey);
             forgetSentDefinitions(player, workspaceKey);
@@ -267,7 +268,57 @@ public final class ComputerTasks {
             return error.toString();
         }
         if (clientRequest) rememberSentDefinitions(player, workspaceKey, definitions.hash());
-        return encoded.toString();
+        return packed;
+    }
+
+    public static final String COMPRESSED_PREFIX = "gz:";
+    private static final int COMPRESSION_THRESHOLD = 2048;
+
+    private static String compress(String json) {
+        if (json.length() < COMPRESSION_THRESHOLD) return json;
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream(json.length() / 8);
+        try (java.util.zip.GZIPOutputStream gzip = new java.util.zip.GZIPOutputStream(bytes)) {
+            gzip.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (java.io.IOException exception) {
+            return json;
+        }
+        return COMPRESSED_PREFIX + java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
+    }
+
+    private static void put(JsonObject row, String key, String value) {
+        if (value != null && !value.isEmpty()) row.addProperty(key, value);
+    }
+
+    private static void put(JsonObject row, String key, int value, int fallback) {
+        if (value != fallback) row.addProperty(key, value);
+    }
+
+    private static void put(JsonObject row, String key, long value, long fallback) {
+        if (value != fallback) row.addProperty(key, value);
+    }
+
+    private static void put(JsonObject row, String key, float value, float fallback) {
+        if (Float.compare(value, fallback) != 0) row.addProperty(key, value);
+    }
+
+    private static void put(JsonObject row, String key, boolean value, boolean fallback) {
+        if (value != fallback) row.addProperty(key, value);
+    }
+
+    private static void putList(JsonObject row, String key, java.util.Collection<?> values) {
+        if (values.isEmpty()) return;
+        JsonArray array = new JsonArray();
+        for (Object value : values) array.add(String.valueOf(value));
+        row.add(key, array);
+    }
+
+    private static void putAppearance(JsonObject row, com.craisinlord.antos.content.guide.TaskAppearance appearance) {
+        var fallback = com.craisinlord.antos.content.guide.TaskAppearance.DEFAULT;
+        if (appearance.shape() != fallback.shape()) row.addProperty("shape", appearance.shape().name().toLowerCase(java.util.Locale.ROOT));
+        put(row, "size", appearance.size(), fallback.size());
+        put(row, "icon_scale", appearance.iconScale(), fallback.iconScale());
+        if (appearance.lineAxis() != fallback.lineAxis()) row.addProperty("line_axis", appearance.lineAxis().name().toLowerCase(java.util.Locale.ROOT));
+        put(row, "line_bend", appearance.lineBend(), fallback.lineBend());
     }
 
     private static String sentDefinitions(ServerPlayer player, String workspaceKey) {
@@ -314,10 +365,10 @@ public final class ComputerTasks {
         JsonObject root = new JsonObject(); JsonArray rows = new JsonArray();
         for (ComputerGuideData.Task task : tasks) {
             JsonObject row = new JsonObject(); row.addProperty("id", task.id().toString());
-            row.addProperty("title", task.titleKey()); row.addProperty("description", task.descriptionKey());
-            row.addProperty("program", task.program()); row.addProperty("category", task.category());
-            row.addProperty("has_position", task.hasPosition()); row.addProperty("x", task.x()); row.addProperty("y", task.y());
-            row.addProperty("has_rewards", !task.rewards().isEmpty());
+            put(row, "title", task.titleKey()); put(row, "description", task.descriptionKey());
+            put(row, "category", task.category());
+            put(row, "has_position", task.hasPosition(), false); put(row, "x", task.x(), 0); put(row, "y", task.y(), 0);
+            put(row, "has_rewards", !task.rewards().isEmpty(), false);
             String iconTexture = "";
             String iconItem = task.iconItem();
             String iconEntity = iconItem.isBlank() ? task.iconEntity() : "";
@@ -340,38 +391,36 @@ public final class ComputerTasks {
                 }
             }
             if (iconItem.isBlank() && iconEntity.isBlank()) iconItem = "minecraft:paper";
-            row.addProperty("icon_texture", iconTexture);
-            row.addProperty("icon_item", iconItem);
-            row.addProperty("icon_entity", iconEntity);
-            row.addProperty("shape", task.appearance().shape().name().toLowerCase(java.util.Locale.ROOT));
-            row.addProperty("size", task.appearance().size());
-            row.addProperty("icon_scale", task.appearance().iconScale());
-            row.addProperty("line_axis", task.appearance().lineAxis().name().toLowerCase(java.util.Locale.ROOT));
-            row.addProperty("line_bend", task.appearance().lineBend());
-            row.addProperty("green_tint", task.greenTint());
-            row.addProperty("render_mob_from_spawn_egg", task.renderMobFromSpawnEgg());
-            JsonArray rewards = new JsonArray();
-            for (ComputerGuideData.TaskReward reward : task.rewards()) {
-                rewards.add(encodeTaskReward(reward));
+            put(row, "icon_texture", iconTexture);
+            put(row, "icon_item", iconItem);
+            put(row, "icon_entity", iconEntity);
+            putAppearance(row, task.appearance());
+            put(row, "green_tint", task.greenTint(), true);
+            put(row, "render_mob_from_spawn_egg", task.renderMobFromSpawnEgg(), true);
+            if (!task.rewards().isEmpty()) {
+                JsonArray rewards = new JsonArray();
+                for (ComputerGuideData.TaskReward reward : task.rewards()) rewards.add(encodeTaskReward(reward));
+                row.add("rewards", rewards);
             }
-            row.add("rewards", rewards);
-            JsonArray prerequisites = new JsonArray(); task.requires().forEach(id -> prerequisites.add(id.toString())); row.add("requires", prerequisites);
-            JsonArray anyPrerequisites = new JsonArray(); task.requiresAny().forEach(id -> anyPrerequisites.add(id.toString())); row.add("requires_any", anyPrerequisites);
-            JsonArray connections = new JsonArray(); task.connects().forEach(id -> connections.add(id.toString())); row.add("connects", connections);
-            JsonArray archiveEntries = new JsonArray(); task.archiveEntries().forEach(id -> archiveEntries.add(id.toString())); row.add("archive_entries", archiveEntries);
-            JsonArray showcase = new JsonArray(); task.showcase().forEach(showcase::add); row.add("showcase", showcase);
+            putList(row, "requires", task.requires());
+            putList(row, "requires_any", task.requiresAny());
+            putList(row, "connects", task.connects());
+            putList(row, "archive_entries", task.archiveEntries());
+            putList(row, "showcase", task.showcase());
             int total = 0;
             for (ComputerGuideData.Objective objective : task.objectives()) if (!objective.optional()) total++;
-            row.addProperty("total", total);
-            JsonArray objectives = new JsonArray();
-            for (ComputerGuideData.Objective objective : task.objectives()) {
-                JsonObject objectiveRow = new JsonObject(); objectiveRow.addProperty("id", objective.id());
-                objectiveRow.addProperty("description", objective.descriptionKey());
-                objectiveRow.addProperty("count", objective.count()); objectiveRow.addProperty("optional", objective.optional());
-                objectiveRow.addProperty("item", objective.type().equals("item") ? objective.target() : "");
-                objectives.add(objectiveRow);
+            put(row, "total", total, 0);
+            if (!task.objectives().isEmpty()) {
+                JsonArray objectives = new JsonArray();
+                for (ComputerGuideData.Objective objective : task.objectives()) {
+                    JsonObject objectiveRow = new JsonObject();
+                    put(objectiveRow, "description", objective.descriptionKey());
+                    put(objectiveRow, "count", objective.count(), 1); put(objectiveRow, "optional", objective.optional(), false);
+                    put(objectiveRow, "item", objective.type().equals("item") ? objective.target() : "");
+                    objectives.add(objectiveRow);
+                }
+                row.add("objectives", objectives);
             }
-            row.add("objectives", objectives);
             rows.add(row);
         }
         root.add("tasks", rows);
@@ -382,10 +431,10 @@ public final class ComputerTasks {
             JsonArray entryRows = new JsonArray();
             for (ComputerGuideData.RewardPoolEntry entry : pool.entries()) {
                 JsonObject entryRow = new JsonObject();
-                entryRow.addProperty("item", entry.itemId() == null ? "" : entry.itemId().toString());
-                entryRow.addProperty("pool", entry.poolId() == null ? "" : entry.poolId().toString());
-                entryRow.addProperty("weight", entry.weight());
-                entryRow.addProperty("count", entry.count());
+                put(entryRow, "item", entry.itemId() == null ? "" : entry.itemId().toString());
+                put(entryRow, "pool", entry.poolId() == null ? "" : entry.poolId().toString());
+                put(entryRow, "weight", entry.weight(), 1);
+                put(entryRow, "count", entry.count(), 1);
                 entryRows.add(entryRow);
             }
             poolRow.add("entries", entryRows);
@@ -396,13 +445,13 @@ public final class ComputerTasks {
         for (ComputerGuideData.TaskCategory category : categories) {
             JsonObject categoryRow = new JsonObject();
             categoryRow.addProperty("id", category.id().toString());
-            categoryRow.addProperty("title", category.titleKey());
-            categoryRow.addProperty("icon_item", category.iconItem());
-            categoryRow.addProperty("icon_entity", category.iconEntity());
-            categoryRow.addProperty("sort_order", category.sortOrder());
-            categoryRow.addProperty("group", category.group() == null ? "" : category.group().toString());
-            categoryRow.addProperty("green_tint", category.greenTint());
-            categoryRow.addProperty("render_mob_from_spawn_egg", category.renderMobFromSpawnEgg());
+            put(categoryRow, "title", category.titleKey());
+            put(categoryRow, "icon_item", category.iconItem());
+            put(categoryRow, "icon_entity", category.iconEntity());
+            put(categoryRow, "sort_order", category.sortOrder(), 0);
+            put(categoryRow, "group", category.group() == null ? "" : category.group().toString());
+            put(categoryRow, "green_tint", category.greenTint(), true);
+            put(categoryRow, "render_mob_from_spawn_egg", category.renderMobFromSpawnEgg(), true);
             categoryRows.add(categoryRow);
         }
         root.add("categories", categoryRows);
@@ -410,13 +459,13 @@ public final class ComputerTasks {
         for (ComputerGuideData.TaskGroup group : groups) {
             JsonObject groupRow = new JsonObject();
             groupRow.addProperty("id", group.id().toString());
-            groupRow.addProperty("title", group.titleKey());
-            groupRow.addProperty("icon_item", group.iconItem());
-            groupRow.addProperty("icon_entity", group.iconEntity());
-            groupRow.addProperty("sort_order", group.sortOrder());
-            groupRow.addProperty("collapsed", group.collapsed());
-            groupRow.addProperty("green_tint", group.greenTint());
-            groupRow.addProperty("render_mob_from_spawn_egg", group.renderMobFromSpawnEgg());
+            put(groupRow, "title", group.titleKey());
+            put(groupRow, "icon_item", group.iconItem());
+            put(groupRow, "icon_entity", group.iconEntity());
+            put(groupRow, "sort_order", group.sortOrder(), 0);
+            put(groupRow, "collapsed", group.collapsed(), false);
+            put(groupRow, "green_tint", group.greenTint(), true);
+            put(groupRow, "render_mob_from_spawn_egg", group.renderMobFromSpawnEgg(), true);
             groupRows.add(groupRow);
         }
         root.add("groups", groupRows);
@@ -424,23 +473,19 @@ public final class ComputerTasks {
         for (ComputerGuideData.TaskLink link : links) {
             JsonObject linkRow = new JsonObject();
             linkRow.addProperty("id", link.id().toString());
-            linkRow.addProperty("title", link.titleKey());
-            linkRow.addProperty("description", link.descriptionKey());
-            linkRow.addProperty("category", link.category());
-            linkRow.addProperty("link_category", link.linkCategory() == null ? "" : link.linkCategory().toString());
-            linkRow.addProperty("link_group", link.linkGroup() == null ? "" : link.linkGroup().toString());
-            linkRow.addProperty("has_position", link.hasPosition()); linkRow.addProperty("x", link.x()); linkRow.addProperty("y", link.y());
-            linkRow.addProperty("icon_item", link.iconItem());
-            linkRow.addProperty("icon_entity", link.iconEntity());
+            put(linkRow, "title", link.titleKey());
+            put(linkRow, "description", link.descriptionKey());
+            put(linkRow, "category", link.category());
+            put(linkRow, "link_category", link.linkCategory() == null ? "" : link.linkCategory().toString());
+            put(linkRow, "link_group", link.linkGroup() == null ? "" : link.linkGroup().toString());
+            put(linkRow, "has_position", link.hasPosition(), false); put(linkRow, "x", link.x(), 0); put(linkRow, "y", link.y(), 0);
+            put(linkRow, "icon_item", link.iconItem());
+            put(linkRow, "icon_entity", link.iconEntity());
             if (link.greenTint() != null) linkRow.addProperty("green_tint", link.greenTint());
             if (link.renderMobFromSpawnEgg() != null) linkRow.addProperty("render_mob_from_spawn_egg", link.renderMobFromSpawnEgg());
-            linkRow.addProperty("shape", link.appearance().shape().name().toLowerCase(java.util.Locale.ROOT));
-            linkRow.addProperty("size", link.appearance().size());
-            linkRow.addProperty("icon_scale", link.appearance().iconScale());
-            linkRow.addProperty("line_axis", link.appearance().lineAxis().name().toLowerCase(java.util.Locale.ROOT));
-            linkRow.addProperty("line_bend", link.appearance().lineBend());
-            JsonArray linkRequires = new JsonArray(); link.requires().forEach(id -> linkRequires.add(id.toString())); linkRow.add("requires", linkRequires);
-            JsonArray linkConnects = new JsonArray(); link.connects().forEach(id -> linkConnects.add(id.toString())); linkRow.add("connects", linkConnects);
+            putAppearance(linkRow, link.appearance());
+            putList(linkRow, "requires", link.requires());
+            putList(linkRow, "connects", link.connects());
             linkRows.add(linkRow);
         }
         root.add("links", linkRows);
@@ -453,20 +498,20 @@ public final class ComputerTasks {
     private static JsonObject encodeTaskReward(ComputerGuideData.TaskReward reward) {
         JsonObject row = new JsonObject();
         row.addProperty("type", reward.type());
-        row.addProperty("item", reward.itemId() == null ? "" : reward.itemId().toString());
-        row.addProperty("count", reward.count());
-        row.addProperty("experience", reward.experiencePoints());
-        row.addProperty("target", reward.target() == null ? "" : reward.target().toString());
-        row.addProperty("subject", reward.subject());
-        row.addProperty("pool", reward.poolId() == null ? "" : reward.poolId().toString());
-        row.addProperty("mode", reward.mode());
-        row.addProperty("antcoins", reward.antcoins());
+        put(row, "item", reward.itemId() == null ? "" : reward.itemId().toString());
+        put(row, "count", reward.count(), 1);
+        put(row, "experience", reward.experiencePoints(), 0);
+        put(row, "target", reward.target() == null ? "" : reward.target().toString());
+        put(row, "subject", reward.subject());
+        put(row, "pool", reward.poolId() == null ? "" : reward.poolId().toString());
+        put(row, "mode", reward.mode());
+        put(row, "antcoins", reward.antcoins(), 0L);
         if (!reward.options().isEmpty()) {
             JsonArray options = new JsonArray();
             for (ComputerGuideData.RewardOption option : reward.options()) {
                 JsonObject optionRow = new JsonObject();
                 optionRow.addProperty("id", option.id());
-                optionRow.addProperty("title", option.title());
+                put(optionRow, "title", option.title());
                 JsonArray optionRewards = new JsonArray();
                 for (ComputerGuideData.TaskReward optionReward : option.rewards()) optionRewards.add(encodeTaskReward(optionReward));
                 optionRow.add("rewards", optionRewards);
@@ -548,11 +593,12 @@ public final class ComputerTasks {
             boolean complete = progress.isComplete(task.id());
             boolean rewardsClaimable = hasClaimableRewards(task);
             boolean claimed = rewardsClaimable && account != null && claimedTasks.get(taskIndex);
-            row.addProperty("complete", complete); row.addProperty("visible", visible(task, progress));
-            row.addProperty("available", complete || available(task, progress));
-            row.addProperty("claimable", complete && rewardsClaimable && account != null && !claimed);
-            row.addProperty("claimed", claimed);
+            put(row, "complete", complete, false); put(row, "visible", visible(task, progress), false);
+            put(row, "available", complete || available(task, progress), false);
+            put(row, "claimable", complete && rewardsClaimable && account != null && !claimed, false);
+            put(row, "claimed", claimed, false);
             int done = 0;
+            boolean anyProgress = false;
             JsonArray objectiveProgress = new JsonArray();
             for (ComputerGuideData.Objective objective : task.objectives()) {
                 ObjectiveView view = objectiveView(player, progress, task, objective, counts);
@@ -563,10 +609,14 @@ public final class ComputerTasks {
                     objectiveState.addProperty("goal", view.goal());
                     objectiveState.addProperty("complete", view.complete());
                     objectiveProgress.add(objectiveState);
-                } else objectiveProgress.add(view.progress());
+                    anyProgress = true;
+                } else {
+                    objectiveProgress.add(view.progress());
+                    anyProgress |= view.progress() != 0;
+                }
             }
-            row.addProperty("done", done);
-            row.add("progress", objectiveProgress);
+            put(row, "done", done, 0);
+            if (anyProgress) row.add("progress", objectiveProgress);
             rows.add(row);
         }
         root.add("tasks", rows);

@@ -53,6 +53,7 @@ public final class ComputerProgramClientState {
                 entries.put(value.disk(), value);
                 DECRYPTIONS.put(key, Map.copyOf(entries));
                 LAST_DECRYPTION.put(key, value);
+                if (key.equals(ComputerWorkspaceClientKey.of())) AntOSUiSounds.play(value.code().equals("decrypted") || value.code().equals("already_unlocked") ? AntOSUiSounds.Cue.DISK : AntOSUiSounds.Cue.ERROR);
             }
         } catch (RuntimeException ignored) { }
     }

@@ -17,34 +17,46 @@ import java.util.UUID;
 
 public final class AntOSSettings {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final int READ_ATTEMPTS = 5;
     private static volatile Config config = new Config();
     private static Path configPath;
+    private static boolean writable;
 
     private AntOSSettings() {}
 
     public static synchronized void load(Path configFile) {
         configPath = configFile;
+        writable = false;
         try {
             Path parent = configFile.getParent();
             if (parent != null) Files.createDirectories(parent);
             if (!Files.exists(configFile)) {
-                try (Writer writer = Files.newBufferedWriter(configFile)) {
-                    GSON.toJson(new Config(), writer);
-                }
                 config = new Config();
+                writable = true;
+                save();
                 AntOS.LOGGER.info("Created AntOS configuration at {}", configFile);
                 return;
             }
-            try (Reader reader = Files.newBufferedReader(configFile)) {
-                Config loaded = GSON.fromJson(reader, Config.class);
-                config = loaded == null ? new Config() : loaded.withDefaults();
-            }
-            try (Writer writer = Files.newBufferedWriter(configFile)) {
-                GSON.toJson(config, writer);
-            }
+            Config loaded = read(configFile);
+            config = loaded == null ? new Config() : loaded.withDefaults();
+            writable = true;
         } catch (Exception exception) {
-            AntOS.LOGGER.error("Could not load AntOS configuration from {}; using defaults", configFile, exception);
+            AntOS.LOGGER.error("Could not load AntOS configuration from {}; using defaults for this session and leaving the file untouched",
+                    configFile, exception);
             config = new Config();
+            return;
+        }
+        save();
+    }
+
+    private static Config read(Path configFile) throws Exception {
+        for (int attempt = 1; ; attempt++) {
+            try (Reader reader = Files.newBufferedReader(configFile)) {
+                return GSON.fromJson(reader, Config.class);
+            } catch (java.io.IOException exception) {
+                if (attempt >= READ_ATTEMPTS) throw exception;
+                Thread.sleep(100L * attempt);
+            }
         }
     }
 
@@ -54,12 +66,7 @@ public final class AntOSSettings {
 
     public static synchronized void setLastAnternetUsername(String username) {
         config.lastAnternetUsername = username == null ? "" : username.trim();
-        if (configPath == null) return;
-        try (Writer writer = Files.newBufferedWriter(configPath)) {
-            GSON.toJson(config, writer);
-        } catch (Exception exception) {
-            AntOS.LOGGER.error("Could not save AntOS configuration to {}", configPath, exception);
-        }
+        save();
     }
 
     public static synchronized boolean consumeInitialBoot() {
@@ -102,6 +109,24 @@ public final class AntOSSettings {
         return config.preferences.copy();
     }
 
+    public static synchronized String displayBrightness() {
+        if (config.preferences == null) config.preferences = new Preferences();
+        return config.preferences.displayBrightness;
+    }
+
+    public static synchronized boolean reduceEffects() {
+        return config.preferences != null && config.preferences.reduceEffects;
+    }
+
+    public static synchronized float antosUiScale() {
+        if (config.preferences == null) config.preferences = new Preferences();
+        return switch (config.preferences.uiSize) {
+            case "large" -> 1.15F;
+            case "largest" -> 1.30F;
+            default -> 1.0F;
+        };
+    }
+
     public static synchronized void updatePreferences(java.util.function.Consumer<Preferences> change) {
         if (config.preferences == null) config.preferences = new Preferences();
         change.accept(config.preferences);
@@ -128,11 +153,22 @@ public final class AntOSSettings {
     }
 
     private static void save() {
-        if (configPath == null) return;
-        try (Writer writer = Files.newBufferedWriter(configPath)) {
-            GSON.toJson(config, writer);
+        if (configPath == null || !writable) return;
+        Path temporary = configPath.resolveSibling(configPath.getFileName() + ".tmp");
+        try {
+            try (Writer writer = Files.newBufferedWriter(temporary)) {
+                GSON.toJson(config, writer);
+            }
+            try {
+                Files.move(temporary, configPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, configPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception exception) {
             AntOS.LOGGER.error("Could not save AntOS configuration to {}", configPath, exception);
+            try {
+                Files.deleteIfExists(temporary);
+            } catch (Exception ignored) { }
         }
     }
 
@@ -240,6 +276,15 @@ public final class AntOSSettings {
         public static final List<String> TASK_MAP_ZOOMS = List.of("55", "65", "75", "85", "100");
 
         public String theme = "green";
+        public String displayBrightness = "standard";
+        public boolean reduceEffects;
+        public boolean pauseWhileOpen;
+        public boolean interfaceSounds = true;
+        public int interfaceVolume = 60;
+        /** Pre-brightness settings; read once to migrate, then dropped from the file. */
+        private String screenPalette;
+        private Boolean softText;
+        public String uiSize = "standard";
         public String mailAlerts = "toast";
         public boolean mailSound = true;
         public String taskAlerts = "actionbar";
@@ -255,6 +300,12 @@ public final class AntOSSettings {
         private Preferences copy() {
             Preferences copy = new Preferences();
             copy.theme = theme;
+            copy.displayBrightness = displayBrightness;
+            copy.reduceEffects = reduceEffects;
+            copy.pauseWhileOpen = pauseWhileOpen;
+            copy.interfaceSounds = interfaceSounds;
+            copy.interfaceVolume = interfaceVolume;
+            copy.uiSize = uiSize;
             copy.mailAlerts = mailAlerts;
             copy.mailSound = mailSound;
             copy.taskAlerts = taskAlerts;
@@ -270,12 +321,20 @@ public final class AntOSSettings {
         }
 
         private void normalize() {
-            if (theme == null || !List.of("green", "amber", "blue", "white").contains(theme)) theme = "green";
+            if (theme == null || !List.of("green", "amber", "blue", "white", "lavender", "rainbow").contains(theme)) theme = "green";
+            if (screenPalette != null || softText != null) {
+                displayBrightness = "dim".equals(screenPalette) || "light".equals(screenPalette) ? "dim" : Boolean.TRUE.equals(softText) ? "soft" : "standard";
+                screenPalette = null;
+                softText = null;
+            }
+            if (displayBrightness == null || !List.of("standard", "soft", "dim").contains(displayBrightness)) displayBrightness = "standard";
+            if (uiSize == null || !List.of("standard", "large", "largest").contains(uiSize)) uiSize = "standard";
             if (mailAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(mailAlerts)) mailAlerts = "toast";
             if (taskAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(taskAlerts)) taskAlerts = "actionbar";
             if (taskMapZoom == null || !TASK_MAP_ZOOMS.contains(taskMapZoom)) taskMapZoom = "75";
             if (editorLineNumbers == null || !List.of("auto", "on", "off").contains(editorLineNumbers)) editorLineNumbers = "auto";
             paintBrush = Math.max(1, Math.min(3, paintBrush));
+            interfaceVolume = Math.max(0, Math.min(100, interfaceVolume));
         }
     }
 

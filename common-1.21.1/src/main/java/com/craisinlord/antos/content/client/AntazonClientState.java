@@ -155,6 +155,7 @@ public final class AntazonClientState {
                 int units = envelope.length > 3 ? parseInt(envelope[3]) : 0;
                 String receipt = envelope.length > 4 ? envelope[4] : "";
                 NOTICES.put(key, new Notice("purchase", envelope.length > 1 ? envelope[1] : "", product, units, receipt, success, System.currentTimeMillis()));
+                playFeedback(AntazonTransactionFeedback.purchase(success));
                 refreshAfterPurchase();
             } else if (data.startsWith(ComputerAccessPayload.ANTAZON_CART + "\0")) {
                 String[] envelope = data.split("\u0000", 3);
@@ -175,7 +176,10 @@ public final class AntazonClientState {
                     CHECKOUTS.put(key, List.copyOf(lines));
                     CARTS.put(key, cart(response.getAsJsonArray("cart")));
                     CART_RECEIVED.put(key, true);
+                    playFeedback(AntazonTransactionFeedback.checkout(result.result() == ComputerAccessResultPayload.SUCCESS,
+                            lines.stream().map(CheckoutLine::status).toList()));
                 } else {
+                    AntOSUiSounds.play(AntOSUiSounds.Cue.ERROR);
                     NOTICES.put(key, new Notice("purchase", envelope.length > 1 ? envelope[1] : "invalid_request", "", 0, "", false, System.currentTimeMillis()));
                 }
                 refreshAfterPurchase();
@@ -190,13 +194,26 @@ public final class AntazonClientState {
                 STATUS.put(key, status);
                 SELL_FEEDBACK.put(key, status);
                 if (envelope.length > 2 && !envelope[2].isBlank()) SELL_AMOUNT.put(key, Long.parseLong(envelope[2]));
+                playFeedback(AntazonTransactionFeedback.sale(result.result() == ComputerAccessResultPayload.SUCCESS));
                 if (result.result() == ComputerAccessResultPayload.SUCCESS) {
                     com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonSellState();
                     com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonPrices();
                 }
             }
         } catch (RuntimeException exception) {
+            if (data.startsWith(ComputerAccessPayload.ANTAZON_PURCHASE + "\0")
+                    || data.startsWith(ComputerAccessPayload.ANTAZON_CHECKOUT + "\0")
+                    || data.startsWith(ComputerAccessPayload.ANTAZON_SELL + "\0")) AntOSUiSounds.play(AntOSUiSounds.Cue.ERROR);
             NOTICES.put(key, new Notice("error", "invalid_response", "", 0, "", false, System.currentTimeMillis()));
+        }
+    }
+
+    private static void playFeedback(AntazonTransactionFeedback feedback) {
+        switch (feedback) {
+            case ORDER -> AntOSUiSounds.play(AntOSUiSounds.Cue.ORDER);
+            case SALE -> AntOSUiSounds.play(AntOSUiSounds.Cue.SALE);
+            case ERROR -> AntOSUiSounds.play(AntOSUiSounds.Cue.ERROR);
+            case NONE -> { }
         }
     }
 

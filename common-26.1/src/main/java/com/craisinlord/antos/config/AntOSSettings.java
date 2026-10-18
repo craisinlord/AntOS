@@ -102,6 +102,24 @@ public final class AntOSSettings {
         return config.preferences.copy();
     }
 
+    public static synchronized String displayBrightness() {
+        if (config.preferences == null) config.preferences = new Preferences();
+        return config.preferences.displayBrightness;
+    }
+
+    public static synchronized boolean reduceEffects() {
+        return config.preferences != null && config.preferences.reduceEffects;
+    }
+
+    public static synchronized float antosUiScale() {
+        if (config.preferences == null) config.preferences = new Preferences();
+        return switch (config.preferences.uiSize) {
+            case "large" -> 1.15F;
+            case "largest" -> 1.30F;
+            default -> 1.0F;
+        };
+    }
+
     public static synchronized void updatePreferences(java.util.function.Consumer<Preferences> change) {
         if (config.preferences == null) config.preferences = new Preferences();
         change.accept(config.preferences);
@@ -214,6 +232,12 @@ public final class AntOSSettings {
         public static final List<String> TASK_MAP_ZOOMS = List.of("55", "65", "75", "85", "100");
 
         public String theme = "green";
+        public String displayBrightness = "standard";
+        public boolean reduceEffects;
+        /** Pre-brightness settings; read once to migrate, then dropped from the file. */
+        private String screenPalette;
+        private Boolean softText;
+        public String uiSize = "standard";
         public String mailAlerts = "toast";
         public boolean mailSound = true;
         public String taskAlerts = "actionbar";
@@ -229,6 +253,9 @@ public final class AntOSSettings {
         private Preferences copy() {
             Preferences copy = new Preferences();
             copy.theme = theme;
+            copy.displayBrightness = displayBrightness;
+            copy.reduceEffects = reduceEffects;
+            copy.uiSize = uiSize;
             copy.mailAlerts = mailAlerts;
             copy.mailSound = mailSound;
             copy.taskAlerts = taskAlerts;
@@ -244,7 +271,14 @@ public final class AntOSSettings {
         }
 
         private void normalize() {
-            if (theme == null || !List.of("green", "amber", "blue", "white").contains(theme)) theme = "green";
+            if (theme == null || !List.of("green", "amber", "blue", "white", "lavender", "rainbow").contains(theme)) theme = "green";
+            if (screenPalette != null || softText != null) {
+                displayBrightness = "dim".equals(screenPalette) || "light".equals(screenPalette) ? "dim" : Boolean.TRUE.equals(softText) ? "soft" : "standard";
+                screenPalette = null;
+                softText = null;
+            }
+            if (displayBrightness == null || !List.of("standard", "soft", "dim").contains(displayBrightness)) displayBrightness = "standard";
+            if (uiSize == null || !List.of("standard", "large", "largest").contains(uiSize)) uiSize = "standard";
             if (mailAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(mailAlerts)) mailAlerts = "toast";
             if (taskAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(taskAlerts)) taskAlerts = "actionbar";
             if (taskMapZoom == null || !TASK_MAP_ZOOMS.contains(taskMapZoom)) taskMapZoom = "75";

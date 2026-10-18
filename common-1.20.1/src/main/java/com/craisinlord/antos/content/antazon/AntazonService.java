@@ -538,6 +538,7 @@ public final class AntazonService {
             if (currentTotal != manifest.total()) return SellResult.failed("crate_changed");
             var chestState = crate.level().getBlockState(chestPos);
             var blockEntityTag = crate.blockEntity().saveWithFullMetadata();
+            chest.clearContent();
             crate.level().removeBlock(chestPos, false);
             RewardDropEntity shipment = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), crate.level());
             shipment.setPos(chestPos.getX() + 0.5D, chestPos.getY() + 0.75D, chestPos.getZ() + 0.5D);

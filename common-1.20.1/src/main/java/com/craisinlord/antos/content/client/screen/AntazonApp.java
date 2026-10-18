@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
 import com.craisinlord.antos.content.client.AntazonClientState;
@@ -112,7 +113,7 @@ final class AntazonApp extends ComputerApp {
         g.fill(x, y, x + w, y + h, hover ? HOVER_FILL : primary && enabled ? 0xFF143014 : DARK_GREEN);
         screen.box(g, x, y, x + w, y + h, !enabled ? DIVIDER : hover ? PALE_GREEN : primary ? GREEN : DIVIDER);
         centered(g, label, x + w / 2.0F, y + (h - 8) / 2.0F + 1, w - 6, !enabled ? DIM : primary ? GREEN : PALE_GREEN);
-        if (enabled) hit(x, y, w, h, action);
+        if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 
     private void chip(GuiGraphics g, int x, int y, int w, boolean selected, String label, Runnable action) {
@@ -1233,7 +1234,7 @@ final class AntazonApp extends ComputerApp {
             g.drawString(font, screen.trimToWidth(variantName(product, line.variant()), Math.max(1, amountRight - amountWidth - 8 - (x + 26))), x + 26, rowY + 5, blocker.isEmpty() ? GREEN : MUTED, false);
             if (!blocker.isEmpty()) small(g, blocker, x + 26, rowY + 17, amountRight - x - 26, product.locked() ? MUTED : RED);
             else if (payment != null) {
-                String payLabel = "PAY WITH " + (payment.type().equals("antcoins") ? AntOSPlayerText.currencyName().toUpperCase(Locale.ROOT) : itemName(payment.resource()).toUpperCase(Locale.ROOT))
+                String payLabel = (affordable ? "" : "NOT ENOUGH · ") + "PAY WITH " + (payment.type().equals("antcoins") ? AntOSPlayerText.currencyName().toUpperCase(Locale.ROOT) : itemName(payment.resource()).toUpperCase(Locale.ROOT))
                         + (product.payments().size() > 1 ? "  >" : "");
                 int payWidth = Math.min(amountRight - x - 26, smallWidth(payLabel) + 6);
                 boolean switchable = product.payments().size() > 1;
@@ -1242,7 +1243,7 @@ final class AntazonApp extends ComputerApp {
                     g.fill(x + 24, rowY + 15, x + 24 + payWidth, rowY + 25, hover ? HOVER_FILL : DARK_GREEN);
                     hit(x + 24, rowY + 15, payWidth, 10, () -> updateCartLine(lineIndex, (line.option() + 1) % product.payments().size(), line.units()));
                 }
-                small(g, payLabel, x + 27, rowY + 17, payWidth - 4, switchable ? PALE_GREEN : MUTED);
+                small(g, payLabel, x + 27, rowY + 17, payWidth - 4, !affordable ? RED : switchable ? PALE_GREEN : MUTED);
             }
             hit(x, rowY, Math.max(1, amountRight - amountWidth - 8 - x), 14, () -> openProduct(product.id(), "cart"));
             g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, DIVIDER);

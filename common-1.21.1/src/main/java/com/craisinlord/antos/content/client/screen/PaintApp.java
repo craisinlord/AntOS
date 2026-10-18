@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.AntOSUiSounds;
+import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
 import com.craisinlord.antos.content.computer.ComputerFileSystem;
@@ -38,7 +40,7 @@ final class PaintApp extends ComputerApp {
     };
 
     final State state = new State();
-    private final AppKit kit = new AppKit(this);
+    final AppKit kit = new AppKit(this);
     private final FileDialog dialog = new FileDialog(this, kit);
     private int canvasX;
     private int canvasY;
@@ -108,6 +110,7 @@ final class PaintApp extends ComputerApp {
         String path = state.pendingPath;
         state.pendingPath = "";
         if (!success) {
+            AntOSUiSounds.play(Cue.ERROR);
             notice(tr("notice.failed", AppKit.fileError(error)), AppKit.ERROR);
             return;
         }
@@ -117,6 +120,7 @@ final class PaintApp extends ComputerApp {
         }
         state.savedPixels = state.pendingPixels;
         markChanged();
+        AntOSUiSounds.play(Cue.SAVE);
         notice(tr("notice.saved"), PALE_GREEN);
         ComputerNetworking.listFiles();
     }
