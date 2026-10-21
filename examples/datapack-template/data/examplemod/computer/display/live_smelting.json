@@ -1,0 +1,5 @@
+{
+  "preset": "cooking",
+  "recipe_binding": {"recipe": "minecraft:iron_ingot_from_smelting_raw_iron", "adapter": "antos:cooking"},
+  "values": {"heading": "Smelting raw iron"}
+}

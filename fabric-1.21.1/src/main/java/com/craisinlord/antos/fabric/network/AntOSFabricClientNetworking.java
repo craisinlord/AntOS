@@ -27,6 +27,10 @@ public final class AntOSFabricClientNetworking {
                 ComputerAccessClientState.updateAnternet(payload)));
         ClientPlayNetworking.registerGlobalReceiver(AnternetAccountResultPayload.TYPE, (payload, context) -> context.client().execute(() ->
                 com.craisinlord.antos.content.client.AnternetAccountClientState.update(payload)));
+        ClientPlayNetworking.registerGlobalReceiver(JeiSyncPayload.TYPE, (payload, context) -> context.client().execute(() ->
+                com.craisinlord.antos.content.client.JeiClientState.update(payload)));
+        ClientPlayNetworking.registerGlobalReceiver(com.craisinlord.antos.content.network.DisplaySyncPayload.TYPE, (payload, context) -> context.client().execute(() ->
+                com.craisinlord.antos.content.client.DisplaySyncClientState.update(payload)));
         ClientPlayNetworking.registerGlobalReceiver(AntmailAnternetResultPayload.TYPE, (payload, context) -> context.client().execute(() -> AntmailClientState.update(payload)));
         ComputerNetworking.setSender(payload -> ClientPlayNetworking.send(payload));
         PhoneDiskInsertPayload.setSender(ClientPlayNetworking::send);

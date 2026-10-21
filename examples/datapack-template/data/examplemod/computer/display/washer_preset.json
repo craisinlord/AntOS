@@ -1,0 +1,10 @@
+{
+  "preset": "machine",
+  "values": {
+    "heading": "Crystal washer",
+    "inputs": [{"item": "minecraft:amethyst_shard", "count": 2}, {"item": "minecraft:iron_pickaxe", "role": "tool", "consumption": "Reusable; durability rules are supplied by the pack."}],
+    "outputs": [{"item": "minecraft:amethyst_cluster"}],
+    "fluids": [{"fluid": "minecraft:water", "name": "Water", "amount": 500, "capacity": 1000, "color": "#387DDB"}],
+    "energy": "Energy: 800 FE", "duration": "Duration: 10 seconds"
+  }
+}

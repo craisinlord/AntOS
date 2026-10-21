@@ -39,6 +39,7 @@ public final class ComputerWorkspaceData extends SavedData {
     private static final int PASSWORD_SALT_BYTES = 16;
     private static final int PASSWORD_HASH_BYTES = 32;
     private static final int MAX_PASSWORD_LENGTH = 128;
+    public static final int MAX_HINT_LENGTH = 64;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final List<String> LEGACY_ACCOUNT_KEYS = List.of(ComputerAccountShard.DISKS_TAG,
             ComputerAccountShard.COLLECTED_DISKS_TAG, ComputerAccountShard.DISK_STATE_TAG, ComputerAccountShard.DISK_REWARDS_TAG);
@@ -162,11 +163,13 @@ public final class ComputerWorkspaceData extends SavedData {
                 String salt = row.getString("Salt");
                 String verifier = row.getString("Verifier");
                 int iterations = row.getInt("Iterations");
+                String hint = cleanHint(row.getString("Hint"));
+                boolean mustChangePassword = row.getBoolean("MustChangePassword");
                 if (row.getInt("Schema") == ACCOUNT_SCHEMA && validUsername(username) && !data.accountIdByUsername.containsKey(username)
                         && !salt.isBlank() && !verifier.isBlank() && iterations >= 100_000 && iterations <= 1_000_000) {
                     Account account = new Account(accountId, username,
                             displayUsername.isBlank() ? username : displayUsername, workspaceId,
-                            salt, verifier, iterations);
+                            salt, verifier, iterations, hint, mustChangePassword);
                     data.accounts.put(accountId, account);
                     data.accountIdByUsername.put(username, accountId);
                     data.accountByWorkspace.put(workspaceId, accountId);
@@ -294,6 +297,10 @@ public final class ComputerWorkspaceData extends SavedData {
     }
 
     public synchronized AccountResult completeAccountCreation(String requestedUsername, PasswordHash hash) {
+        return completeAccountCreation(requestedUsername, hash, "");
+    }
+
+    public synchronized AccountResult completeAccountCreation(String requestedUsername, PasswordHash hash, String hint) {
         String username = normalizeUsername(requestedUsername);
         if (!validUsername(username)) return AccountResult.failure(AccountFailure.INVALID_USERNAME);
         if (accountIdByUsername.containsKey(username)) return AccountResult.failure(AccountFailure.USERNAME_TAKEN);
@@ -302,7 +309,7 @@ public final class ComputerWorkspaceData extends SavedData {
         UUID workspaceId = UUID.randomUUID();
         String displayUsername = requestedUsername.trim();
         Account account = new Account(accountId, username, displayUsername, workspaceId,
-                hash.salt(), hash.verifier(), hash.iterations());
+                hash.salt(), hash.verifier(), hash.iterations(), cleanHint(hint), false);
         accounts.put(accountId, account);
         accountIdByUsername.put(username, accountId);
         accountByWorkspace.put(workspaceId, accountId);
@@ -367,14 +374,59 @@ public final class ComputerWorkspaceData extends SavedData {
         return completePasswordChange(accountId, null, hashPassword(newPassword));
     }
 
+    public synchronized AccountResult resetPassword(UUID accountId, PasswordHash hash, boolean mustChangePassword) {
+        Account account = accounts.get(accountId);
+        if (account == null) return AccountResult.failure(AccountFailure.INVALID_CREDENTIALS);
+        if (hash == null) return AccountResult.failure(AccountFailure.STORAGE_ERROR);
+        accounts.put(accountId, account.withPassword(hash, mustChangePassword));
+        setDirty();
+        return AccountResult.success(accounts.get(accountId).publicAccount());
+    }
+
+    public synchronized boolean setHint(UUID accountId, String hint) {
+        Account account = accounts.get(accountId);
+        if (account == null) return false;
+        accounts.put(accountId, account.withHint(cleanHint(hint)));
+        setDirty();
+        return true;
+    }
+
+    public synchronized String hint(UUID accountId) {
+        Account account = accounts.get(accountId);
+        return account == null ? "" : account.hint();
+    }
+
+    public synchronized String hintForUsername(String requestedUsername) {
+        Account account = accounts.get(accountIdByUsername.get(normalizeUsername(requestedUsername)));
+        return account == null ? "" : account.hint();
+    }
+
+    public synchronized boolean mustChangePassword(UUID accountId) {
+        Account account = accounts.get(accountId);
+        return account != null && account.mustChangePassword();
+    }
+
+    public static boolean validHint(String hint, String password) {
+        if (hint == null) return true;
+        String cleaned = hint.strip();
+        if (cleaned.length() > MAX_HINT_LENGTH) return false;
+        if (cleaned.isEmpty() || password == null || password.isEmpty()) return true;
+        return !cleaned.toLowerCase(java.util.Locale.ROOT).contains(password.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private static String cleanHint(String hint) {
+        if (hint == null) return "";
+        String cleaned = hint.strip();
+        return cleaned.length() > MAX_HINT_LENGTH ? cleaned.substring(0, MAX_HINT_LENGTH) : cleaned;
+    }
+
     public synchronized AccountResult completePasswordChange(UUID accountId, String expectedVerifier, PasswordHash hash) {
         Account account = accounts.get(accountId);
         if (account == null || expectedVerifier != null && !expectedVerifier.equals(account.verifier())) {
             return AccountResult.failure(AccountFailure.INVALID_CREDENTIALS);
         }
         if (hash == null) return AccountResult.failure(AccountFailure.STORAGE_ERROR);
-        accounts.put(accountId, new Account(account.accountId(), account.username(), account.displayUsername(),
-                account.workspaceId(), hash.salt(), hash.verifier(), hash.iterations()));
+        accounts.put(accountId, account.withPassword(hash, false));
         setDirty();
         return AccountResult.success(accounts.get(accountId).publicAccount());
     }
@@ -722,7 +774,7 @@ public final class ComputerWorkspaceData extends SavedData {
                 && username.matches("[a-z0-9_]+");
     }
 
-    private static boolean validPassword(String password) {
+    public static boolean validPassword(String password) {
         return password != null && !password.isEmpty() && password.length() <= MAX_PASSWORD_LENGTH;
     }
 
@@ -820,6 +872,8 @@ public final class ComputerWorkspaceData extends SavedData {
             row.putString("Salt", account.salt());
             row.putString("Verifier", account.verifier());
             row.putInt("Iterations", account.iterations());
+            if (!account.hint().isEmpty()) row.putString("Hint", account.hint());
+            if (account.mustChangePassword()) row.putBoolean("MustChangePassword", true);
             CompoundTag legacy = legacyAccountData(account.accountId());
             if (legacy != null) {
                 for (String key : LEGACY_ACCOUNT_KEYS) {
@@ -897,9 +951,17 @@ public final class ComputerWorkspaceData extends SavedData {
     public record TeamInviteInfo(UUID id, UUID teamId, String ownerName, String inviterName) { }
 
     private record Account(UUID accountId, String username, String displayUsername, UUID workspaceId,
-                           String salt, String verifier, int iterations) {
+                           String salt, String verifier, int iterations, String hint, boolean mustChangePassword) {
         private AccountInfo publicAccount() {
             return new AccountInfo(accountId, username, displayUsername, workspaceId);
+        }
+
+        private Account withPassword(PasswordHash hash, boolean mustChange) {
+            return new Account(accountId, username, displayUsername, workspaceId, hash.salt(), hash.verifier(), hash.iterations(), hint, mustChange);
+        }
+
+        private Account withHint(String newHint) {
+            return new Account(accountId, username, displayUsername, workspaceId, salt, verifier, iterations, newHint, mustChangePassword);
         }
     }
 

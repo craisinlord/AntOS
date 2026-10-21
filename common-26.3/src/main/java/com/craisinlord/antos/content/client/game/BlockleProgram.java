@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.game;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 import net.minecraft.client.gui.Font;
@@ -94,9 +95,9 @@ public final class BlockleProgram {
             int popupWidth = Math.min(width - 8, font.width(rewardPopup) + 20);
             int popupX = x + (width - popupWidth) / 2;
             int popupY = y + 42;
-            graphics.fill(popupX, popupY, popupX + popupWidth, popupY + 24, 0xEE17351C);
-            graphics.renderOutline(popupX, popupY, popupWidth, 24, 0xFF65FF65);
-            graphics.drawCenteredString(font, Component.literal(rewardPopup), x + width / 2, popupY + 8, 0xFFFFFFFF);
+            graphics.fill(popupX, popupY, popupX + popupWidth, popupY + 24, Ui.alpha(Ui.REWARD_POPUP, 0xEE));
+            graphics.renderOutline(popupX, popupY, popupWidth, 24, Ui.BORDER_STRONG);
+            graphics.drawCenteredString(font, Component.literal(rewardPopup), x + width / 2, popupY + 8, Ui.TEXT_BRIGHT);
         } else if (System.currentTimeMillis() >= rewardPopupUntil) {
             rewardPopup = "";
         }

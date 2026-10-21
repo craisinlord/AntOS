@@ -1,0 +1,15 @@
+{
+  "title": "Recipe roles and requirements",
+  "width": 320, "height": 140,
+  "elements": [
+    {"type": "slot", "x": 12, "y": 12, "item": "minecraft:amethyst_shard", "role": "input"},
+    {"type": "slot", "x": 42, "y": 12, "item": "minecraft:iron_pickaxe", "role": "tool", "consumption": "May take durability damage."},
+    {"type": "slot", "x": 72, "y": 12, "item": "minecraft:blaze_powder", "role": "catalyst", "consumption": "Pack-specific consumption rules apply."},
+    {"type": "slot", "x": 102, "y": 12, "item": "minecraft:glowstone_dust", "role": "optional"},
+    {"type": "requirements", "x": 12, "y": 51, "width": 290, "entries": [
+      {"kind": "dimension", "text": "Dimension: Overworld"},
+      {"kind": "weather", "text": "Weather: clear"},
+      {"kind": "tier", "text": "Machine tier: basic"}
+    ]}
+  ]
+}

@@ -58,5 +58,20 @@
     "sounds": [
       "antos:ui/sale"
     ]
+  },
+  "ui.breakout_paddle": {
+    "sounds": [{"name":"antos:ui/click","pitch":0.72}]
+  },
+  "ui.breakout_hit": {
+    "sounds": [{"name":"antos:ui/click","pitch":1.2}]
+  },
+  "ui.breakout_brick": {
+    "sounds": [{"name":"antos:ui/save","pitch":0.88}]
+  },
+  "ui.breakout_powerup": {
+    "sounds": [{"name":"antos:ui/sale","pitch":1.15}]
+  },
+  "ui.breakout_miss": {
+    "sounds": [{"name":"antos:ui/error","pitch":0.82}]
   }
 }

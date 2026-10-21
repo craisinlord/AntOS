@@ -16,6 +16,7 @@ public final class ComputerAccountLoginEvents {
 
     public static void fire(ServerPlayer player, ComputerWorkspaceData.AccountInfo account) {
         if (player == null || account == null) return;
+        com.craisinlord.antos.content.merchant.MerchantService.recoverOnLogin(player);
         for (BiConsumer<ServerPlayer, ComputerWorkspaceData.AccountInfo> listener : LISTENERS) listener.accept(player, account);
     }
 }

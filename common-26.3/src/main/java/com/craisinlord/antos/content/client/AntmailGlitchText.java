@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.antmail.AntmailRenderMarkers;
 import net.minecraft.network.chat.Component;
@@ -9,9 +10,6 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.FormattedCharSequence;
 
 public final class AntmailGlitchText {
-    public static final int CORRUPT_RED = 0xFFFF3B3B;
-    public static final int CORRUPT_DIM = 0xFF9A1414;
-    public static final int CORRUPT_BACKGROUND = 0xFF080000;
     private static final String NOISE = "#$%&*@!?/\\<>=+~^:;";
     private static final String TAG_GLITCH = "antos:glitch";
     private static final String TAG_REDACT = "antos:redact";
@@ -25,10 +23,10 @@ public final class AntmailGlitchText {
         MutableComponent root = Component.empty();
         for (AntmailRenderMarkers.Segment segment : AntmailRenderMarkers.segments(text)) {
             Style style = switch (segment.kind()) {
-                case GLITCH -> Style.EMPTY.withColor(TextColor.fromRgb(CORRUPT_RED & 0xFFFFFF)).withInsertion(TAG_GLITCH);
-                case REDACT -> Style.EMPTY.withColor(TextColor.fromRgb((corrupted ? CORRUPT_RED : plainColor) & 0xFFFFFF)).withInsertion(TAG_REDACT);
+                case GLITCH -> Style.EMPTY.withColor(TextColor.fromRgb(Ui.CORRUPT & 0xFFFFFF)).withInsertion(TAG_GLITCH);
+                case REDACT -> Style.EMPTY.withColor(TextColor.fromRgb((corrupted ? Ui.CORRUPT : plainColor) & 0xFFFFFF)).withInsertion(TAG_REDACT);
                 case PLAIN -> corrupted
-                        ? Style.EMPTY.withColor(TextColor.fromRgb(CORRUPT_RED & 0xFFFFFF)).withInsertion(TAG_CORRUPT)
+                        ? Style.EMPTY.withColor(TextColor.fromRgb(Ui.CORRUPT & 0xFFFFFF)).withInsertion(TAG_CORRUPT)
                         : Style.EMPTY.withColor(TextColor.fromRgb(plainColor & 0xFFFFFF));
             };
             root.append(Component.literal(segment.text()).withStyle(style));
@@ -81,7 +79,6 @@ public final class AntmailGlitchText {
         return flicker(sender, burst ? 60 : 8, salt);
     }
 
-    /** Reduce screen effects keeps the red corruption styling but stops the characters from scrambling. */
     private static int noise(int codePoint, int index, long bucket, int percent) {
         if (Character.isWhitespace(codePoint) || AntOSSettings.reduceEffects()) return codePoint;
         int roll = hash(index, bucket);

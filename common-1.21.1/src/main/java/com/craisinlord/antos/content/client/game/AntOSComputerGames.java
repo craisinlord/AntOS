@@ -2,6 +2,7 @@ package com.craisinlord.antos.content.client.game;
 
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.api.client.game.ComputerGameRegistry;
+import com.craisinlord.antos.api.client.game.GameIcon;
 import net.minecraft.resources.ResourceLocation;
 
 public final class AntOSComputerGames {
@@ -14,6 +15,7 @@ public final class AntOSComputerGames {
             @Override public ResourceLocation diskId() { return null; }
             @Override public boolean includedByDefault() { return true; }
             @Override public String title() { return "BLOCKLE"; }
+            @Override public GameIcon icon() { return GameIcons.BLOCKLE; }
             @Override public Session create() {
                 BlockleProgram program = new BlockleProgram();
                 program.setInstalled(true);
@@ -26,11 +28,14 @@ public final class AntOSComputerGames {
                 };
             }
         });
-        registerBuiltIn("chess", "CHESS", ChessSession::new);
-        registerBuiltIn("minesweeper", "MINESWEEPER", MinesweeperSession::new);
+        registerBuiltIn("chess", "CHESS", GameIcons.CHESS, ChessSession::new);
+        registerBuiltIn("minesweeper", "MINESWEEPER", GameIcons.MINESWEEPER, MinesweeperSession::new);
+        registerBuiltIn("cake_stack", "CAKE STACK", GameIcons.CAKE_STACK, CakeStackProgram::new);
+        registerBuiltIn("nether_breakout", "NETHER BREAKOUT", GameIcons.NETHER_BREAKOUT, NetherBreakoutSession::new);
+        registerBuiltIn("fliptris", "FLIPTRIS", GameIcons.FLIPTRIS, FliptrisProgram::new);
     }
 
-    private static void registerBuiltIn(String name, String title, java.util.function.Supplier<ComputerGame.Session> factory) {
+    private static void registerBuiltIn(String name, String title, GameIcon icon, java.util.function.Supplier<ComputerGame.Session> factory) {
         ResourceLocation id = ResourceLocation.fromNamespaceAndPath("antos", name);
         if (ComputerGameRegistry.get(id) != null) return;
         ComputerGameRegistry.register(new ComputerGame() {
@@ -38,6 +43,7 @@ public final class AntOSComputerGames {
             @Override public ResourceLocation diskId() { return id; }
             @Override public boolean includedByDefault() { return com.craisinlord.antos.config.AntOSSettings.gameBuiltIn(name); }
             @Override public String title() { return title; }
+            @Override public GameIcon icon() { return icon; }
             @Override public Session create() { return factory.get(); }
         });
     }

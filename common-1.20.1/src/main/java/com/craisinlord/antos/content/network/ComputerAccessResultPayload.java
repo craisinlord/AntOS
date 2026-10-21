@@ -12,6 +12,7 @@ public record ComputerAccessResultPayload(int result, boolean hasPassword, boole
     public static final int BUSY = 4;
     public static final int INVALID = 5;
     public static final int RECOVERY_AVAILABLE = 6;
+    public static final int ACCOUNT_MISMATCH = 7;
 
 
 

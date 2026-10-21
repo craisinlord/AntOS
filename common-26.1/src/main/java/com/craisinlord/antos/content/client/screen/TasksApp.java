@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
@@ -26,11 +27,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
 import static com.craisinlord.antos.content.client.screen.ComputerScreen.WIDTH;
 import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 
@@ -45,7 +41,6 @@ final class TasksApp extends ComputerApp {
     private static final int BLEED_BOTTOM = 5;
     private static final int EDGE_FADE = 14;
     private static final int EDGE_FADE_STEPS = 7;
-    private static final int CHIP_FILL = 0xCC071007;
     private static final float CHROME_FADED_ALPHA = 0.3F;
     private static final float CHROME_SCALE = 0.8F;
     private static final int CHROME_BUTTON_HEIGHT = 12;
@@ -76,7 +71,6 @@ final class TasksApp extends ComputerApp {
     String selectedCategory = "";
     String selectedTaskId = "";
     private String recipeItem = "";
-    private boolean sidebarPinned;
     private boolean sidebarClickOpen;
     private boolean sidebarHoverOpen;
     private boolean sidebarHoverDismissed;
@@ -151,6 +145,7 @@ final class TasksApp extends ComputerApp {
     }
 
     void opened() {
+        resetSidebar();
         refreshTicks = 0;
         selectedTaskId = "";
         selectedCategory = "";
@@ -194,15 +189,15 @@ final class TasksApp extends ComputerApp {
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> allRows = viewAllRows;
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> visibleRows = viewVisibleRows;
         if (!com.craisinlord.antos.content.client.ComputerTasksClientState.hasSnapshot()) {
-            g.drawString(font, Component.literal("TASKS"), x + 5, y + 3, PALE_GREEN, false);
-            g.fill(x + 2, y + 17, x + 80, y + 18, GREEN);
-            g.drawString(font, Component.literal("TASKS ARE LOADING..."), x + 96, y + 20, GREEN, false);
-            g.drawString(font, Component.literal("WAITING FOR THE COMPUTER"), x + 96, y + 38, PALE_GREEN, false);
+            g.drawString(font, Component.literal("TASKS"), x + 5, y + 3, Ui.TEXT, false);
+            g.fill(x + 2, y + 17, x + 80, y + 18, Ui.BORDER_STRONG);
+            g.drawString(font, Component.literal("TASKS ARE LOADING..."), x + 96, y + 20, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.literal("WAITING FOR THE COMPUTER"), x + 96, y + 38, Ui.TEXT, false);
             return;
         }
         if (com.craisinlord.antos.content.client.ComputerTasksClientState.hasError()) {
-            g.drawString(font, Component.literal("TASK LIST TOO LARGE TO LOAD"), x + 96, y + 20, GREEN, false);
-            g.drawString(font, Component.literal("ASK THE PACK AUTHOR FOR HELP"), x + 96, y + 38, PALE_GREEN, false);
+            g.drawString(font, Component.literal("TASK LIST TOO LARGE TO LOAD"), x + 96, y + 20, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.literal("ASK THE PACK AUTHOR FOR HELP"), x + 96, y + 38, Ui.TEXT, false);
             return;
         }
         int bodyY = y;
@@ -213,12 +208,12 @@ final class TasksApp extends ComputerApp {
             selectedCategory = categories.isEmpty() ? "" : categories.get(0);
         }
         boolean pointerOnSidebarTab = screen.hovered(x, bodyY + 1, 20, 19);
-        boolean pointerOnSidebar = screen.hovered(x, bodyY, 134, bodyHeight);
+        boolean pointerOnSidebar = screen.hovered(x, bodyY, sidebarExpandedWidth() + 10, bodyHeight);
         if (sidebarHoverDismissed && !pointerOnSidebarTab) sidebarHoverDismissed = false;
-        sidebarHoverOpen = !sidebarHoverDismissed
+        sidebarHoverOpen = sidebarHoverEnabled() && !sidebarHoverDismissed
                 && (pointerOnSidebarTab || sidebarHoverOpen && pointerOnSidebar);
-        boolean revealSidebar = sidebarPinned || sidebarClickOpen || sidebarHoverOpen;
-        int sidebarWidth = revealSidebar ? 124 : 0;
+        boolean revealSidebar = sidebarPinned() || sidebarClickOpen || sidebarHoverOpen;
+        int sidebarWidth = revealSidebar ? sidebarExpandedWidth() : 0;
         int sidebarRight = x + sidebarWidth;
         int contentOffset = sidebarWidth > 0 ? sidebarWidth + 9 : 30;
         var selectedTask = visibleRows.isEmpty() ? null : viewRowsById.get(selectedTaskId);
@@ -232,82 +227,75 @@ final class TasksApp extends ComputerApp {
             chromeAlpha = 1.0F;
         }
         if (sidebarWidth > 0) {
-            g.fill(x, bodyY, sidebarRight, bodyY + bodyHeight, 0xFF071007);
-            g.fill(sidebarRight, bodyY, sidebarRight + 1, bodyY + bodyHeight, GREEN);
-            int toggleColor = screen.hovered(x + 2, bodyY + 1, 18, 16) ? PALE_GREEN : GREEN;
-            g.fill(x + 2, bodyY + 1, x + 20, bodyY + 17, HOVER_FILL);
+            g.fill(x, bodyY, sidebarRight, bodyY + bodyHeight, Ui.PANEL);
+            g.fill(sidebarRight, bodyY, sidebarRight + 1, bodyY + bodyHeight, Ui.BORDER_STRONG);
+            int toggleColor = screen.hovered(x + 2, bodyY + 1, 18, 16) ? Ui.TEXT : Ui.ACCENT;
+            g.fill(x + 2, bodyY + 1, x + 20, bodyY + 17, Ui.HOVER);
             screen.box(g, x + 2, bodyY + 1, x + 20, bodyY + 17, toggleColor);
             g.drawCenteredString(font, Component.literal("<"), x + 11, bodyY + 4, toggleColor);
-            g.drawString(font, Component.literal("CATEGORIES"), x + 27, bodyY + 3, GREEN, false);
-            g.fill(x + 5, bodyY + 16, sidebarRight - 5, bodyY + 17, DARK_GREEN);
-            if (screen.hovered(x + 4, bodyY + 18, sidebarWidth - 8, 16)) screen.drawHover(g, x + 4, bodyY + 18, sidebarWidth - 8, 16);
-            screen.box(g, x + 4, bodyY + 18, sidebarRight - 4, bodyY + 34, sidebarPinned ? GREEN : 0xFF476047);
-            g.drawString(font, Component.literal("KEEP OPEN"), x + 9, bodyY + 22, PALE_GREEN, false);
-            String keepOpenState = sidebarPinned ? "ON" : "OFF";
-            g.drawString(font, Component.literal(keepOpenState), sidebarRight - font.width(keepOpenState) - 10, bodyY + 22,
-                    sidebarPinned ? GREEN : 0xFF87B787, false);
+            drawSidebarText(g, screen.trimToWidth("CATEGORIES", (int) ((sidebarWidth - 49) / sidebarTextScale())), x + 23, bodyY + 5, Ui.TEXT_STRONG);
+            screen.box(g, sidebarRight - 20, bodyY + 1, sidebarRight - 2, bodyY + 17, sidebarPinned() ? Ui.ACCENT : Ui.LOCKED);
+            g.drawCenteredString(font, Component.literal(sidebarPinned() ? "*" : "+"), sidebarRight - 11, bodyY + 5, Ui.TEXT);
         } else {
-            int toggleColor = fade(pointerOnSidebarTab ? PALE_GREEN : GREEN);
-            g.fill(x, bodyY + 1, x + 20, bodyY + 19, fade(0xFF071007));
+            int toggleColor = fade(pointerOnSidebarTab ? Ui.TEXT : Ui.ACCENT);
+            g.fill(x, bodyY + 1, x + 20, bodyY + 19, fade(Ui.PANEL));
             screen.box(g, x, bodyY + 1, x + 20, bodyY + 19, toggleColor);
             g.drawCenteredString(font, Component.literal(">"), x + 10, bodyY + 5, toggleColor);
         }
-        int categoriesVisible = Math.max(1, (bodyHeight - 52 + 18) / 19);
+        int categoriesVisible = sidebarVisibleRows(bodyHeight);
         categoryScroll = Math.max(0, Math.min(categoryScroll, Math.max(0, sidebarRows.size() - categoriesVisible)));
-        int categoryY = bodyY + 39;
+        String hoveredSidebarLabel = "";
+        int categoryY = bodyY + 24;
         for (int rowIndex = categoryScroll; sidebarWidth > 0 && rowIndex < sidebarRows.size() && rowIndex < categoryScroll + categoriesVisible; rowIndex++) {
             SidebarRow sidebarRow = sidebarRows.get(rowIndex);
             boolean header = sidebarRow.category().isBlank();
             boolean selected = !header && sidebarRow.category().equals(selectedCategory);
-            boolean rowHovered = screen.hovered(x + 2, categoryY - 2, sidebarWidth - 4, 16);
-            if (selected || rowHovered) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY + 14, HOVER_FILL);
+            boolean rowHovered = screen.hovered(x + 2, categoryY - 2, sidebarWidth - 4, sidebarRowHeight());
+            if (selected || rowHovered) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY - 2 + sidebarRowHeight(), Ui.HOVER);
             int iconLeft = x + 4 + sidebarRow.indent();
             boolean hasIcon = !sidebarRow.iconItem().isBlank() || !sidebarRow.iconEntity().isBlank();
             if (hasIcon) {
         boolean previousTint = screen.archiveGreenTint;
                 screen.archiveGreenTint = sidebarRow.greenTint();
                 try {
-                    screen.renderArchiveAsset(g, sidebarRow.iconItem(), sidebarRow.iconEntity(), "", "", iconLeft + 8, categoryY + 6, 16, 0.0F, 0.9F, sidebarRow.renderMobFromSpawnEgg());
+                    screen.renderArchiveAsset(g, sidebarRow.iconItem(), sidebarRow.iconEntity(), "", "", iconLeft + 6, categoryY + 5, 12, 0.0F, 0.9F, sidebarRow.renderMobFromSpawnEgg());
                 } finally {
                     screen.archiveGreenTint = previousTint;
                 }
             }
-            int labelX = hasIcon ? iconLeft + 19 : iconLeft + 2;
+            int labelX = hasIcon ? iconLeft + 15 : iconLeft + 2;
             SidebarCount sidebarCount = viewSidebarCounts.getOrDefault(sidebarKey(sidebarRow), new SidebarCount("0/0", false));
-            String count = sidebarCount.label();
+            String count = AntOSSettings.preferences().taskSidebarCounts ? sidebarCount.label() : "";
             boolean rowHasClaimable = sidebarCount.claimable();
-            int categoryLabelWidth = Math.max(1, sidebarRight - font.width(count) - 10 - labelX);
-            int labelColor = header ? PALE_GREEN : selected ? GREEN : 0xFF87B787;
-            drawSidebarLabel(g, sidebarRow.label().toUpperCase(Locale.ROOT), labelX, categoryY + 2, categoryLabelWidth, labelColor, rowHovered);
-            g.drawString(font, Component.literal(count), sidebarRight - font.width(count) - 6, categoryY + 2,
-                    rowHasClaimable || header || selected ? PALE_GREEN : 0xFF638063, false);
-            categoryY += 19;
+            int categoryLabelWidth = Math.max(1, sidebarRight - sidebarTextWidth(count) - 10 - labelX);
+            int labelColor = header ? Ui.TEXT : selected ? Ui.ACCENT : Ui.TEXT_SOFT;
+            drawSidebarLabel(g, sidebarRow.label().toUpperCase(Locale.ROOT), labelX, categoryY + 2, categoryLabelWidth, labelColor);
+            drawSidebarText(g, count, sidebarRight - sidebarTextWidth(count) - 6, categoryY + 2,
+                    rowHasClaimable || header || selected ? Ui.TEXT : Ui.TEXT_DIM);
+            if (rowHovered && sidebarTextWidth(sidebarRow.label().toUpperCase(Locale.ROOT)) > categoryLabelWidth) hoveredSidebarLabel = sidebarRow.label();
+            categoryY += sidebarRowHeight();
         }
         if (sidebarWidth > 0 && categoryScroll + categoriesVisible < sidebarRows.size()) {
             int arrowX = sidebarRight - 14;
             int arrowY = bodyY + bodyHeight - 13;
-            g.fill(arrowX - 2, arrowY - 1, arrowX + 12, arrowY + 11, 0xFF071007);
-            g.drawCenteredString(font, Component.literal("v"), arrowX + 5, arrowY, 0xFF87B787);
-        }
-        if (sidebarWidth > 0 && screen.hovered(x + 4, bodyY + 18, sidebarWidth - 8, 16)) {
-            int tipX = sidebarRight + 5;
-            int tipY = bodyY + 19;
-            g.fill(tipX, tipY, tipX + 170, tipY + 15, 0xFF071007);
-            screen.box(g, tipX, tipY, tipX + 170, tipY + 15, GREEN);
-            g.drawString(font, Component.literal(screen.trimToWidth("STAYS OPEN WHEN POINTER LEAVES", 160)), tipX + 5, tipY + 4, PALE_GREEN, false);
+            g.fill(arrowX - 2, arrowY - 1, arrowX + 12, arrowY + 11, Ui.PANEL);
+            g.drawCenteredString(font, Component.literal("v"), arrowX + 5, arrowY, Ui.TEXT_SOFT);
         }
         if (visibleRows.isEmpty()) {
-            g.drawString(font, Component.literal(allRows.isEmpty() ? "NO TASK RECORDS FOUND" : "NO RECORDS VISIBLE YET"), x + contentOffset, y + 12, GREEN, false);
-            g.drawString(font, Component.literal(allRows.isEmpty() ? "INSERT A FIELD DISK TO LOAD ITS RECORDS" : "COMPLETE A PREREQUISITE TO REVEAL MORE"), x + contentOffset, y + 28, PALE_GREEN, false);
+            g.drawString(font, Component.literal(allRows.isEmpty() ? "NO TASK RECORDS FOUND" : "NO RECORDS VISIBLE YET"), x + contentOffset, y + 12, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.literal(allRows.isEmpty() ? "INSERT A FIELD DISK TO LOAD ITS RECORDS" : "COMPLETE A PREREQUISITE TO REVEAL MORE"), x + contentOffset, y + 28, Ui.TEXT, false);
+            renderSidebarTooltip(g, hoveredSidebarLabel, x, bodyY, sidebarWidth, w);
             renderTeamOverlay(g, x, y, w, h);
             return;
         }
         if (selectedTask != null) {
             renderDetail(g, selectedTask, x + contentOffset, bodyY, w - contentOffset, bodyHeight, unlockedArchiveIds(selectedTask));
+            renderSidebarTooltip(g, hoveredSidebarLabel, x, bodyY, sidebarWidth, w);
             renderTeamOverlay(g, x, y, w, h);
             renderJumpConfirm(g, x + contentOffset, bodyY, w - contentOffset, bodyHeight);
             return;
         }
+        renderSidebarTooltip(g, hoveredSidebarLabel, x, bodyY, sidebarWidth, w);
         renderTeamOverlay(g, x, y, w, h);
     }
 
@@ -396,20 +384,20 @@ final class TasksApp extends ComputerApp {
         for (Node node : onScreen) renderHoverTitle(g, node, clipLeft, clipTop, clipRight);
         g.disableScissor();
         screen.beginLayer(g);
-        g.fill(categoryChip[0], categoryChip[1], categoryChip[2], categoryChip[3], fade(CHIP_FILL));
-        g.drawString(font, Component.literal(visibleCategoryLabel), mapX, bodyY + 3, fade(PALE_GREEN), false);
-        g.fill(mapX, bodyY + 16, mapX + font.width(visibleCategoryLabel), bodyY + 17, fade(GREEN));
-        g.fill(progressChip[0], progressChip[1], progressChip[2], progressChip[3], fade(CHIP_FILL));
+        g.fill(categoryChip[0], categoryChip[1], categoryChip[2], categoryChip[3], fade(Ui.alpha(Ui.PANEL, 0xCC)));
+        g.drawString(font, Component.literal(visibleCategoryLabel), mapX, bodyY + 3, fade(Ui.TEXT), false);
+        g.fill(mapX, bodyY + 16, mapX + font.width(visibleCategoryLabel), bodyY + 17, fade(Ui.ACCENT));
+        g.fill(progressChip[0], progressChip[1], progressChip[2], progressChip[3], fade(Ui.alpha(Ui.PANEL, 0xCC)));
         float chromeTextY = bodyY + 1 + CHROME_BUTTON_HEIGHT / 2.0F;
-        drawChromeText(g, visibleProgressLabel, progressLeft, chromeTextY, fade(claimableCount > 0 ? PALE_GREEN : GREEN), false);
+        drawChromeText(g, visibleProgressLabel, progressLeft, chromeTextY, fade(claimableCount > 0 ? Ui.TEXT : Ui.ACCENT), false);
         if (searchFocused) {
             int searchBottom = bodyY + 1 + CHROME_BUTTON_HEIGHT;
-            g.fill(searchLeft, bodyY + 1, mapX + mapW, searchBottom, fade(0xFF071007));
-            screen.box(g, searchLeft, bodyY + 1, mapX + mapW, searchBottom, fade(GREEN));
+            g.fill(searchLeft, bodyY + 1, mapX + mapW, searchBottom, fade(Ui.PANEL));
+            screen.box(g, searchLeft, bodyY + 1, mapX + mapW, searchBottom, fade(Ui.ACCENT));
             String searchValue = searchText.isBlank() ? "SEARCH TASKS" : searchText;
             String visibleSearch = screen.trimToWidth(searchValue + (screen.caretVisible() ? "|" : ""), Math.round((searchControlWidth - 20) / CHROME_SCALE));
-            drawChromeText(g, visibleSearch, searchLeft + 4, chromeTextY, fade(searchText.isBlank() ? 0xFF87B787 : PALE_GREEN), false);
-            drawChromeText(g, "X", mapX + mapW - 7, chromeTextY, fade(GREEN), true);
+            drawChromeText(g, visibleSearch, searchLeft + 4, chromeTextY, fade(searchText.isBlank() ? Ui.TEXT_SOFT : Ui.TEXT), false);
+            drawChromeText(g, "X", mapX + mapW - 7, chromeTextY, fade(Ui.ACCENT), true);
         } else {
             drawChromeButton(g, searchLeft, bodyY + 1, searchControlWidth - 2, "FIND");
         }
@@ -446,10 +434,10 @@ final class TasksApp extends ComputerApp {
     }
 
     private void renderEdgeFade(ThemedGraphics g, int left, int top, int right, int bottom) {
-        g.fill(left - 2, top - 2, right + 2, top, BLACK);
-        g.fill(left - 2, bottom, right + 2, bottom + 2, BLACK);
-        g.fill(left - 2, top, left, bottom, BLACK);
-        g.fill(right, top, right + 2, bottom, BLACK);
+        g.fill(left - 2, top - 2, right + 2, top, Ui.BACKGROUND);
+        g.fill(left - 2, bottom, right + 2, bottom + 2, Ui.BACKGROUND);
+        g.fill(left - 2, top, left, bottom, Ui.BACKGROUND);
+        g.fill(right, top, right + 2, bottom, Ui.BACKGROUND);
         for (int segment = 0; segment < EDGE_FADE_STEPS; segment++) {
             int from = segment * EDGE_FADE / EDGE_FADE_STEPS;
             int to = (segment + 1) * EDGE_FADE / EDGE_FADE_STEPS;
@@ -464,7 +452,7 @@ final class TasksApp extends ComputerApp {
 
     private static int edgeFadeColor(int distance) {
         float strength = 1.0F - distance / (float) EDGE_FADE;
-        return Math.round(strength * strength * 255) << 24 | BLACK & 0xFFFFFF;
+        return Math.round(strength * strength * 255) << 24 | Ui.BACKGROUND & 0xFFFFFF;
     }
 
     private static void horizontalGradient(ThemedGraphics g, int left, int top, int right, int bottom, int leftColor, int rightColor) {
@@ -479,8 +467,8 @@ final class TasksApp extends ComputerApp {
     }
 
     private void drawChromeButton(ThemedGraphics g, int x, int y, int w, String text) {
-        g.fill(x, y, x + w, y + CHROME_BUTTON_HEIGHT, fade(HOVER_FILL));
-        drawChromeText(g, text, x + w / 2.0F, y + CHROME_BUTTON_HEIGHT / 2.0F, fade(PALE_GREEN), true);
+        g.fill(x, y, x + w, y + CHROME_BUTTON_HEIGHT, fade(Ui.HOVER));
+        drawChromeText(g, text, x + w / 2.0F, y + CHROME_BUTTON_HEIGHT / 2.0F, fade(Ui.TEXT), true);
     }
 
     private void drawChromeText(ThemedGraphics g, String text, float x, float centerY, int color, boolean centered) {
@@ -531,21 +519,21 @@ final class TasksApp extends ComputerApp {
         int panelH = 66;
         int panelX = x + (w - panelW) / 2;
         int panelY = y + Math.max(20, (h - panelH) / 2);
-        g.fill(x, y, x + w, y + h, 0x99000000);
-        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xFF071007);
-        screen.box(g, panelX, panelY, panelX + panelW, panelY + panelH, GREEN);
-        g.drawString(font, Component.literal(screen.trimToWidth("OPEN PREREQUISITE?", panelW - 10)), panelX + 6, panelY + 6, PALE_GREEN, false);
-        g.drawString(font, Component.literal(screen.trimToWidth(plain(target.title()), panelW - 12)), panelX + 6, panelY + 19, GREEN, false);
+        g.fill(x, y, x + w, y + h, Ui.alpha(Ui.SHADOW, 0x99));
+        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, Ui.PANEL);
+        screen.box(g, panelX, panelY, panelX + panelW, panelY + panelH, Ui.BORDER_STRONG);
+        g.drawString(font, Component.literal(screen.trimToWidth("OPEN PREREQUISITE?", panelW - 10)), panelX + 6, panelY + 6, Ui.TEXT, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(plain(target.title()), panelW - 12)), panelX + 6, panelY + 19, Ui.TEXT_STRONG, false);
         g.drawString(font, Component.literal(screen.trimToWidth("TAB // " + categoryLabel(target.category()).toUpperCase(Locale.ROOT), panelW - 12)),
-                panelX + 6, panelY + 30, 0xFF87B787, false);
+                panelX + 6, panelY + 30, Ui.TEXT_SOFT, false);
         int buttonW = Math.max(20, (panelW - 18) / 2);
         int buttonY = panelY + panelH - 20;
         jumpConfirmButton = new int[]{panelX + 6, buttonY, buttonW, 15};
         jumpCancelButton = new int[]{panelX + panelW - 6 - buttonW, buttonY, buttonW, 15};
         drawTeamButton(g, jumpConfirmButton[0], buttonY, buttonW, "GO", false);
         drawTeamButton(g, jumpCancelButton[0], buttonY, buttonW, "CANCEL", false);
-        if (screen.hovered(jumpConfirmButton[0], buttonY, buttonW, 15)) screen.box(g, jumpConfirmButton[0], buttonY, jumpConfirmButton[0] + buttonW, buttonY + 15, GREEN);
-        if (screen.hovered(jumpCancelButton[0], buttonY, buttonW, 15)) screen.box(g, jumpCancelButton[0], buttonY, jumpCancelButton[0] + buttonW, buttonY + 15, GREEN);
+        if (screen.hovered(jumpConfirmButton[0], buttonY, buttonW, 15)) screen.box(g, jumpConfirmButton[0], buttonY, jumpConfirmButton[0] + buttonW, buttonY + 15, Ui.BORDER_STRONG);
+        if (screen.hovered(jumpCancelButton[0], buttonY, buttonW, 15)) screen.box(g, jumpCancelButton[0], buttonY, jumpCancelButton[0] + buttonW, buttonY + 15, Ui.BORDER_STRONG);
         g.flush();
         g.pose().popPose();
     }
@@ -618,10 +606,10 @@ final class TasksApp extends ComputerApp {
 
     private void renderMapControls(ThemedGraphics g, int mapX, int bodyY, int mapW, int bodyHeight) {
         MapControls controls = mapControls(mapX, bodyY, mapW, bodyHeight);
-        for (int[] chip : controlChips(mapX, bodyY, mapW, bodyHeight)) g.fill(chip[0], chip[1], chip[2], chip[3], fade(CHIP_FILL));
+        for (int[] chip : controlChips(mapX, bodyY, mapW, bodyHeight)) g.fill(chip[0], chip[1], chip[2], chip[3], fade(Ui.alpha(Ui.PANEL, 0xCC)));
         drawChromeButton(g, controls.zoomOutX(), controls.y(), controls.buttonWidth(), "-");
         if (!controls.compact()) drawChromeText(g, Math.round(mapZoom / DEFAULT_MAP_ZOOM * 100) + "%",
-                (controls.zoomLabelX() + controls.zoomInX()) / 2.0F, controls.y() + CHROME_BUTTON_HEIGHT / 2.0F, fade(PALE_GREEN), true);
+                (controls.zoomLabelX() + controls.zoomInX()) / 2.0F, controls.y() + CHROME_BUTTON_HEIGHT / 2.0F, fade(Ui.TEXT), true);
         drawChromeButton(g, controls.zoomInX(), controls.y(), controls.buttonWidth(), "+");
         drawChromeButton(g, controls.centerX(), controls.y(), controls.centerWidth(), "CENTER");
         drawChromeButton(g, controls.helpX(), controls.y(), controls.buttonWidth(), "?");
@@ -629,11 +617,11 @@ final class TasksApp extends ComputerApp {
             int panelW = controlsPanelWidth(mapW);
             int panelX = controlsPanelX(mapX, mapW);
             int panelY = bodyY + 22;
-            g.fill(panelX, panelY, panelX + panelW, panelY + 92, 0xFF071007);
-            screen.box(g, panelX, panelY, panelX + panelW, panelY + 92, GREEN);
+            g.fill(panelX, panelY, panelX + panelW, panelY + 92, Ui.PANEL);
+            screen.box(g, panelX, panelY, panelX + panelW, panelY + 92, Ui.BORDER_STRONG);
             String[] hints = {"DRAG // MOVE MAP", "WHEEL // SCROLL", "SHIFT + WHEEL // SIDEWAYS", "CTRL + WHEEL // ZOOM", "- / + // ZOOM", "CENTER // FRAME CATEGORY", "! // REWARD READY", "CTRL + F // FIND TASK"};
             for (int i = 0; i < hints.length; i++) {
-                g.drawString(font, Component.literal(screen.trimToWidth(hints[i], panelW - 10)), panelX + 5, panelY + 5 + i * 11, i == 0 ? PALE_GREEN : GREEN, false);
+                g.drawString(font, Component.literal(screen.trimToWidth(hints[i], panelW - 10)), panelX + 5, panelY + 5 + i * 11, i == 0 ? Ui.TEXT : Ui.ACCENT, false);
             }
         }
     }
@@ -662,19 +650,19 @@ final class TasksApp extends ComputerApp {
         searchResultScroll = Math.max(0, Math.min(Math.max(0, results.size() - 5), searchResultScroll));
         int visible = Math.min(5, Math.max(0, results.size() - searchResultScroll));
         int panelH = Math.max(25, 21 + visible * 18);
-        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xFF071007);
-        screen.box(g, panelX, panelY, panelX + panelW, panelY + panelH, GREEN);
+        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, Ui.PANEL);
+        screen.box(g, panelX, panelY, panelX + panelW, panelY + panelH, Ui.BORDER_STRONG);
         String summary = results.isEmpty() ? "NO TASKS FOUND" : results.size() + " MATCHES";
-        g.drawString(font, Component.literal(summary), panelX + 5, panelY + 4, PALE_GREEN, false);
+        g.drawString(font, Component.literal(summary), panelX + 5, panelY + 4, Ui.TEXT, false);
         for (int i = 0; i < visible; i++) {
             var task = results.get(i + searchResultScroll);
             int rowY = panelY + 17 + i * 18;
-            if (screen.hovered(panelX + 2, rowY - 1, panelW - 4, 17)) g.fill(panelX + 2, rowY - 1, panelX + panelW - 2, rowY + 16, HOVER_FILL);
+            if (screen.hovered(panelX + 2, rowY - 1, panelW - 4, 17)) g.fill(panelX + 2, rowY - 1, panelX + panelW - 2, rowY + 16, Ui.HOVER);
             String title = plain(task.title());
             String category = categoryLabel(task.category());
             String resultLabel = title + "  //  " + category;
             g.drawString(font, Component.literal(screen.trimToWidth(resultLabel, panelW - 10)), panelX + 5, rowY + 3,
-                    task.complete() ? PALE_GREEN : GREEN, false);
+                    task.complete() ? Ui.TEXT : Ui.ACCENT, false);
         }
         g.flush();
         g.pose().popPose();
@@ -687,9 +675,9 @@ final class TasksApp extends ComputerApp {
         int width = Math.min(mapW - 4, font.width(label) + 10);
         int left = mapX + (mapW - width) / 2;
         int top = mapY + 2;
-        g.fill(left, top, left + width, top + 15, 0xFF071007);
-        screen.box(g, left, top, left + width, top + 15, PALE_GREEN);
-        g.drawCenteredString(font, Component.literal(label), left + width / 2, top + 4, PALE_GREEN);
+        g.fill(left, top, left + width, top + 15, Ui.PANEL);
+        screen.box(g, left, top, left + width, top + 15, Ui.FOCUS);
+        g.drawCenteredString(font, Component.literal(label), left + width / 2, top + 4, Ui.TEXT);
     }
 
     private void renderTeamPanel(ThemedGraphics g, int x, int y, int w, int h) {
@@ -699,14 +687,14 @@ final class TasksApp extends ComputerApp {
         String label = state != null ? "TEAM " + state.members().size()
                 : invites.isEmpty() ? "TEAM +" : "TEAM !";
         int[] chip = teamChip(x, y, w, h);
-        g.fill(chip[0], chip[1], chip[2], chip[3], fade(CHIP_FILL));
+        g.fill(chip[0], chip[1], chip[2], chip[3], fade(Ui.alpha(Ui.PANEL, 0xCC)));
         drawChromeButton(g, chip[0] + 2, chip[1] + 2, TEAM_BUTTON_WIDTH, label);
         if (!teamMenuOpen && screen.hovered(chip[0] + 2, chip[1] + 2, TEAM_BUTTON_WIDTH, CHROME_BUTTON_HEIGHT)) {
             int tipX = x + w - 203;
             int tipY = y + h - 33;
-            g.fill(tipX, tipY, tipX + 136, tipY + 14, 0xFF071007);
-            screen.box(g, tipX, tipY, tipX + 136, tipY + 14, GREEN);
-            g.drawCenteredString(font, Component.literal(screen.trimToWidth("TEAM // MEMBERS AND INVITES", 128)), tipX + 68, tipY + 4, PALE_GREEN);
+            g.fill(tipX, tipY, tipX + 136, tipY + 14, Ui.PANEL);
+            screen.box(g, tipX, tipY, tipX + 136, tipY + 14, Ui.BORDER_STRONG);
+            g.drawCenteredString(font, Component.literal(screen.trimToWidth("TEAM // MEMBERS AND INVITES", 128)), tipX + 68, tipY + 4, Ui.TEXT);
         }
     }
 
@@ -719,21 +707,21 @@ final class TasksApp extends ComputerApp {
         int menuY = y + h - 17 - teamMenuHeight();
         int menuW = 228;
         int menuH = teamMenuHeight();
-        g.fill(menuX, menuY, menuX + menuW, menuY + menuH, 0xFF071007);
-        screen.box(g, menuX, menuY, menuX + menuW, menuY + menuH, GREEN);
+        g.fill(menuX, menuY, menuX + menuW, menuY + menuH, Ui.PANEL);
+        screen.box(g, menuX, menuY, menuX + menuW, menuY + menuH, Ui.BORDER_STRONG);
         String status = com.craisinlord.antos.content.client.ComputerTasksClientState.teamStatus();
         String summary = status.isBlank() ? state == null ? "TEAM // NONE" : "TEAM // " + state.ownerName().toUpperCase(Locale.ROOT)
                 + " // " + state.members().size() + " MEMBERS" : status;
         g.drawString(font, Component.literal(screen.trimToWidth(summary, menuW - 10)), menuX + 5, menuY + 4,
-                status.isBlank() ? GREEN : PALE_GREEN, false);
+                status.isBlank() ? Ui.ACCENT : Ui.TEXT, false);
         if (state == null) {
             drawTeamButton(g, menuX + 4, menuY + 20, 84, "CREATE TEAM", false);
         } else if (state.owner()) {
             int fieldX = menuX + 4;
-            screen.box(g, fieldX, menuY + 20, fieldX + 92, menuY + 35, teamInviteFocused ? GREEN : PALE_GREEN);
+            screen.box(g, fieldX, menuY + 20, fieldX + 92, menuY + 35, teamInviteFocused ? Ui.ACCENT : Ui.FOCUS);
             String inviteValue = teamInviteUsername.isBlank() && !teamInviteFocused ? "ANTOS USERNAME" : teamInviteUsername;
             g.drawString(font, Component.literal(screen.trimToWidth(inviteValue + (teamInviteFocused && screen.caretVisible() ? "|" : ""), 86)),
-                    fieldX + 3, menuY + 24, teamInviteFocused ? PALE_GREEN : GREEN, false);
+                    fieldX + 3, menuY + 24, teamInviteFocused ? Ui.TEXT : Ui.ACCENT, false);
             drawTeamButton(g, menuX + 100, menuY + 20, 48, "INVITE", false);
             drawTeamButton(g, menuX + 152, menuY + 20, 72, teamDisbandConfirm ? "CONFIRM?" : "DISBAND", false);
         } else {
@@ -743,15 +731,15 @@ final class TasksApp extends ComputerApp {
             var invite = invites.get(0);
             String inviteLabel = "FROM " + invite.inviterName().toUpperCase(Locale.ROOT) + " // "
                     + invite.ownerName().toUpperCase(Locale.ROOT) + "'S TEAM" + (invites.size() > 1 ? " +" + (invites.size() - 1) : "");
-            g.drawString(font, Component.literal(screen.trimToWidth(inviteLabel, menuW - 112)), menuX + 4, menuY + 42, PALE_GREEN, false);
+            g.drawString(font, Component.literal(screen.trimToWidth(inviteLabel, menuW - 112)), menuX + 4, menuY + 42, Ui.TEXT, false);
             drawTeamButton(g, menuX + menuW - 106, menuY + 38, 48, "JOIN", false);
             drawTeamButton(g, menuX + menuW - 54, menuY + 38, 48, "DECLINE", false);
         }
     }
 
     private void drawTeamButton(ThemedGraphics g, int x, int y, int w, String text, boolean disabled) {
-        g.fill(x, y, x + w, y + 15, disabled ? DARK_GREEN : HOVER_FILL);
-        g.drawCenteredString(font, Component.literal(text), x + w / 2, y + 4, disabled ? 0xFF638063 : PALE_GREEN);
+        g.fill(x, y, x + w, y + 15, disabled ? Ui.SURFACE : Ui.HOVER);
+        g.drawCenteredString(font, Component.literal(text), x + w / 2, y + 4, disabled ? Ui.TEXT_DIM : Ui.TEXT);
     }
 
     private int teamMenuHeight() {
@@ -788,26 +776,26 @@ final class TasksApp extends ComputerApp {
         boolean previousTint = screen.archiveGreenTint;
         screen.archiveGreenTint = task.greenTint();
         if (screen.hovered(x - 2, y, 105, 16)) screen.drawHover(g, x - 2, y, 105, 16);
-        g.drawString(font, Component.literal("< BACK TO MAP"), x, y + 3, GREEN, false);
+        g.drawString(font, Component.literal("< BACK TO MAP"), x, y + 3, Ui.TEXT_STRONG, false);
         String taskState = task.complete() ? "COMPLETE" : task.available() ? "AVAILABLE" : "LOCKED";
         g.drawString(font, Component.literal(taskState), x + w - font.width(taskState), y + 3,
-                task.complete() ? PALE_GREEN : task.available() ? GREEN : 0xFF638063, false);
-        g.fill(x, y + 17, x + w, y + 19, GREEN);
+                task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.TEXT_DIM, false);
+        g.fill(x, y + 17, x + w, y + 19, Ui.BORDER_STRONG);
         screen.enableComputerScissor(g, x, y + 19, x + w, y + h - 17);
         detailViewTop = y + 19;
         detailViewBottom = y + h - 17;
         int line = y + 25 - detailScroll;
-        line = detailRichText(g, text(task.title()), x, line, w, task.complete() ? PALE_GREEN : GREEN, task.renderMobFromSpawnEgg()) + 2;
-        line = detailRichText(g, text(task.description()), x, line, w, PALE_GREEN, task.renderMobFromSpawnEgg()) + 3;
+        line = detailRichText(g, text(task.title()), x, line, w, task.complete() ? Ui.TEXT : Ui.ACCENT, task.renderMobFromSpawnEgg()) + 2;
+        line = detailRichText(g, text(task.description()), x, line, w, Ui.TEXT, task.renderMobFromSpawnEgg()) + 3;
         for (String part : task.showcase()) line = renderShowcasePart(g, part, x, line, w);
-        g.drawString(font, Component.literal(task.total() == 0 ? "PROGRESS // COMPLETE" : "PROGRESS " + task.done() + "/" + task.total()), x, line, GREEN, false);
+        g.drawString(font, Component.literal(task.total() == 0 ? "PROGRESS // COMPLETE" : "PROGRESS " + task.done() + "/" + task.total()), x, line, Ui.TEXT_STRONG, false);
         line += 11;
         if (task.total() > 0) {
             int barY = line;
             int barWidth = Math.max(1, w - 2);
-            g.fill(x, barY, x + barWidth, barY + 4, DARK_GREEN);
+            g.fill(x, barY, x + barWidth, barY + 4, Ui.SURFACE);
             int filled = (int) ((long) barWidth * task.done() / task.total());
-            if (filled > 0) g.fill(x, barY, x + filled, barY + 4, task.complete() ? PALE_GREEN : GREEN);
+            if (filled > 0) g.fill(x, barY, x + filled, barY + 4, task.complete() ? Ui.TEXT : Ui.ACCENT);
             line += 8;
         }
         if (!task.objectives().isEmpty()) {
@@ -818,7 +806,7 @@ final class TasksApp extends ComputerApp {
             String label = text(objective.description());
             String text = (done ? "[X] " : "[ ] ")
                     + objective.progress() + "/" + objective.displayGoal() + "  " + label;
-            int objectiveColor = done ? PALE_GREEN : GREEN;
+            int objectiveColor = done ? Ui.TEXT : Ui.ACCENT;
             if (!objective.item().isBlank()) {
                 int rowY = line;
                 int textBottom = richText().measure(text, line, w - 22);
@@ -851,7 +839,7 @@ final class TasksApp extends ComputerApp {
                 if (detailRowVisible(rowTop - 1, rowTop + rowHeight)) {
                     boolean rowHovered = required != null && screen.hovered(x + 1, rowTop - 1, w - 2, rowHeight + 1);
                     if (rowHovered) screen.drawHover(g, x + 1, rowTop - 1, w - 2, rowHeight + 1);
-                    line = screen.wrap(g, label, x + 2, line, w - 4, rowHovered || required != null && required.complete() ? PALE_GREEN : GREEN);
+                    line = screen.wrap(g, label, x + 2, line, w - 4, rowHovered || required != null && required.complete() ? Ui.TEXT : Ui.ACCENT);
                 } else line = rowTop + screen.wrapLines(label, w - 4).size() * 11;
                 if (required != null && rowTop - 1 >= y + 19 && line <= y + h - 17)
                     prerequisiteButtons.add(new PrerequisiteButton(required.id(), x + 1, rowTop - 1, x + w - 1, line));
@@ -866,7 +854,7 @@ final class TasksApp extends ComputerApp {
                 var reward = task.rewards().get(rewardIndex);
                 String rewardText = rewardText(reward);
                 if (reward.type().equals("choice")) {
-                    line = screen.wrap(g, rewardText, x + 2, line, w - 4, GREEN) + 2;
+                    line = screen.wrap(g, rewardText, x + 2, line, w - 4, Ui.TEXT_STRONG) + 2;
                     String selectedPath = poolSelections.getOrDefault(task.id(), Map.of()).get(rewardIndex);
                     for (int optionIndex = 0; optionIndex < reward.options().size(); optionIndex++) {
                         var option = reward.options().get(optionIndex);
@@ -875,19 +863,19 @@ final class TasksApp extends ComputerApp {
                         int rowTop = line;
                         if (detailRowVisible(rowTop, rowTop + 30)) {
                             if (screen.hovered(x + 1, rowTop, w - 2, 30)) screen.drawHover(g, x + 1, rowTop, w - 2, 30);
-                            if (selected) screen.box(g, x + 1, rowTop, x + w - 1, rowTop + 30, 0x5533AA55);
+                            if (selected) screen.box(g, x + 1, rowTop, x + w - 1, rowTop + 30, Ui.alpha(Ui.TASK_HIGHLIGHT, 0x55));
                             String itemIcon = choiceOptionIcon(option);
                             if (!itemIcon.isBlank()) screen.renderArchiveAsset(g, itemIcon, "", "", "", x + 9, rowTop + 8, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
                             else {
-                                g.fill(x + 2, rowTop + 7, x + 17, rowTop + 22, 0xFF183318);
-                                g.drawCenteredString(font, Component.literal(AntOSPlayerText.currencySymbol()), x + 9, rowTop + 11, PALE_GREEN);
+                                g.fill(x + 2, rowTop + 7, x + 17, rowTop + 22, Ui.TASK_ICON_FILL);
+                                g.drawCenteredString(font, Component.literal(AntOSPlayerText.currencySymbol()), x + 9, rowTop + 11, Ui.TEXT);
                             }
                             String optionTitle = Component.translatable(option.title()).getString();
                             String optionSummary = choiceOptionSummary(option);
                             g.drawString(font, Component.literal(truncateText(optionTitle, w - 25)), x + 20, rowTop + 3,
-                                    selected ? PALE_GREEN : GREEN, false);
+                                    selected ? Ui.TEXT : Ui.ACCENT, false);
                             g.drawString(font, Component.literal(truncateText(optionSummary, w - 25)), x + 20, rowTop + 15,
-                                    selected ? PALE_GREEN : GREEN, false);
+                                    selected ? Ui.TEXT : Ui.ACCENT, false);
                         }
                         if (rowTop >= y + 19 && rowTop + 30 <= y + h - 17)
                             poolChoiceButtons.add(new PoolChoiceButton(task.id(), rewardIndex, path, x + 1, rowTop, x + w - 1, rowTop + 30));
@@ -901,9 +889,9 @@ final class TasksApp extends ComputerApp {
                             PoolOutcome preview = outcomes.get((int) ((System.currentTimeMillis() / 350L) % outcomes.size()));
                             screen.renderArchiveAsset(g, preview.item(), "", "", "", x + 9, line + 4, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
                         }
-                        line = screen.wrap(g, rewardText, x + 20, line, w - 22, GREEN) + 2;
+                        line = screen.wrap(g, rewardText, x + 20, line, w - 22, Ui.TEXT_STRONG) + 2;
                     } else {
-                        line = screen.wrap(g, rewardText, x + 2, line, w - 4, GREEN) + 2;
+                        line = screen.wrap(g, rewardText, x + 2, line, w - 4, Ui.TEXT_STRONG) + 2;
                         for (PoolOutcome outcome : outcomes) {
                             boolean selected = outcome.path().equals(selectedPath);
                             int rowTop = line;
@@ -911,9 +899,9 @@ final class TasksApp extends ComputerApp {
                             int labelBottom = rowTop + 2 + screen.wrapLines(label, w - 22).size() * 11;
                             if (detailRowVisible(rowTop, Math.max(labelBottom, rowTop + 17))) {
                                 if (screen.hovered(x + 1, rowTop, w - 2, 17)) screen.drawHover(g, x + 1, rowTop, w - 2, 17);
-                                if (selected) screen.box(g, x + 1, rowTop, x + w - 1, rowTop + 17, 0x5533AA55);
+                                if (selected) screen.box(g, x + 1, rowTop, x + w - 1, rowTop + 17, Ui.alpha(Ui.TASK_HIGHLIGHT, 0x55));
                                 screen.renderArchiveAsset(g, outcome.item(), "", "", "", x + 9, rowTop + 2, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
-                                line = screen.wrap(g, label, x + 20, rowTop + 2, w - 22, selected ? PALE_GREEN : GREEN) + 2;
+                                line = screen.wrap(g, label, x + 20, rowTop + 2, w - 22, selected ? Ui.TEXT : Ui.ACCENT) + 2;
                             } else line = labelBottom + 2;
                             if (rowTop >= y + 19 && rowTop + 17 <= y + h - 17)
                                 poolChoiceButtons.add(new PoolChoiceButton(task.id(), rewardIndex, outcome.path(), x + 1, rowTop, x + w - 1, rowTop + 17));
@@ -925,12 +913,12 @@ final class TasksApp extends ComputerApp {
                     if (detailRowVisible(rowY, Math.max(textBottom, rowY + 17))) {
                         if (screen.hovered(x + 2, line, 16, 17)) screen.drawHover(g, x + 2, line, 16, 17);
                         screen.renderArchiveAsset(g, reward.item(), "", "", "", x + 9, line + 4, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
-                        line = screen.wrap(g, rewardText, x + 20, line, w - 22, GREEN) + 2;
+                        line = screen.wrap(g, rewardText, x + 20, line, w - 22, Ui.TEXT_STRONG) + 2;
                     } else line = textBottom + 2;
                     if (rowY >= y + 19 && rowY + 17 <= y + h - 17)
                         itemButtons.add(new ItemButton(reward.item(), x + 2, rowY, x + 18, rowY + 17));
                     if (recipeItem.equals(reward.item())) line = screen.renderTaskItemRecipe(g, reward.item(), x + 20, line - 1, w - 22) + 2;
-                } else line = detailWrap(g, rewardText, x + 2, line, w - 4, GREEN) + 2;
+                } else line = detailWrap(g, rewardText, x + 2, line, w - 4, Ui.ACCENT) + 2;
             }
             boolean missingChoice = false;
             for (int rewardIndex = 0; rewardIndex < task.rewards().size(); rewardIndex++) {
@@ -939,7 +927,7 @@ final class TasksApp extends ComputerApp {
                         && !poolSelections.getOrDefault(task.id(), Map.of()).containsKey(rewardIndex)) missingChoice = true;
             }
             String rewardStatus = task.claimed() ? "REWARD CLAIMED" : task.claimable() ? missingChoice ? "CHOOSE A REWARD" : "READY TO CLAIM" : "";
-            if (!rewardStatus.isBlank()) line = screen.wrap(g, rewardStatus, x, line, w, task.claimed() ? PALE_GREEN : GREEN) + 3;
+            if (!rewardStatus.isBlank()) line = screen.wrap(g, rewardStatus, x, line, w, task.claimed() ? Ui.TEXT : Ui.ACCENT) + 3;
             if (task.claimable()) {
                 int buttonY = line - 1;
                 if (buttonY >= y + 19 && buttonY + 16 <= y + h - 17) {
@@ -970,14 +958,14 @@ final class TasksApp extends ComputerApp {
                 }
                 if (rowVisible && screen.hovered(x + 1, buttonY, w - 2, 13)) screen.drawHover(g, x + 1, buttonY, w - 2, 13);
             }
-            line = rowVisible ? screen.wrap(g, archiveLabel, x + 2, line, w - 4, unlocked ? PALE_GREEN : 0xFF638063) + 2 : labelBottom + 2;
+            line = rowVisible ? screen.wrap(g, archiveLabel, x + 2, line, w - 4, unlocked ? Ui.TEXT : Ui.TEXT_DIM) + 2 : labelBottom + 2;
         }
         g.disableScissor();
         int contentBottom = line + detailScroll;
         int maximumScroll = Math.max(0, contentBottom - (y + h - 22));
         detailMaximumScroll = maximumScroll;
         detailScroll = Math.max(0, Math.min(detailScroll, maximumScroll));
-        if (maximumScroll > 0) g.drawString(font, Component.literal("SCROLL FOR DETAILS"), x + 2, y + h - 12, PALE_GREEN, false);
+        if (maximumScroll > 0) g.drawString(font, Component.literal("SCROLL FOR DETAILS"), x + 2, y + h - 12, Ui.TEXT, false);
         screen.archiveGreenTint = previousTint;
     }
 
@@ -1180,29 +1168,77 @@ final class TasksApp extends ComputerApp {
 
     private record SidebarRow(String group, String category, String label, String iconItem, String iconEntity, int indent, boolean greenTint, boolean renderMobFromSpawnEgg) { }
 
-    private void drawSidebarLabel(ThemedGraphics g, String label, int x, int y, int width, int color, boolean hovered) {
-        int labelWidth = font.width(label);
-        if (labelWidth <= width) {
-            g.drawString(font, Component.literal(label), x, y, color, false);
-            return;
-        }
-        if (!hovered) {
-            g.drawString(font, Component.literal(screen.trimToWidth(label, width)), x, y, color, false);
-            return;
-        }
-        int overflow = labelWidth - width;
-        long travelTime = overflow * 45L;
-        long pauseTime = 900L;
-        long cycleTime = pauseTime * 2 + travelTime * 2;
-        long phase = System.currentTimeMillis() % cycleTime;
-        int offset;
-        if (phase < pauseTime) offset = 0;
-        else if (phase < pauseTime + travelTime) offset = (int) ((phase - pauseTime) / 45L);
-        else if (phase < pauseTime * 2 + travelTime) offset = overflow;
-        else offset = overflow - (int) ((phase - pauseTime * 2 - travelTime) / 45L);
-        int start = font.plainSubstrByWidth(label, offset).length();
-        String visibleLabel = font.plainSubstrByWidth(label.substring(start), width);
-        g.drawString(font, Component.literal(visibleLabel), x, y, color, false);
+    private void renderSidebarTooltip(ThemedGraphics g, String label, int x, int y, int width, int availableWidth) {
+        boolean onToggle = screen.hovered(x, y + 1, 20, 19);
+        boolean onPin = width > 0 && screen.hovered(x + width - 20, y + 1, 18, 16);
+        if (label.isBlank() && !onToggle && !onPin) return;
+        String tip = !label.isBlank() ? label : text(onPin ? "computer.antos.settings.apps.tasks_sidebar_pin_tip"
+                : width == 0 ? "computer.antos.settings.apps.tasks_sidebar_open_tip" : "computer.antos.settings.apps.tasks_sidebar_close_tip");
+        int tipX = x + (width == 0 ? 24 : width + 5);
+        int tipWidth = Math.max(1, Math.min(font.width(tip), availableWidth - (tipX - x) - 10));
+        var lines = font.split(Component.literal(tip), tipWidth);
+        int tipY = y + 20;
+        int tipHeight = lines.size() * font.lineHeight + 8;
+        g.fill(tipX, tipY, tipX + tipWidth + 10, tipY + tipHeight, Ui.PANEL);
+        screen.box(g, tipX, tipY, tipX + tipWidth + 10, tipY + tipHeight, Ui.BORDER_STRONG);
+        for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), tipX + 5, tipY + 4 + i * font.lineHeight, Ui.TEXT, false);
+    }
+
+    private boolean sidebarPinned() {
+        return AntOSSettings.preferences().taskSidebarBehavior.equals("always");
+    }
+
+    private boolean sidebarHoverEnabled() {
+        return AntOSSettings.preferences().taskSidebarBehavior.equals("hover");
+    }
+
+    private int sidebarExpandedWidth() {
+        return switch (AntOSSettings.preferences().taskSidebarWidth) {
+            case "standard" -> 124;
+            case "wide" -> 152;
+            default -> 100;
+        };
+    }
+
+    private int sidebarRowHeight() {
+        int spacing = AntOSSettings.preferences().taskSidebarSpacing.equals("compact") ? 16 : 20;
+        return Math.max(spacing, (int) Math.ceil(font.lineHeight * sidebarTextScale()) + 6);
+    }
+
+    private int sidebarVisibleRows(int height) {
+        return Math.max(0, (height - 35) / sidebarRowHeight());
+    }
+
+    private float sidebarTextScale() {
+        return switch (AntOSSettings.preferences().taskSidebarText) {
+            case "normal" -> 1.0F;
+            case "large" -> 1.15F;
+            default -> 0.9F;
+        };
+    }
+
+    private int sidebarTextWidth(String label) {
+        return (int) Math.ceil(font.width(label) * sidebarTextScale());
+    }
+
+    private void drawSidebarText(ThemedGraphics g, String label, int x, int y, int color) {
+        float scale = sidebarTextScale();
+        g.pose().pushPose();
+        g.pose().translate(x, y, 0.0F);
+        g.pose().scale(scale, scale, 1.0F);
+        g.drawString(font, Component.literal(label), 0, 0, color, false);
+        g.pose().popPose();
+    }
+
+    void resetSidebar() {
+        sidebarClickOpen = false;
+        sidebarHoverOpen = false;
+        sidebarHoverDismissed = true;
+        categoryScroll = 0;
+    }
+
+    private void drawSidebarLabel(ThemedGraphics g, String label, int x, int y, int width, int color) {
+        drawSidebarText(g, screen.trimToWidth(label, Math.max(1, (int) (width / sidebarTextScale()))), x, y, color);
     }
 
     private record SidebarEntry(String group, String category, int sortOrder, boolean defined) { }
@@ -1467,8 +1503,8 @@ final class TasksApp extends ComputerApp {
         int sidebarY = -HEIGHT / 2 + screen.windowLocalY(screen.activeWindow) + 28;
         int contentWidth = screen.windowWidth(screen.activeWindow) - 16;
         int contentHeight = screen.windowHeight(screen.activeWindow) - 34;
-        boolean sidebarShown = sidebarPinned || sidebarHoverOpen;
-        int contentOffset = sidebarShown ? 133 : 30;
+        boolean sidebarShown = sidebarPinned() || sidebarHoverOpen;
+        int contentOffset = sidebarShown ? sidebarExpandedWidth() + 9 : 30;
         centerMapOn(categoryRows, sidebarX + contentOffset, sidebarY + 18,
                 contentWidth - contentOffset, Math.max(1, contentHeight - 36), task.id());
     }
@@ -1480,8 +1516,8 @@ final class TasksApp extends ComputerApp {
         int sidebarY = -HEIGHT / 2 + screen.windowLocalY(screen.activeWindow) + 28;
         int contentWidth = screen.windowWidth(screen.activeWindow) - 16;
         int contentHeight = screen.windowHeight(screen.activeWindow) - 34;
-        boolean sidebarShown = sidebarPinned || sidebarClickOpen || sidebarHoverOpen;
-        int contentOffset = sidebarShown ? 133 : 30;
+        boolean sidebarShown = sidebarPinned() || sidebarClickOpen || sidebarHoverOpen;
+        int contentOffset = sidebarShown ? sidebarExpandedWidth() + 9 : 30;
         centerMapOn(categoryRows, sidebarX + contentOffset, sidebarY + 18,
                 contentWidth - contentOffset, Math.max(1, contentHeight - 36), "");
     }
@@ -1506,7 +1542,7 @@ final class TasksApp extends ComputerApp {
     private void renderConnection(ThemedGraphics g, Node from, Node to, boolean complete, TaskAppearance appearance) {
         TaskAppearance.LineAxis axis = appearance.lineAxis();
         float bend = appearance.lineBend();
-        int color = complete ? GREEN : 0xFF356035;
+        int color = complete ? Ui.ACCENT : Ui.GRID_LINE;
         int dx = Math.abs(to.centerX() - from.centerX()), dy = Math.abs(to.centerY() - from.centerY());
         boolean vertical = dx <= 2 || dy > 2 && switch (axis) {
             case VERTICAL -> true;
@@ -1557,17 +1593,17 @@ final class TasksApp extends ComputerApp {
     private void renderNode(ThemedGraphics g, Node node) {
         var task = node.task();
         int nodeSize = node.right() - node.left();
-        int border = task.complete() ? PALE_GREEN : task.available() ? GREEN : 0xFF476047;
+        int border = task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.LOCKED;
         boolean isHovered = mapPointerFree && node.contains(screen.session.mouseX, screen.session.mouseY);
         TaskShapeRenderer.draw(g, task.appearance().shape(), node.shapeLeft(), node.shapeTop(), node.shapeSize(),
-                task.available() ? 0xFF0B180B : 0xFF080D08, border, task.available() ? GREEN : 0xFF638063, isHovered);
+                task.available() ? Ui.PANEL_ALT : Ui.DEEP, border, task.available() ? Ui.ACCENT : Ui.TEXT_DIM, isHovered);
         renderIcon(g, task, node.centerX(), node.centerY(), node.iconSize());
         String state = task.isLink() ? "OPEN >" : task.complete() ? "DONE" : task.available() ? task.done() + "/" + task.total() : "";
-        int stateColor = task.available() || task.complete() ? PALE_GREEN : 0xFF638063;
+        int stateColor = task.available() || task.complete() ? Ui.TEXT : Ui.TEXT_DIM;
         if (task.claimable()) {
             int[] badge = badgeBounds(node);
-            g.fill(badge[0], badge[1], badge[2], badge[3], 0xFFB8FFB8);
-            g.drawCenteredString(font, Component.literal("!"), badge[0] + 5, badge[1] + 1, 0xFF071007);
+            g.fill(badge[0], badge[1], badge[2], badge[3], Ui.TEXT);
+            g.drawCenteredString(font, Component.literal("!"), badge[0] + 5, badge[1] + 1, Ui.PANEL);
         }
         int labelTop = node.bottom() + 3;
         if (task.available() || task.complete()) {
@@ -1578,7 +1614,7 @@ final class TasksApp extends ComputerApp {
         } else {
             int lockX = node.left() + nodeSize / 2;
             if (!labelBlocked(node, lockX - 4, labelTop, lockX + 4, labelTop + 9))
-                renderLockIcon(g, lockX, labelTop, 0xFF87B787);
+                renderLockIcon(g, lockX, labelTop, Ui.TEXT_SOFT);
         }
     }
 
@@ -1586,13 +1622,13 @@ final class TasksApp extends ComputerApp {
         if (!mapPointerFree || !node.contains(screen.session.mouseX, screen.session.mouseY)) return;
         var task = node.task();
         int nodeSize = node.right() - node.left();
-        int border = task.complete() ? PALE_GREEN : task.available() ? GREEN : 0xFF638063;
+        int border = task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.TEXT_DIM;
         String title = screen.trimToWidth(plain(task.title()) + (task.isLink() ? "  >" : ""), 120);
         int titleWidth = font.width(title) + 8;
         int titleX = Math.max(mapLeft + 2, Math.min(node.left() + (nodeSize - titleWidth) / 2, mapRight - titleWidth - 2));
         int titleY = Math.max(mapTop + 2, node.top() - 15);
-        g.fill(titleX - 2, titleY, titleX + titleWidth, titleY + 13, 0xFF071007);
-        screen.box(g, titleX - 2, titleY, titleX + titleWidth, titleY + 13, GREEN);
+        g.fill(titleX - 2, titleY, titleX + titleWidth, titleY + 13, Ui.PANEL);
+        screen.box(g, titleX - 2, titleY, titleX + titleWidth, titleY + 13, Ui.BORDER_STRONG);
         g.drawCenteredString(font, Component.literal(title), titleX + titleWidth / 2, titleY + 2, border);
     }
 
@@ -1601,8 +1637,8 @@ final class TasksApp extends ComputerApp {
         g.fill(centerX - 3, top + 1, centerX - 2, top + 4, color);
         g.fill(centerX + 2, top + 1, centerX + 3, top + 4, color);
         g.fill(centerX - 4, top + 4, centerX + 4, top + 9, color);
-        g.fill(centerX - 2, top + 5, centerX + 2, top + 8, 0xFF071007);
-        g.fill(centerX, top + 6, centerX + 1, top + 7, PALE_GREEN);
+        g.fill(centerX - 2, top + 5, centerX + 2, top + 8, Ui.PANEL);
+        g.fill(centerX, top + 6, centerX + 1, top + 7, Ui.TEXT);
     }
 
     private void renderIcon(ThemedGraphics g, com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task, int centerX, int centerY, float size) {
@@ -1721,8 +1757,8 @@ final class TasksApp extends ComputerApp {
             teamInviteFocused = false;
         }
         if (searchFocused && button == 0) {
-            boolean sidebarOpenForMap = sidebarPinned || sidebarClickOpen || sidebarHoverOpen;
-            int searchOffset = sidebarOpenForMap ? 133 : 30;
+            boolean sidebarOpenForMap = sidebarPinned() || sidebarClickOpen || sidebarHoverOpen;
+            int searchOffset = sidebarOpenForMap ? sidebarExpandedWidth() + 9 : 30;
             int searchMapX = contentX + searchOffset;
             int searchMapW = contentW - searchOffset;
             int searchControlWidth = searchControlWidth();
@@ -1738,13 +1774,13 @@ final class TasksApp extends ComputerApp {
         int bodyY = contentY;
         int bodyHeight = Math.max(1, contentH);
         boolean pointerOnTab = screen.inside(contentX, bodyY + 1, 20, 19, mouseX, mouseY);
-        boolean pointerOnSidebar = screen.inside(contentX, bodyY, 134, bodyHeight, mouseX, mouseY);
+        boolean pointerOnSidebar = screen.inside(contentX, bodyY, sidebarExpandedWidth() + 10, bodyHeight, mouseX, mouseY);
         if (pointerOnTab) {
             searchFocused = false;
             controlsOpen = false;
-            if (sidebarClickOpen || sidebarPinned) {
+            if (sidebarClickOpen || sidebarPinned()) {
                 sidebarClickOpen = false;
-                sidebarPinned = false;
+                AntOSSettings.updatePreferences(p -> p.taskSidebarBehavior = "click");
                 sidebarHoverOpen = false;
                 sidebarHoverDismissed = true;
             } else {
@@ -1755,24 +1791,24 @@ final class TasksApp extends ComputerApp {
             return true;
         }
         if (sidebarHoverDismissed && !pointerOnTab) sidebarHoverDismissed = false;
-        sidebarHoverOpen = !sidebarHoverDismissed
+        sidebarHoverOpen = sidebarHoverEnabled() && !sidebarHoverDismissed
                 && (pointerOnTab || sidebarHoverOpen && pointerOnSidebar);
-        boolean sidebarShown = sidebarPinned || sidebarClickOpen || sidebarHoverOpen;
-        int sidebarWidth = sidebarShown ? 124 : 0;
+        boolean sidebarShown = sidebarPinned() || sidebarClickOpen || sidebarHoverOpen;
+        int sidebarWidth = sidebarShown ? sidebarExpandedWidth() : 0;
         int contentOffset = sidebarWidth > 0 ? sidebarWidth + 9 : 30;
         if (screen.inside(contentX, bodyY, sidebarWidth, bodyHeight, mouseX, mouseY)) {
-            if (screen.inside(contentX + 4, bodyY + 18, sidebarWidth - 8, 16, mouseX, mouseY)) {
+            if (screen.inside(contentX + sidebarWidth - 20, bodyY + 1, 18, 16, mouseX, mouseY)) {
                 searchFocused = false;
                 controlsOpen = false;
-                sidebarPinned = !sidebarPinned;
+                AntOSSettings.updatePreferences(p -> p.taskSidebarBehavior = sidebarPinned() ? "click" : "always");
                 return true;
             }
-            int categoryOffset = (int) mouseY - (bodyY + 37);
-            int visibleCategories = Math.max(1, (bodyHeight - 52 + 18) / 19);
-            int visibleIndex = categoryOffset / 19;
-            int categoryIndex = categoryScroll + visibleIndex;
+            int categoryOffset = (int) mouseY - (bodyY + 22);
+            int visibleCategories = sidebarVisibleRows(bodyHeight);
+            int visibleIndex = categoryOffset / sidebarRowHeight();
+            int categoryIndex = Math.min(categoryScroll, Math.max(0, visibleSidebarRows().size() - visibleCategories)) + visibleIndex;
             List<SidebarRow> sidebarRows = visibleSidebarRows();
-            if (categoryOffset >= 0 && categoryOffset % 19 < 16 && visibleIndex < visibleCategories
+            if (categoryOffset >= 0 && visibleIndex < visibleCategories
                     && categoryIndex >= 0 && categoryIndex < sidebarRows.size()) {
                 SidebarRow sidebarRow = sidebarRows.get(categoryIndex);
                 if (sidebarRow.category().isBlank()) {
@@ -1786,10 +1822,12 @@ final class TasksApp extends ComputerApp {
                 controlsOpen = false;
                 recipeItem = "";
                 sidebarClickOpen = false;
+                sidebarHoverOpen = false;
+                sidebarHoverDismissed = true;
                 detailScroll = 0;
                 detailMaximumScroll = 0;
                 mapScrollX = 0; mapScrollY = 0;
-                int newContentOffset = sidebarPinned || sidebarHoverOpen ? 133 : 30;
+                int newContentOffset = sidebarPinned() || sidebarHoverOpen ? sidebarExpandedWidth() + 9 : 30;
                 List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> newCategoryRows = rowsFor(selectedCategory);
                 centerMapOn(newCategoryRows, contentX + newContentOffset, bodyY + 18,
                         contentW - newContentOffset, Math.max(1, bodyHeight - 36), "");
@@ -1954,11 +1992,11 @@ final class TasksApp extends ComputerApp {
         if (teamMenuOpen && screen.inside(sidebarX + contentWidth - 232, menuY, 228, teamMenuHeight(), localX, localY)) return true;
         int bodyY = sidebarY;
         int bodyHeight = Math.max(1, contentHeight);
-        boolean sidebarShown = sidebarPinned || sidebarClickOpen || sidebarHoverOpen;
-        int sidebarWidth = sidebarShown ? 124 : 0;
+        boolean sidebarShown = sidebarPinned() || sidebarClickOpen || sidebarHoverOpen;
+        int sidebarWidth = sidebarShown ? sidebarExpandedWidth() : 0;
         int contentOffset = sidebarWidth > 0 ? sidebarWidth + 9 : 30;
-        if (sidebarShown && screen.inside(sidebarX, bodyY + 37, sidebarWidth, Math.max(1, bodyHeight - 37), localX, localY)) {
-            int visible = Math.max(1, (bodyHeight - 52 + 18) / 19);
+        if (sidebarShown && screen.inside(sidebarX, bodyY + 22, sidebarWidth, Math.max(1, bodyHeight - 22), localX, localY)) {
+            int visible = sidebarVisibleRows(bodyHeight);
             categoryScroll = Math.max(0, Math.min(Math.max(0, visibleSidebarRows().size() - visible),
                     categoryScroll - (int) Math.signum(scrollY)));
         } else if (!selectedTaskId.isBlank()

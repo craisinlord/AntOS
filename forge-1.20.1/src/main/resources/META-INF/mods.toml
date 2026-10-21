@@ -29,3 +29,10 @@ mandatory=true
 versionRange="[4.0,)"
 ordering="AFTER"
 side="BOTH"
+
+[[dependencies.antos]]
+modId="jei"
+mandatory=false
+versionRange="[15.0,)"
+ordering="NONE"
+side="CLIENT"

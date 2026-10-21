@@ -27,6 +27,7 @@ public final class AnternetAccountHandler {
     private static final Map<UUID, PendingInsertion> PENDING_INSERTIONS = new ConcurrentHashMap<>();
     private static final Map<UUID, java.util.Set<ComputerBlockEntity>> BOUND_DEVICES = new ConcurrentHashMap<>();
     private static final Map<UUID, LoginThrottle> LOGIN_THROTTLES = new ConcurrentHashMap<>();
+    private static final Map<UUID, Map<String, Integer>> HINT_FAILURES = new ConcurrentHashMap<>();
     private static final Map<UUID, Object> PENDING_AUTH = new ConcurrentHashMap<>();
     private static final Map<UUID, ArrayDeque<Long>> ACCOUNT_CREATIONS = new ConcurrentHashMap<>();
     private static final int MAX_ACCOUNT_CREATIONS = 3;
@@ -65,7 +66,8 @@ public final class AnternetAccountHandler {
 
     public static void handle(ServerPlayer player, AnternetAccountPayload payload) {
         int usernameLimit = payload.action() == AnternetAccountPayload.CHANGE_PASSWORD ? 128 : 32;
-        if (player.level().isClientSide || payload.username().length() > usernameLimit || payload.password().length() > 128) {
+        if (player.level().isClientSide || payload.username().length() > usernameLimit || payload.password().length() > 128
+                || payload.extra().length() > ComputerWorkspaceData.MAX_HINT_LENGTH) {
             send(player, payload.action() == AnternetAccountPayload.CHANGE_PASSWORD
                     ? AnternetAccountResultPayload.PASSWORD_CHANGE_INVALID : AnternetAccountResultPayload.INVALID_REQUEST);
             return;
@@ -116,7 +118,8 @@ public final class AnternetAccountHandler {
         }
         if (payload.action() != AnternetAccountPayload.CREATE && payload.action() != AnternetAccountPayload.LOGIN
                 && payload.action() != AnternetAccountPayload.CHANGE_PASSWORD
-                && payload.action() != AnternetAccountPayload.FACE_ID_LOGIN) {
+                && payload.action() != AnternetAccountPayload.FACE_ID_LOGIN
+                && payload.action() != AnternetAccountPayload.SET_HINT) {
             send(player, AnternetAccountResultPayload.INVALID_REQUEST);
             return;
         }
@@ -135,6 +138,22 @@ public final class AnternetAccountHandler {
             if (!submitted) send(player, AnternetAccountResultPayload.PASSWORD_CHANGE_RATE_LIMITED);
             return;
         }
+        if (payload.action() == AnternetAccountPayload.SET_HINT) {
+            if (throttled(player.getUUID()) || PENDING_AUTH.containsKey(player.getUUID())) {
+                send(player, AnternetAccountResultPayload.HINT_RATE_LIMITED);
+                return;
+            }
+            ComputerWorkspaceData.AccountInfo current = session(player);
+            if (current == null) { send(player, AnternetAccountResultPayload.HINT_DENIED); return; }
+            String currentPassword = payload.password();
+            String hint = payload.extra();
+            if (!ComputerWorkspaceData.validHint(hint, currentPassword)) { send(player, AnternetAccountResultPayload.HINT_INVALID); return; }
+            ComputerWorkspaceData.CredentialCheck check = data.prepareAuthentication(current.username());
+            boolean submitted = submitAuthJob(player, () -> ComputerWorkspaceData.verifyCredentials(check, currentPassword),
+                    (target, valid) -> finishHintChange(target, current, check, Boolean.TRUE.equals(valid), hint));
+            if (!submitted) send(player, AnternetAccountResultPayload.HINT_RATE_LIMITED);
+            return;
+        }
         if (throttled(player.getUUID()) || PENDING_AUTH.containsKey(player.getUUID())) { send(player, AnternetAccountResultPayload.RATE_LIMITED); return; }
         if (payload.action() == AnternetAccountPayload.FACE_ID_LOGIN) {
             finishLogin(player, faceIdLogin(data, player));
@@ -142,6 +161,7 @@ public final class AnternetAccountHandler {
         }
         String username = payload.username();
         String password = payload.password();
+        String createHint = ComputerWorkspaceData.validHint(payload.extra(), password) ? payload.extra() : "";
         boolean submitted;
         if (payload.action() == AnternetAccountPayload.CREATE) {
             if (creationLimited(player.getUUID())) { send(player, AnternetAccountResultPayload.RATE_LIMITED); return; }
@@ -151,14 +171,14 @@ public final class AnternetAccountHandler {
                 return;
             }
             submitted = submitAuthJob(player, () -> ComputerWorkspaceData.hashPassword(password), (target, hash) -> {
-                ComputerWorkspaceData.AccountResult result = ComputerWorkspaceData.access(target.server).completeAccountCreation(username, hash);
+                ComputerWorkspaceData.AccountResult result = ComputerWorkspaceData.access(target.server).completeAccountCreation(username, hash, createHint);
                 if (result.successful()) recordCreation(target.getUUID());
                 finishLogin(target, result);
             });
         } else {
             ComputerWorkspaceData.CredentialCheck check = data.prepareAuthentication(username);
             submitted = submitAuthJob(player, () -> ComputerWorkspaceData.verifyCredentials(check, password),
-                    (target, valid) -> finishLogin(target, ComputerWorkspaceData.access(target.server).completeAuthentication(check, Boolean.TRUE.equals(valid))));
+                    (target, valid) -> finishLogin(target, ComputerWorkspaceData.access(target.server).completeAuthentication(check, Boolean.TRUE.equals(valid)), username));
         }
         if (!submitted) send(player, AnternetAccountResultPayload.RATE_LIMITED);
     }
@@ -190,7 +210,64 @@ public final class AnternetAccountHandler {
         send(player, AnternetAccountResultPayload.PASSWORD_CHANGED);
     }
 
+    private static void finishHintChange(ServerPlayer player, ComputerWorkspaceData.AccountInfo current,
+                                         ComputerWorkspaceData.CredentialCheck check, boolean valid, String hint) {
+        ComputerWorkspaceData.AccountInfo session = session(player);
+        if (session == null || !session.accountId().equals(current.accountId())) {
+            send(player, AnternetAccountResultPayload.HINT_DENIED);
+            return;
+        }
+        if (!valid || !current.accountId().equals(check.accountId())) {
+            recordFailure(player.getUUID());
+            send(player, AnternetAccountResultPayload.HINT_DENIED);
+            return;
+        }
+        ComputerWorkspaceData.access(player.server).setHint(current.accountId(), hint);
+        recordSuccess(player.getUUID());
+        send(player, AnternetAccountResultPayload.HINT_SAVED);
+    }
+
+    private static String failedLoginHint(ServerPlayer player, String username) {
+        if (username == null || username.isBlank()) return "";
+        String key = username.trim().toLowerCase(java.util.Locale.ROOT);
+        int failures = HINT_FAILURES.computeIfAbsent(player.getUUID(), ignored -> new ConcurrentHashMap<>()).merge(key, 1, Integer::sum);
+        int threshold = com.craisinlord.antos.config.AntOSSettings.passwordHintAfterFailures();
+        if (threshold <= 0 || failures < threshold) return "";
+        return ComputerWorkspaceData.access(player.server).hintForUsername(username);
+    }
+
+    public static void adminResetPassword(MinecraftServer server, UUID accountId, String password, boolean mustChange,
+                                          java.util.function.Consumer<Boolean> done) {
+        try {
+            authExecutor().execute(() -> {
+                ComputerWorkspaceData.PasswordHash hash;
+                try {
+                    hash = ComputerWorkspaceData.hashPassword(password);
+                } catch (RuntimeException exception) {
+                    hash = null;
+                }
+                ComputerWorkspaceData.PasswordHash outcome = hash;
+                server.execute(() -> {
+                    boolean changed = outcome != null
+                            && ComputerWorkspaceData.access(server).resetPassword(accountId, outcome, mustChange).successful();
+                    if (changed) revokeOtherSessions(server, accountId, null);
+                    done.accept(changed);
+                });
+            });
+        } catch (RejectedExecutionException exception) {
+            done.accept(false);
+        }
+    }
+
+    public static int activeSessions(UUID accountId) {
+        return (int) SESSIONS.values().stream().filter(account -> account.accountId().equals(accountId)).count();
+    }
+
     private static void finishLogin(ServerPlayer player, ComputerWorkspaceData.AccountResult result) {
+        finishLogin(player, result, null);
+    }
+
+    private static void finishLogin(ServerPlayer player, ComputerWorkspaceData.AccountResult result, String attemptedUsername) {
         MinecraftServer server = player.server;
         if (!result.successful()) {
             recordFailure(player.getUUID());
@@ -199,10 +276,13 @@ public final class AnternetAccountHandler {
                 case INVALID_CREDENTIALS -> AnternetAccountResultPayload.INVALID_CREDENTIALS;
                 default -> AnternetAccountResultPayload.INVALID_REQUEST;
             };
-            send(player, error);
+            String hint = error == AnternetAccountResultPayload.INVALID_CREDENTIALS ? failedLoginHint(player, attemptedUsername) : "";
+            resultSender.accept(player, new AnternetAccountResultPayload(error, AnternetAccountResultPayload.EMPTY_ID,
+                    AnternetAccountResultPayload.EMPTY_ID, hint));
             return;
         }
         ComputerWorkspaceData.AccountInfo account = result.account();
+        HINT_FAILURES.remove(player.getUUID());
         recordSuccess(player.getUUID());
         clearSession(player);
         SESSIONS.put(player.getUUID(), account);
@@ -232,6 +312,9 @@ public final class AnternetAccountHandler {
         com.craisinlord.antos.content.computer.ComputerAccountLoginEvents.fire(player, account);
         resultSender.accept(player, new AnternetAccountResultPayload(AnternetAccountResultPayload.SUCCESS,
                 account.accountId(), account.workspaceId(), account.displayUsername()));
+        if (ComputerWorkspaceData.access(server).mustChangePassword(account.accountId())) {
+            send(player, AnternetAccountResultPayload.PASSWORD_CHANGE_REQUIRED);
+        }
     }
 
     private static <T> boolean submitAuthJob(ServerPlayer player, Supplier<T> work, BiConsumer<ServerPlayer, T> apply) {
@@ -312,6 +395,7 @@ public final class AnternetAccountHandler {
         PENDING_INSERTIONS.clear();
         BOUND_DEVICES.clear();
         LOGIN_THROTTLES.clear();
+        HINT_FAILURES.clear();
         ACCOUNT_CREATIONS.clear();
     }
 
@@ -321,6 +405,7 @@ public final class AnternetAccountHandler {
         PENDING_DEVICES.remove(player.getUUID());
         PENDING_INSERTIONS.remove(player.getUUID());
         LOGIN_THROTTLES.remove(player.getUUID());
+        HINT_FAILURES.remove(player.getUUID());
         ComputerAccessHandler.playerDisconnected(player);
     }
 

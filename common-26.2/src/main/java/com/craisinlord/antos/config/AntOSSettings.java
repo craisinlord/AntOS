@@ -3,6 +3,9 @@ package com.craisinlord.antos.config;
 import com.craisinlord.antos.AntOS;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.io.Reader;
 import java.io.Writer;
@@ -17,103 +20,261 @@ import java.util.UUID;
 
 public final class AntOSSettings {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static volatile Config config = new Config();
-    private static Path configPath;
+    private static final int READ_ATTEMPTS = 5;
+    private static final int CONFIG_VERSION = 2;
+    private static final int STATE_VERSION = 1;
+    private static final String NETWORK_KEY = "antosSettings";
+    private static final List<String> PLAYER_KEYS = List.of("preferences", "lastAnternetUsername", "initialBootSeen",
+            "completedComputerTours", "taskGroupCollapsed", "resumeSnapshots", "terminalHistory");
+    private static volatile PackConfig pack = new PackConfig().withDefaults();
+    private static volatile SharedSettings synced;
+    private static ClientState state = new ClientState().withDefaults();
+    private static Path statePath;
+    private static boolean stateWritable;
 
     private AntOSSettings() {}
 
-    public static synchronized void load(Path configFile) {
-        configPath = configFile;
+    public static synchronized void loadConfig(Path configFile) {
         try {
             Path parent = configFile.getParent();
             if (parent != null) Files.createDirectories(parent);
             if (!Files.exists(configFile)) {
-                try (Writer writer = Files.newBufferedWriter(configFile)) {
-                    GSON.toJson(new Config(), writer);
-                }
-                config = new Config();
+                pack = new PackConfig().withDefaults();
+                write(configFile, GSON.toJsonTree(pack));
                 AntOS.LOGGER.info("Created AntOS configuration at {}", configFile);
                 return;
             }
-            try (Reader reader = Files.newBufferedReader(configFile)) {
-                Config loaded = GSON.fromJson(reader, Config.class);
-                config = loaded == null ? new Config() : loaded.withDefaults();
-            }
-            try (Writer writer = Files.newBufferedWriter(configFile)) {
-                GSON.toJson(config, writer);
+            pack = PackConfig.from(readJson(configFile));
+        } catch (Exception exception) {
+            AntOS.LOGGER.error("Could not load AntOS configuration from {}; using defaults for this session and leaving the file untouched",
+                    configFile, exception);
+            pack = new PackConfig().withDefaults();
+        }
+    }
+
+    public static synchronized void loadClientState(Path stateFile, Path legacyConfigFile) {
+        statePath = stateFile;
+        stateWritable = false;
+        try {
+            Path parent = stateFile.getParent();
+            if (parent != null) Files.createDirectories(parent);
+            if (Files.exists(stateFile)) {
+                ClientState loaded = GSON.fromJson(readJson(stateFile), ClientState.class);
+                state = (loaded == null ? new ClientState() : loaded).withDefaults();
+                stateWritable = true;
+                return;
             }
         } catch (Exception exception) {
-            AntOS.LOGGER.error("Could not load AntOS configuration from {}; using defaults", configFile, exception);
-            config = new Config();
+            AntOS.LOGGER.error("Could not load AntOS player settings from {}; using defaults for this session and leaving the file untouched",
+                    stateFile, exception);
+            state = new ClientState().withDefaults();
+            return;
         }
+        JsonObject legacy = readLegacy(legacyConfigFile);
+        boolean migrating = legacy != null && PLAYER_KEYS.stream().anyMatch(legacy::has);
+        state = migrating ? legacyState(legacy) : freshState();
+        if (state == null) {
+            migrating = false;
+            state = freshState();
+        }
+        stateWritable = true;
+        if (!saveState()) return;
+        if (migrating) {
+            stripLegacyConfig(legacyConfigFile, legacy);
+            AntOS.LOGGER.info("Moved AntOS player settings from {} to {}", legacyConfigFile, stateFile);
+        } else {
+            AntOS.LOGGER.info("Created AntOS player settings at {}", stateFile);
+        }
+    }
+
+    private static JsonObject readJson(Path file) throws Exception {
+        for (int attempt = 1; ; attempt++) {
+            try (Reader reader = Files.newBufferedReader(file)) {
+                JsonElement element = JsonParser.parseReader(reader);
+                return element != null && element.isJsonObject() ? element.getAsJsonObject() : new JsonObject();
+            } catch (java.io.IOException exception) {
+                if (attempt >= READ_ATTEMPTS) throw exception;
+                Thread.sleep(100L * attempt);
+            }
+        }
+    }
+
+    private static JsonObject readLegacy(Path legacyConfigFile) {
+        if (legacyConfigFile == null || !Files.exists(legacyConfigFile)) return null;
+        try {
+            return readJson(legacyConfigFile);
+        } catch (Exception exception) {
+            AntOS.LOGGER.warn("Could not read {} to move AntOS player settings; starting with defaults", legacyConfigFile, exception);
+            return null;
+        }
+    }
+
+    private static ClientState legacyState(JsonObject legacy) {
+        try {
+            ClientState migrated = GSON.fromJson(legacy, ClientState.class);
+            return migrated == null ? null : migrated.withDefaults();
+        } catch (RuntimeException exception) {
+            AntOS.LOGGER.warn("Could not read the AntOS player settings in the old configuration; starting with defaults", exception);
+            return null;
+        }
+    }
+
+    private static ClientState freshState() {
+        ClientState fresh = new ClientState().withDefaults();
+        fresh.preferences = pack.client.defaultPreferences();
+        return fresh;
+    }
+
+    private static void stripLegacyConfig(Path configFile, JsonObject legacy) {
+        JsonObject updated = new JsonObject();
+        updated.addProperty("configVersion", CONFIG_VERSION);
+        JsonObject client = legacy.get("client") instanceof JsonObject existing ? existing.deepCopy() : new JsonObject();
+        legacy.entrySet().forEach(entry -> {
+            String key = entry.getKey();
+            if (key.equals("configVersion") || key.equals("client") || PLAYER_KEYS.contains(key)) return;
+            if (key.equals("inventoryComputerButton")) {
+                if (!client.has(key)) client.add(key, entry.getValue());
+                return;
+            }
+            updated.add(key, entry.getValue());
+        });
+        if (!client.has("inventoryComputerButton")) client.addProperty("inventoryComputerButton", false);
+        if (!client.has("defaultPreferences")) client.add("defaultPreferences", new JsonObject());
+        updated.add("client", client);
+        try {
+            write(configFile, updated);
+        } catch (Exception exception) {
+            AntOS.LOGGER.warn("Could not remove player settings from {}; they will be ignored", configFile, exception);
+        }
+    }
+
+    private static boolean saveState() {
+        if (statePath == null || !stateWritable) return false;
+        try {
+            write(statePath, GSON.toJsonTree(state));
+            return true;
+        } catch (Exception exception) {
+            AntOS.LOGGER.error("Could not save AntOS player settings to {}", statePath, exception);
+            return false;
+        }
+    }
+
+    private static void write(Path file, JsonElement json) throws java.io.IOException {
+        Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+        try {
+            try (Writer writer = Files.newBufferedWriter(temporary)) {
+                GSON.toJson(json, writer);
+            }
+            try {
+                Files.move(temporary, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    public static synchronized void encodeNetworkSettings(JsonObject root) {
+        root.add(NETWORK_KEY, GSON.toJsonTree(pack.shared()));
+    }
+
+    public static void applyNetworkSettings(JsonObject root) {
+        if (!(root.get(NETWORK_KEY) instanceof JsonObject json)) return;
+        try {
+            SharedSettings received = GSON.fromJson(json, SharedSettings.class);
+            if (received != null) synced = received.withDefaults();
+        } catch (RuntimeException exception) {
+            AntOS.LOGGER.warn("Ignoring invalid AntOS settings from the server", exception);
+        }
+    }
+
+    public static void clearNetworkSettings() {
+        synced = null;
+    }
+
+    private static SharedSettings shared() {
+        SharedSettings current = synced;
+        return current != null ? current : pack.shared();
     }
 
     public static synchronized String lastAnternetUsername() {
-        return config.lastAnternetUsername == null ? "" : config.lastAnternetUsername;
+        return state.lastAnternetUsername == null ? "" : state.lastAnternetUsername;
     }
 
     public static synchronized void setLastAnternetUsername(String username) {
-        config.lastAnternetUsername = username == null ? "" : username.trim();
-        if (configPath == null) return;
-        try (Writer writer = Files.newBufferedWriter(configPath)) {
-            GSON.toJson(config, writer);
-        } catch (Exception exception) {
-            AntOS.LOGGER.error("Could not save AntOS configuration to {}", configPath, exception);
-        }
+        state.lastAnternetUsername = username == null ? "" : username.trim();
+        saveState();
     }
 
     public static synchronized boolean consumeInitialBoot() {
-        if (config.initialBootSeen || !lastAnternetUsername().isBlank()) {
-            config.initialBootSeen = true;
-            save();
+        if (state.initialBootSeen || !lastAnternetUsername().isBlank()) {
+            state.initialBootSeen = true;
+            saveState();
             return false;
         }
-        config.initialBootSeen = true;
-        save();
+        state.initialBootSeen = true;
+        saveState();
         return true;
     }
 
     public static synchronized boolean hasCompletedComputerTour(UUID accountId) {
-        return accountId != null && config.completedComputerTours != null
-                && config.completedComputerTours.contains(accountId.toString());
+        return accountId != null && state.completedComputerTours.contains(accountId.toString());
     }
 
     public static synchronized void setComputerTourCompleted(UUID accountId, boolean completed) {
         if (accountId == null) return;
-        if (config.completedComputerTours == null) config.completedComputerTours = new HashSet<>();
-        if (completed) config.completedComputerTours.add(accountId.toString());
-        else config.completedComputerTours.remove(accountId.toString());
-        save();
+        if (completed) state.completedComputerTours.add(accountId.toString());
+        else state.completedComputerTours.remove(accountId.toString());
+        saveState();
+    }
+
+    public static synchronized boolean hasCompletedMerchantTour(String workspace) {
+        return workspace != null && state.completedMerchantTours.contains(workspace);
+    }
+
+    public static synchronized void setMerchantTourCompleted(String workspace, boolean completed) {
+        if (workspace == null || workspace.isBlank() || workspace.equals("workspace:unbound")) return;
+        if (completed) state.completedMerchantTours.add(workspace);
+        else state.completedMerchantTours.remove(workspace);
+        saveState();
+    }
+
+    public static synchronized String resumeSnapshot(String key) {
+        return key == null ? null : state.resumeSnapshots.get(key);
+    }
+
+    public static synchronized void setResumeSnapshot(String key, String snapshot) {
+        if (key == null || key.isBlank()) return;
+        if (snapshot == null) state.resumeSnapshots.remove(key);
+        else state.resumeSnapshots.put(key, snapshot);
+        saveState();
     }
 
     public static synchronized Boolean taskGroupCollapsed(String groupId) {
-        return config.taskGroupCollapsed == null ? null : config.taskGroupCollapsed.get(groupId);
+        return state.taskGroupCollapsed.get(groupId);
     }
 
     public static synchronized void setTaskGroupCollapsed(String groupId, boolean collapsed) {
         if (groupId == null || groupId.isBlank()) return;
-        if (config.taskGroupCollapsed == null) config.taskGroupCollapsed = new HashMap<>();
-        config.taskGroupCollapsed.put(groupId, collapsed);
-        save();
+        state.taskGroupCollapsed.put(groupId, collapsed);
+        saveState();
     }
 
     public static synchronized Preferences preferences() {
-        if (config.preferences == null) config.preferences = new Preferences();
-        return config.preferences.copy();
+        return state.preferences.copy();
     }
 
     public static synchronized String displayBrightness() {
-        if (config.preferences == null) config.preferences = new Preferences();
-        return config.preferences.displayBrightness;
+        return state.preferences.displayBrightness;
     }
 
     public static synchronized boolean reduceEffects() {
-        return config.preferences != null && config.preferences.reduceEffects;
+        return state.preferences.reduceEffects;
     }
 
     public static synchronized float antosUiScale() {
-        if (config.preferences == null) config.preferences = new Preferences();
-        return switch (config.preferences.uiSize) {
+        return switch (state.preferences.uiSize) {
             case "large" -> 1.15F;
             case "largest" -> 1.30F;
             default -> 1.0F;
@@ -121,69 +282,100 @@ public final class AntOSSettings {
     }
 
     public static synchronized void updatePreferences(java.util.function.Consumer<Preferences> change) {
-        if (config.preferences == null) config.preferences = new Preferences();
-        change.accept(config.preferences);
-        config.preferences.normalize();
-        save();
+        change.accept(state.preferences);
+        state.preferences.normalize();
+        saveState();
     }
 
     public static synchronized List<String> terminalHistory(String workspace) {
-        if (config.terminalHistory == null || workspace == null) return List.of();
-        return List.copyOf(config.terminalHistory.getOrDefault(workspace, List.of()));
+        if (workspace == null) return List.of();
+        return List.copyOf(state.terminalHistory.getOrDefault(workspace, List.of()));
     }
 
     public static synchronized void setTerminalHistory(String workspace, List<String> history) {
         if (workspace == null || workspace.isBlank()) return;
-        if (config.terminalHistory == null) config.terminalHistory = new HashMap<>();
-        if (history == null || history.isEmpty()) config.terminalHistory.remove(workspace);
-        else config.terminalHistory.put(workspace, List.copyOf(history.subList(Math.max(0, history.size() - 50), history.size())));
-        save();
+        if (history == null || history.isEmpty()) state.terminalHistory.remove(workspace);
+        else state.terminalHistory.put(workspace, List.copyOf(history.subList(Math.max(0, history.size() - 50), history.size())));
+        saveState();
     }
 
     public static synchronized void clearTerminalHistory() {
-        if (config.terminalHistory != null) config.terminalHistory.clear();
-        save();
-    }
-
-    private static void save() {
-        if (configPath == null) return;
-        try (Writer writer = Files.newBufferedWriter(configPath)) {
-            GSON.toJson(config, writer);
-        } catch (Exception exception) {
-            AntOS.LOGGER.error("Could not save AntOS configuration to {}", configPath, exception);
-        }
+        state.terminalHistory.clear();
+        saveState();
     }
 
     public static boolean unlockAllArchiveEntries() {
-        return config.unlockAllArchiveEntries;
+        return pack.unlockAllArchiveEntries;
     }
 
     public static boolean unlockAllGameEntries() {
-        return config.unlockAllGameEntries;
+        return pack.unlockAllGameEntries;
     }
 
     public static boolean showIntroductionEntry() {
-        return config.showIntroductionEntry;
+        return pack.showIntroductionEntry;
     }
 
-    public static synchronized long blockleDailyAntcoinReward() {
-        return Math.max(0L, config.blockleDailyAntcoinReward);
+    public static long blockleDailyAntcoinReward() {
+        return Math.max(0L, shared().blockleDailyAntcoinReward);
     }
 
-    public static synchronized boolean sendAntazonUnlockEmail() {
-        return config.sendAntazonUnlockEmail;
+    public static boolean gameBuiltIn(String gameId) {
+        BuiltInGames games = shared().builtInGames;
+        return switch (gameId) {
+            case "chess" -> games.chess;
+            case "minesweeper" -> games.minesweeper;
+            case "cake_stack" -> games.cakeStack;
+            case "fliptris" -> games.fliptris;
+            case "nether_breakout" -> games.netherBreakout;
+            default -> false;
+        };
     }
 
-    public static synchronized Set<String> legacyAntazonUnlockEmails() {
-        return config.antazonUnlockEmailsSent == null ? Set.of() : Set.copyOf(config.antazonUnlockEmailsSent);
+    public static long gameAntcoinReward(String mode) {
+        GameRewards rewards = shared().gameRewards;
+        return switch (mode) {
+            case "chess_easy" -> Math.max(0L, rewards.chessEasy);
+            case "chess_normal" -> Math.max(0L, rewards.chessNormal);
+            case "chess_hard" -> Math.max(0L, rewards.chessHard);
+            case "chess_expert" -> Math.max(0L, rewards.chessExpert);
+            case "minesweeper_small" -> Math.max(0L, rewards.minesweeperSmall);
+            case "minesweeper_large" -> Math.max(0L, rewards.minesweeperLarge);
+            default -> -1L;
+        };
+    }
+
+    public static int passwordHintAfterFailures() {
+        return Math.max(0, pack.passwordHintAfterFailures);
+    }
+
+    public static boolean sendAntazonUnlockEmail() {
+        return pack.sendAntazonUnlockEmail;
+    }
+
+    public static Set<String> legacyAntazonUnlockEmails() {
+        Set<String> sent = pack.antazonUnlockEmailsSent;
+        return sent == null ? Set.of() : Set.copyOf(sent);
     }
 
     public static boolean inventoryComputerButtonEnabled() {
-        return config.inventoryComputerButton;
+        return pack.client.inventoryComputerButton;
+    }
+
+    public static boolean jeiAntazonPrices() {
+        return pack.jei.antazonPrices;
+    }
+
+    public static boolean jeiSellValues() {
+        return pack.jei.sellValues;
+    }
+
+    public static boolean jeiTaskRewards() {
+        return pack.jei.taskRewards;
     }
 
     public static boolean appEnabled(String appId) {
-        DesktopApps apps = config.desktopApps;
+        DesktopApps apps = shared().desktopApps;
         return switch (appId) {
             case "ARCHIVE" -> apps.archive;
             case "FILES" -> apps.files;
@@ -193,6 +385,7 @@ public final class AntOSSettings {
             case "PAINT" -> apps.paint;
             case "ANTMAIL" -> apps.antmail;
             case "ANTAZON" -> apps.antazon;
+            case "MERCHANT" -> apps.merchant;
             case "GAMES" -> apps.games;
             case "DISKS" -> apps.disks;
             case "TASKS" -> apps.tasks;
@@ -200,30 +393,116 @@ public final class AntOSSettings {
         };
     }
 
-    private static final class Config {
+    private static final class PackConfig {
+        private int configVersion = CONFIG_VERSION;
         private boolean unlockAllArchiveEntries;
         private boolean unlockAllGameEntries;
         private boolean showIntroductionEntry = true;
-        private long blockleDailyAntcoinReward = 10L;
         private boolean sendAntazonUnlockEmail = true;
-        private Set<String> antazonUnlockEmailsSent = new HashSet<>();
-        private boolean inventoryComputerButton;
+        private int passwordHintAfterFailures = 3;
+        private long blockleDailyAntcoinReward = 10L;
+        private BuiltInGames builtInGames = new BuiltInGames();
+        private GameRewards gameRewards = new GameRewards();
         private DesktopApps desktopApps = new DesktopApps();
+        private PackClient client = new PackClient();
+        private JeiIntegration jei = new JeiIntegration();
+        private Set<String> antazonUnlockEmailsSent;
+        private transient SharedSettings shared;
+
+        private static PackConfig from(JsonObject root) {
+            PackConfig loaded = GSON.fromJson(root, PackConfig.class);
+            PackConfig config = (loaded == null ? new PackConfig() : loaded).withDefaults();
+            boolean clientHasButton = root.get("client") instanceof JsonObject client && client.has("inventoryComputerButton");
+            if (!clientHasButton && root.has("inventoryComputerButton")) {
+                config.client.inventoryComputerButton = root.get("inventoryComputerButton").getAsBoolean();
+            }
+            return config;
+        }
+
+        private PackConfig withDefaults() {
+            if (builtInGames == null) builtInGames = new BuiltInGames();
+            if (gameRewards == null) gameRewards = new GameRewards();
+            if (desktopApps == null) desktopApps = new DesktopApps();
+            if (client == null) client = new PackClient();
+            if (jei == null) jei = new JeiIntegration();
+            if (client.defaultPreferences == null) client.defaultPreferences = new JsonObject();
+            shared = SharedSettings.of(this);
+            return this;
+        }
+
+        private SharedSettings shared() {
+            return shared;
+        }
+    }
+
+    private static final class JeiIntegration {
+        private boolean antazonPrices = true;
+        private boolean sellValues = true;
+        private boolean taskRewards = true;
+    }
+
+    private static final class PackClient {
+        private boolean inventoryComputerButton;
+        private JsonObject defaultPreferences = new JsonObject();
+
+        private Preferences defaultPreferences() {
+            Preferences preferences;
+            try {
+                preferences = defaultPreferences == null ? null : GSON.fromJson(defaultPreferences, Preferences.class);
+            } catch (RuntimeException exception) {
+                AntOS.LOGGER.warn("Ignoring invalid client.defaultPreferences in the AntOS configuration", exception);
+                preferences = null;
+            }
+            if (preferences == null) preferences = new Preferences();
+            preferences.normalize();
+            return preferences;
+        }
+    }
+
+    private static final class SharedSettings {
+        private long blockleDailyAntcoinReward = 10L;
+        private BuiltInGames builtInGames = new BuiltInGames();
+        private GameRewards gameRewards = new GameRewards();
+        private DesktopApps desktopApps = new DesktopApps();
+
+        private static SharedSettings of(PackConfig config) {
+            SharedSettings settings = new SharedSettings();
+            settings.blockleDailyAntcoinReward = config.blockleDailyAntcoinReward;
+            settings.builtInGames = config.builtInGames;
+            settings.gameRewards = config.gameRewards;
+            settings.desktopApps = config.desktopApps;
+            return settings;
+        }
+
+        private SharedSettings withDefaults() {
+            if (builtInGames == null) builtInGames = new BuiltInGames();
+            if (gameRewards == null) gameRewards = new GameRewards();
+            if (desktopApps == null) desktopApps = new DesktopApps();
+            return this;
+        }
+    }
+
+    private static final class ClientState {
+        private int stateVersion = STATE_VERSION;
+        private Preferences preferences = new Preferences();
         private String lastAnternetUsername = "";
         private boolean initialBootSeen;
         private Set<String> completedComputerTours = new HashSet<>();
+        private Set<String> completedMerchantTours = new HashSet<>();
         private Map<String, Boolean> taskGroupCollapsed = new HashMap<>();
-        private Preferences preferences = new Preferences();
+        private Map<String, String> resumeSnapshots = new HashMap<>();
         private Map<String, List<String>> terminalHistory = new HashMap<>();
 
-        private Config withDefaults() {
+        private ClientState withDefaults() {
+            stateVersion = STATE_VERSION;
             if (preferences == null) preferences = new Preferences();
             preferences.normalize();
-            if (terminalHistory == null) terminalHistory = new HashMap<>();
-            if (desktopApps == null) desktopApps = new DesktopApps();
+            if (lastAnternetUsername == null) lastAnternetUsername = "";
             if (completedComputerTours == null) completedComputerTours = new HashSet<>();
+            if (completedMerchantTours == null) completedMerchantTours = new HashSet<>();
             if (taskGroupCollapsed == null) taskGroupCollapsed = new HashMap<>();
-            if (antazonUnlockEmailsSent == null) antazonUnlockEmailsSent = new HashSet<>();
+            if (resumeSnapshots == null) resumeSnapshots = new HashMap<>();
+            if (terminalHistory == null) terminalHistory = new HashMap<>();
             return this;
         }
     }
@@ -234,7 +513,12 @@ public final class AntOSSettings {
         public String theme = "green";
         public String displayBrightness = "standard";
         public boolean reduceEffects;
-        /** Pre-brightness settings; read once to migrate, then dropped from the file. */
+        public boolean resumeSession = true;
+        public String displayLook = "terminal";
+        public String iconColor = "accent";
+        public String wallpaperColors = "match";
+        public String customColors = "";
+        public boolean lookChosen;
         private String screenPalette;
         private Boolean softText;
         public String uiSize = "standard";
@@ -243,6 +527,11 @@ public final class AntOSSettings {
         public String taskAlerts = "actionbar";
         public boolean taskSound = true;
         public String taskMapZoom = "75";
+        public String taskSidebarBehavior = "click";
+        public String taskSidebarWidth = "narrow";
+        public String taskSidebarText = "small";
+        public String taskSidebarSpacing = "compact";
+        public boolean taskSidebarCounts = true;
         public String editorLineNumbers = "auto";
         public boolean paintGrid = true;
         public int paintBrush = 1;
@@ -255,12 +544,23 @@ public final class AntOSSettings {
             copy.theme = theme;
             copy.displayBrightness = displayBrightness;
             copy.reduceEffects = reduceEffects;
+            copy.resumeSession = resumeSession;
+            copy.displayLook = displayLook;
+            copy.iconColor = iconColor;
+            copy.wallpaperColors = wallpaperColors;
+            copy.customColors = customColors;
+            copy.lookChosen = lookChosen;
             copy.uiSize = uiSize;
             copy.mailAlerts = mailAlerts;
             copy.mailSound = mailSound;
             copy.taskAlerts = taskAlerts;
             copy.taskSound = taskSound;
             copy.taskMapZoom = taskMapZoom;
+            copy.taskSidebarBehavior = taskSidebarBehavior;
+            copy.taskSidebarWidth = taskSidebarWidth;
+            copy.taskSidebarText = taskSidebarText;
+            copy.taskSidebarSpacing = taskSidebarSpacing;
+            copy.taskSidebarCounts = taskSidebarCounts;
             copy.editorLineNumbers = editorLineNumbers;
             copy.paintGrid = paintGrid;
             copy.paintBrush = paintBrush;
@@ -278,13 +578,30 @@ public final class AntOSSettings {
                 softText = null;
             }
             if (displayBrightness == null || !List.of("standard", "soft", "dim").contains(displayBrightness)) displayBrightness = "standard";
+            if (displayLook == null || !List.of("terminal", "graphite", "custom").contains(displayLook)) displayLook = "terminal";
+            if (iconColor == null || !List.of("accent", "neutral").contains(iconColor)) iconColor = "accent";
+            if (wallpaperColors == null || !List.of("match", "original").contains(wallpaperColors)) wallpaperColors = "match";
+            if (customColors == null) customColors = "";
             if (uiSize == null || !List.of("standard", "large", "largest").contains(uiSize)) uiSize = "standard";
             if (mailAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(mailAlerts)) mailAlerts = "toast";
             if (taskAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(taskAlerts)) taskAlerts = "actionbar";
             if (taskMapZoom == null || !TASK_MAP_ZOOMS.contains(taskMapZoom)) taskMapZoom = "75";
+            if (taskSidebarBehavior == null || !List.of("click", "hover", "always").contains(taskSidebarBehavior)) taskSidebarBehavior = "click";
+            if (taskSidebarWidth == null || !List.of("narrow", "standard", "wide").contains(taskSidebarWidth)) taskSidebarWidth = "narrow";
+            if (taskSidebarText == null || !List.of("small", "normal", "large").contains(taskSidebarText)) taskSidebarText = "small";
+            if (taskSidebarSpacing == null || !List.of("compact", "comfortable").contains(taskSidebarSpacing)) taskSidebarSpacing = "compact";
             if (editorLineNumbers == null || !List.of("auto", "on", "off").contains(editorLineNumbers)) editorLineNumbers = "auto";
             paintBrush = Math.max(1, Math.min(3, paintBrush));
         }
+    }
+
+    private static final class GameRewards {
+        private long chessEasy = 5L;
+        private long chessNormal = 10L;
+        private long chessHard = 20L;
+        private long chessExpert = 40L;
+        private long minesweeperSmall = 5L;
+        private long minesweeperLarge = 15L;
     }
 
     private static final class DesktopApps {
@@ -296,8 +613,17 @@ public final class AntOSSettings {
         private boolean paint = true;
         private boolean antmail = true;
         private boolean antazon;
+        private boolean merchant = false;
         private boolean games = true;
         private boolean disks = true;
         private boolean tasks;
+    }
+
+    private static final class BuiltInGames {
+        private boolean chess = true;
+        private boolean minesweeper = true;
+        private boolean cakeStack = true;
+        private boolean fliptris = true;
+        private boolean netherBreakout = true;
     }
 }

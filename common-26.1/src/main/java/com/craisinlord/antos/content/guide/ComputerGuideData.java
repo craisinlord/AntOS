@@ -384,12 +384,14 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         root.addProperty("unlockAllArchiveEntries", AntOSSettings.unlockAllArchiveEntries());
         root.addProperty("unlockAllGameEntries", AntOSSettings.unlockAllGameEntries());
         root.addProperty("showIntroductionEntry", AntOSSettings.showIntroductionEntry());
+        AntOSSettings.encodeNetworkSettings(root);
     }
 
     public static void applyNetworkSettings(JsonObject root) {
         if (root.has("unlockAllArchiveEntries")) serverUnlockAllArchiveEntries = root.get("unlockAllArchiveEntries").getAsBoolean();
         if (root.has("unlockAllGameEntries")) serverUnlockAllGameEntries = root.get("unlockAllGameEntries").getAsBoolean();
         if (root.has("showIntroductionEntry")) serverShowIntroductionEntry = root.get("showIntroductionEntry").getAsBoolean();
+        AntOSSettings.applyNetworkSettings(root);
     }
 
     public record ArchiveDefinitions(String json, String hash) { }

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../../../custom-displays.schema.json",
+  "version": 1,
+  "title": "Build an infusion altar",
+  "width": 320,
+  "height": 220,
+  "style": {"scene_grid": true, "output_border": "#B690FF"},
+  "elements": [
+    {
+      "id": "altar", "type": "scene", "x": 3, "y": 3, "width": 205, "height": 195,
+      "pattern": [["SSS", "SSS", "SSS"], ["A A", " A ", "A A"], ["C C", " C ", "C C"]],
+      "mapping": {"S": "minecraft:stone_bricks", "A": "minecraft:polished_andesite", "C": "minecraft:amethyst_cluster[facing=up]"},
+      "steps": [
+        {"id": "platform", "title": "1. Platform", "text": "Lay a three-by-three stone-brick platform.", "through_y": 0},
+        {"id": "pillars", "title": "2. Pillars", "text": "Place the corner pillars and the central focus.", "through_y": 1},
+        {"id": "crystals", "title": "3. Crystals", "text": "Add a crystal to each pillar. Use context mode to inspect alignment.", "through_y": 2}
+      ]
+    },
+    {"id": "materials", "type": "materials", "scene": "altar", "scope": "cumulative", "x": 215, "y": 5, "width": 100, "height": 180},
+    {"type": "text", "x": 5, "y": 205, "width": 310, "text": "Select a material to highlight its blocks.", "color": "muted"}
+  ],
+  "layouts": [
+    {"id": "compact", "min_width": 0, "width": 200, "height": 340, "elements": [
+      {"ref": "altar", "x": 0, "y": 0, "width": 198, "height": 200},
+      {"ref": "materials", "x": 3, "y": 208, "width": 194, "height": 125}
+    ]},
+    {"id": "standard", "min_width": 280, "width": 320, "height": 220, "elements": [
+      {"ref": "altar", "width": 205, "height": 200},
+      {"ref": "materials", "x": 215, "y": 3, "width": 100, "height": 190}
+    ]}
+  ]
+}

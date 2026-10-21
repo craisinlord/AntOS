@@ -25,6 +25,11 @@ public record AnternetAccountResultPayload(int result, UUID accountId, UUID work
     public static final int PASSWORD_CHANGE_DENIED = 13;
     public static final int PASSWORD_CHANGE_INVALID = 14;
     public static final int PASSWORD_CHANGE_RATE_LIMITED = 15;
+    public static final int HINT_SAVED = 16;
+    public static final int HINT_DENIED = 17;
+    public static final int HINT_INVALID = 18;
+    public static final int PASSWORD_CHANGE_REQUIRED = 19;
+    public static final int HINT_RATE_LIMITED = 20;
     public static final UUID EMPTY_ID = new UUID(0L, 0L);
     public static final Type<AnternetAccountResultPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "anternet_account_result"));
     private static final StreamCodec<RegistryFriendlyByteBuf, UUID> UUID_CODEC = new StreamCodec<>() {

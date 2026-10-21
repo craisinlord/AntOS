@@ -12,7 +12,6 @@ public enum ComputerTheme {
     RAINBOW(0.0F, 1.0F, 0.0F, true);
 
     private static ComputerTheme cached;
-    private static int pauseDepth;
     private final float red;
     private final float green;
     private final float blue;
@@ -48,18 +47,8 @@ public enum ComputerTheme {
         return GREEN;
     }
 
-    public static void pause() {
-        pauseDepth++;
-    }
 
-    public static void resume() {
-        pauseDepth = Math.max(0, pauseDepth - 1);
-    }
 
-    public static int remap(int color) {
-        if (pauseDepth > 0) return color;
-        return AccessibilityDisplay.remap(color, active());
-    }
 
     public int apply(int color) {
         if (this == GREEN) return color;

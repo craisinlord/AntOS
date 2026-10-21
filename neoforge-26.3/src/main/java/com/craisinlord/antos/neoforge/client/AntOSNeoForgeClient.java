@@ -38,7 +38,7 @@ public final class AntOSNeoForgeClient {
 
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
-            AntOSSettings.load(FMLPaths.CONFIGDIR.get().resolve("antos.json"));
+            AntOSSettings.loadClientState(FMLPaths.GAMEDIR.get().resolve("antos").resolve("client.json"), FMLPaths.CONFIGDIR.get().resolve("antos.json"));
             NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onClientLogout);
             NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onScreenInit);
             AntOSComputerGames.register();

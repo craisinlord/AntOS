@@ -28,9 +28,10 @@ import java.util.concurrent.Executor;
 
 public final class AntOSFabric implements ModInitializer {
     @Override public void onInitialize() {
-        AntOSSettings.load(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
+        AntOSSettings.loadConfig(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
         AntOSFabricContent.register();
         AntOSFabricNetworking.register();
+        com.craisinlord.antos.content.network.JeiSync.register();
         if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("fieldguide")) {
             FieldGuideCompat.initialize();
         }
@@ -49,6 +50,7 @@ public final class AntOSFabric implements ModInitializer {
             com.craisinlord.antos.content.antmail.AntmailDebugCommands.register(dispatcher);
             com.craisinlord.antos.content.antazon.AntazonCommands.register(dispatcher);
             com.craisinlord.antos.content.antazon.AntcoinCommands.register(dispatcher);
+            com.craisinlord.antos.content.computer.AccountCommands.register(dispatcher);
         });
         registerReloadListener("computer_data", ComputerGuideData.instance());
         registerReloadListener("blockle_answers", BlockleAnswers.instance());
@@ -59,6 +61,7 @@ public final class AntOSFabric implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             FieldGuideCompat.tick(server);
             FloppyTextureSync.tick(server);
+            com.craisinlord.antos.content.network.JeiSync.tick(server);
             AntmailEventData.onTick(server);
             com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
             com.craisinlord.antos.content.computer.ComputerPrograms.tick(server);

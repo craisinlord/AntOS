@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.guide.TaskMarkup;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,7 +44,7 @@ final class TaskRichText {
             for (Piece piece : line.pieces()) {
                 if (piece.icon() != null) renderIcon(g, piece.icon(), x + piece.x(), lineY + (height - piece.icon().size()) / 2, renderMobFromSpawnEgg);
                 else {
-                    int color = piece.style().color() == TaskMarkup.BASE_COLOR ? baseColor : piece.style().color();
+                    int color = piece.style().color() == TaskMarkup.BASE_COLOR ? baseColor : Ui.fromTerminal(piece.style().color());
                     g.drawString(font, piece.component(), x + piece.x(), textY, color, false);
                 }
             }

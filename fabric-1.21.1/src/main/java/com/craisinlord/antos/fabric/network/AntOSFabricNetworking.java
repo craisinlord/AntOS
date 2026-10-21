@@ -44,6 +44,8 @@ public final class AntOSFabricNetworking {
         PayloadTypeRegistry.playS2C().register(AnternetAccountResultPayload.TYPE, AnternetAccountResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.playS2C().register(AntmailAnternetResultPayload.TYPE, AntmailAnternetResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.playS2C().register(FloppyTextureSyncPayload.TYPE, FloppyTextureSyncPayload.STREAM_CODEC);
+        PayloadTypeRegistry.playS2C().register(JeiSyncPayload.TYPE, JeiSyncPayload.STREAM_CODEC);
+        PayloadTypeRegistry.playS2C().register(com.craisinlord.antos.content.network.DisplaySyncPayload.TYPE, com.craisinlord.antos.content.network.DisplaySyncPayload.STREAM_CODEC);
         PayloadTypeRegistry.playC2S().register(AnternetComputerPayload.TYPE, AnternetComputerPayload.STREAM_CODEC);
         PayloadTypeRegistry.playC2S().register(AnternetAccountPayload.TYPE, AnternetAccountPayload.STREAM_CODEC);
         PayloadTypeRegistry.playC2S().register(AntmailAnternetPayload.TYPE, AntmailAnternetPayload.STREAM_CODEC);
@@ -62,6 +64,8 @@ public final class AntOSFabricNetworking {
         AnternetAccountHandler.setResultSender(ServerPlayNetworking::send);
         AntmailServerHandler.setResultSender(ServerPlayNetworking::send);
         FloppyTextureSync.setSender(ServerPlayNetworking::send);
+        JeiSync.setSender(ServerPlayNetworking::send);
+        com.craisinlord.antos.content.network.DisplaySync.setSender(ServerPlayNetworking::send);
     }
 
     private record ProtocolTask() implements ConfigurationTask {

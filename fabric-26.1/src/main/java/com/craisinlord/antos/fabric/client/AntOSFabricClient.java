@@ -24,7 +24,8 @@ import com.craisinlord.antos.content.client.screen.InventoryComputerButton;
 
 public final class AntOSFabricClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
-        AntOSSettings.load(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
+        AntOSSettings.loadClientState(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("antos").resolve("client.json"),
+                net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
         AntOSFabricClientNetworking.register();
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(AntOSClientHooks::clearConnectionState));
         AntOSComputerGames.register();

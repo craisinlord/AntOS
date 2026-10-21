@@ -3,6 +3,7 @@ package com.craisinlord.antos.neoforge.client;
 import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSClientHooks;
+import com.craisinlord.antos.content.client.ArchiveLookup;
 import com.craisinlord.antos.content.client.FloppyDiskModelProperties;
 import com.craisinlord.antos.content.client.screen.ComputerScreen;
 import com.craisinlord.antos.content.client.game.AntOSComputerGames;
@@ -38,9 +39,11 @@ public final class AntOSNeoForgeClient {
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
-            AntOSSettings.load(FMLPaths.CONFIGDIR.get().resolve("antos.json"));
+            AntOSSettings.loadClientState(FMLPaths.GAMEDIR.get().resolve("antos").resolve("client.json"), FMLPaths.CONFIGDIR.get().resolve("antos.json"));
             NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onClientLogout);
             NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onScreenInit);
+            NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onTooltip);
+            NeoForge.EVENT_BUS.addListener(AntOSNeoForgeClient::onClientTick);
             AntOSComputerGames.register();
             AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
             AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
@@ -58,6 +61,21 @@ public final class AntOSNeoForgeClient {
 
     private static void onClientLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         AntOSClientHooks.clearConnectionState();
+    }
+
+    private static void onTooltip(net.neoforged.neoforge.event.entity.player.ItemTooltipEvent event) {
+        ArchiveLookup.tooltip(event.getItemStack(), event.getToolTip());
+    }
+
+    private static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
+        ArchiveLookup.tick();
+    }
+
+    @SubscribeEvent
+    public static void registerKeys(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {
+        net.minecraft.client.KeyMapping key = ArchiveLookup.create(org.lwjgl.glfw.GLFW.GLFW_KEY_W);
+        key.setKeyConflictContext(net.neoforged.neoforge.client.settings.KeyConflictContext.GUI);
+        event.register(key);
     }
 
     private static void onScreenInit(ScreenEvent.Init.Post event) {

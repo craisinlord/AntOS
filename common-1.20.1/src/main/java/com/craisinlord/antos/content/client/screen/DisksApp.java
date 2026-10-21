@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.api.client.game.ComputerGameRegistry;
 import com.craisinlord.antos.config.AntOSSettings;
@@ -22,8 +23,6 @@ import org.lwjgl.glfw.GLFW;
 import static com.craisinlord.antos.content.client.screen.ComputerScreen.*;
 
 final class DisksApp extends ComputerApp {
-    private static final int MUTED = 0xFF6E926E;
-    private static final int PANEL = 0xFF071007;
     private final List<Hit> hits = new ArrayList<>();
     private final List<Track> tracks = new ArrayList<>();
     private Track dragging;
@@ -59,8 +58,8 @@ final class DisksApp extends ComputerApp {
         hits.clear();
         tracks.clear();
         if (!ComputerArchiveUnlockClientState.hasSnapshot()) {
-            text(g, "loading", x + 12, y + 22, GREEN);
-            text(g, "loading_hint", x + 12, y + 40, MUTED);
+            text(g, "loading", x + 12, y + 22, Ui.TEXT_STRONG);
+            text(g, "loading_hint", x + 12, y + 40, Ui.TEXT_MUTED);
             return;
         }
         DiskCollection data = collection();
@@ -94,16 +93,16 @@ final class DisksApp extends ComputerApp {
     }
 
     private void drawSidebar(GuiGraphics g, int x, int y, int h, List<ComputerGuideData.Disk> disks, List<ResourceLocation> categories) {
-        g.fill(x, y, x + 87, y + h, PANEL);
-        g.fill(x + 87, y, x + 88, y + h, DARK_GREEN);
-        text(g, "collection", x + 6, y + 4, GREEN);
+        g.fill(x, y, x + 87, y + h, Ui.PANEL);
+        g.fill(x + 87, y, x + 88, y + h, Ui.SURFACE);
+        text(g, "collection", x + 6, y + 4, Ui.TEXT_STRONG);
         DiskCollection data = collection;
         String count = data.count();
-        g.drawString(font, count, x + 6, y + 18, PALE_GREEN, false);
+        g.drawString(font, count, x + 6, y + 18, Ui.TEXT, false);
         long total = data.total();
         long owned = data.owned();
-        g.fill(x + 6, y + 31, x + 81, y + 34, DARK_GREEN);
-        if (total > 0) g.fill(x + 6, y + 31, x + 6 + (int) (75 * owned / total), y + 34, GREEN);
+        g.fill(x + 6, y + 31, x + 81, y + 34, Ui.SURFACE);
+        if (total > 0) g.fill(x + 6, y + 31, x + 6 + (int) (75 * owned / total), y + 34, Ui.ACCENT);
         button(g, x + 4, y + 42, 78, 19, tr("all_disks"), category == null, true, () -> chooseCategory(null));
         int visible = Math.max(1, (h - 86) / 28);
         categoryMaximum = Math.max(0, categories.size() - visible);
@@ -113,11 +112,11 @@ final class DisksApp extends ComputerApp {
             int rowY = y + 68 + (i - categoryScroll) * 28;
             boolean active = id.equals(category);
             button(g, x + 4, rowY, 78, 25, "", active, true, () -> chooseCategory(id));
-            g.drawString(font, screen.trimToWidth(categoryName(id), 68), x + 9, rowY + 4, active ? GREEN : PALE_GREEN, false);
-            g.drawString(font, data.categoryCounts().get(id), x + 9, rowY + 15, MUTED, false);
+            g.drawString(font, screen.trimToWidth(categoryName(id), 68), x + 9, rowY + 4, active ? Ui.ACCENT : Ui.TEXT, false);
+            g.drawString(font, data.categoryCounts().get(id), x + 9, rowY + 15, Ui.TEXT_MUTED, false);
         }
         scrollbar(g, x + 84, y + 68, visible * 28 - 3, visible, categories.size(), categoryScroll, categoryMaximum, 0);
-        text(g, "profile_library", x + 6, y + h - 10, MUTED);
+        text(g, "profile_library", x + 6, y + h - 10, Ui.TEXT_MUTED);
     }
 
     private void chooseCategory(ResourceLocation id) {
@@ -130,7 +129,7 @@ final class DisksApp extends ComputerApp {
 
     private void drawShelf(GuiGraphics g, int x, int y, int w, int h, List<ComputerGuideData.Disk> disks) {
         int searchW = Math.min(104, w / 2);
-        g.drawString(font, screen.trimToWidth(category == null ? tr("all_disks") : categoryName(category), w - searchW - 10), x, y + 4, GREEN, false);
+        g.drawString(font, screen.trimToWidth(category == null ? tr("all_disks") : categoryName(category), w - searchW - 10), x, y + 4, Ui.TEXT_STRONG, false);
         button(g, x + w - searchW, y, searchW - 20, 17,
                 query.isBlank() ? tr("search") + (searching ? "_" : "") : query + (searching ? "_" : ""), searching, true, () -> searching = true);
         button(g, x + w - 17, y, 17, 17, "X", false, !query.isEmpty(), () -> {
@@ -173,9 +172,9 @@ final class DisksApp extends ComputerApp {
                 sectionY = shelfBottom;
                 continue;
             }
-            g.drawString(font, screen.trimToWidth(categoryName(id), w - font.width(shelfCount) - 17), x + 2, sectionY + 2, PALE_GREEN, false);
-            g.drawString(font, shelfCount, x + w - font.width(shelfCount) - 8, sectionY + 2, MUTED, false);
-            g.fill(x, sectionY + 13, x + w - 8, sectionY + 14, DARK_GREEN);
+            g.drawString(font, screen.trimToWidth(categoryName(id), w - font.width(shelfCount) - 17), x + 2, sectionY + 2, Ui.TEXT, false);
+            g.drawString(font, shelfCount, x + w - font.width(shelfCount) - 8, sectionY + 2, Ui.TEXT_MUTED, false);
+            g.fill(x, sectionY + 13, x + w - 8, sectionY + 14, Ui.SURFACE);
             sectionY += 19;
             for (int i = 0; i < shelf.size(); i++) {
                 int cardY = sectionY + (i / columns) * 82;
@@ -186,23 +185,23 @@ final class DisksApp extends ComputerApp {
         }
         g.disableScissor();
         if (visible.isEmpty()) {
-            text(g, disks.isEmpty() ? "empty" : "no_matches", x + 8, gridY + 25, GREEN);
-            g.drawString(font, screen.trimToWidth(tr(disks.isEmpty() ? "empty_hint" : "no_matches_hint"), w - 16), x + 8, gridY + 41, MUTED, false);
+            text(g, disks.isEmpty() ? "empty" : "no_matches", x + 8, gridY + 25, Ui.TEXT_STRONG);
+            g.drawString(font, screen.trimToWidth(tr(disks.isEmpty() ? "empty_hint" : "no_matches_hint"), w - 16), x + 8, gridY + 41, Ui.TEXT_MUTED, false);
         }
         scrollbar(g, x + w - 3, gridY, gridH, gridH, shelfHeight, shelfScroll, shelfMaximum, 1);
-        g.fill(x, y + h - 14, x + w, y + h - 13, DARK_GREEN);
-        g.drawString(font, screen.trimToWidth(tr("shelf_hint"), w), x, y + h - 9, MUTED, false);
+        g.fill(x, y + h - 14, x + w, y + h - 13, Ui.SURFACE);
+        g.drawString(font, screen.trimToWidth(tr("shelf_hint"), w), x, y + h - 9, Ui.TEXT_MUTED, false);
     }
 
     private void drawCard(GuiGraphics g, ComputerGuideData.Disk disk, int x, int y, int w, int clipTop, int clipBottom) {
         boolean owned = collected.contains(disk.id());
         boolean hover = screen.hovered(x, Math.max(y, clipTop), w, Math.min(y + 76, clipBottom) - Math.max(y, clipTop));
-        g.fill(x, y, x + w, y + 76, hover && owned ? HOVER_FILL : PANEL);
-        screen.box(g, x, y, x + w, y + 76, hover && owned ? GREEN : DARK_GREEN);
+        g.fill(x, y, x + w, y + 76, hover && owned ? Ui.HOVER : Ui.PANEL);
+        screen.box(g, x, y, x + w, y + 76, hover && owned ? Ui.ACCENT : Ui.BORDER);
         drawDisk(g, disk, x + w / 2 - 14, y + 7, 28, owned);
         List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(owned ? title(disk) : "???"), w - 10);
-        for (int i = 0; i < Math.min(2, lines.size()); i++) g.drawString(font, lines.get(i), x + 5, y + 40 + i * 10, owned ? PALE_GREEN : MUTED, false);
-        g.drawString(font, screen.trimToWidth(tr(owned ? locked(disk) ? "locked" : installed.contains(disk.id()) ? "installed" : "ejected" : "undiscovered"), w - 10), x + 5, y + 64, owned ? GREEN : MUTED, false);
+        for (int i = 0; i < Math.min(2, lines.size()); i++) g.drawString(font, lines.get(i), x + 5, y + 40 + i * 10, owned ? Ui.TEXT : Ui.TEXT_MUTED, false);
+        g.drawString(font, screen.trimToWidth(tr(owned ? locked(disk) ? "locked" : installed.contains(disk.id()) ? "installed" : "ejected" : "undiscovered"), w - 10), x + 5, y + 64, owned ? Ui.ACCENT : Ui.TEXT_MUTED, false);
         if (owned) hits.add(new Hit(x, Math.max(y, clipTop), w, Math.min(y + 76, clipBottom) - Math.max(y, clipTop), () -> {
             selected = disk.id();
             detailScroll = 0;
@@ -215,11 +214,11 @@ final class DisksApp extends ComputerApp {
     private void drawDetail(GuiGraphics g, int x, int y, int w, int h, ComputerGuideData.Disk disk) {
         button(g, x, y, 76, 17, tr("back"), false, true, () -> selected = null);
         String status = tr(locked(disk) ? "locked" : installed.contains(disk.id()) ? "installed" : "ejected");
-        g.drawString(font, status, x + w - font.width(status), y + 4, GREEN, false);
+        g.drawString(font, status, x + w - font.width(status), y + 4, Ui.TEXT_STRONG, false);
         drawDisk(g, disk, x + 4, y + 27, 36, true);
         List<net.minecraft.util.FormattedCharSequence> titleLines = font.split(Component.literal(title(disk)), w - 53);
-        for (int i = 0; i < Math.min(2, titleLines.size()); i++) g.drawString(font, titleLines.get(i), x + 49, y + 28 + i * 11, GREEN, false);
-        g.drawString(font, screen.trimToWidth(categoryName(disk.category()), w - 53), x + 49, y + 55, MUTED, false);
+        for (int i = 0; i < Math.min(2, titleLines.size()); i++) g.drawString(font, titleLines.get(i), x + 49, y + 28 + i * 11, Ui.TEXT_STRONG, false);
+        g.drawString(font, screen.trimToWidth(categoryName(disk.category()), w - 53), x + 49, y + 55, Ui.TEXT_MUTED, false);
         if (locked(disk)) { drawLocked(g, x, y, w, h, disk); return; }
         int bodyY = y + 79;
         int bodyH = h - 111;
@@ -227,8 +226,8 @@ final class DisksApp extends ComputerApp {
         clipTop = bodyY;
         clipBottom = bodyY + bodyH;
         int line = bodyY - detailScroll;
-        if (titleLines.size() > 2) line = wrapClipped(g, title(disk), x + 2, line, w - 12, GREEN) + 9;
-        if (!disk.descriptionKey().isBlank()) line = wrapClipped(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, line, w - 12, PALE_GREEN) + 9;
+        if (titleLines.size() > 2) line = wrapClipped(g, title(disk), x + 2, line, w - 12, Ui.ACCENT) + 9;
+        if (!disk.descriptionKey().isBlank()) line = wrapClipped(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, line, w - 12, Ui.TEXT) + 9;
         line = section(g, x, line, w - 8, "contents", bodyY, bodyY + bodyH);
         int contentCount = 0;
         List<ResourceLocation> workspaceDiskIds = disk.entries().isEmpty() ? List.of() : screen.workspaceDiskIds();
@@ -265,7 +264,7 @@ final class DisksApp extends ComputerApp {
             line = detailLink(g, x, line, w - 8, tr("game") + " / " + game.title() + (available ? "" : " / " + tr("reinsert")), available ? "GAMES" : "", bodyY, bodyY + bodyH, () -> screen.open("GAMES"));
             contentCount++;
         }
-        if (contentCount == 0 && disk.features().files().isEmpty() && disk.features().programs().isEmpty() && disk.features().subscriptions().isEmpty() && ComputerArchiveUnlockClientState.diskRewards(disk.id()).isEmpty()) line = wrapClipped(g, tr("no_contents"), x + 2, line + 3, w - 12, MUTED);
+        if (contentCount == 0 && disk.features().files().isEmpty() && disk.features().programs().isEmpty() && disk.features().subscriptions().isEmpty() && ComputerArchiveUnlockClientState.diskRewards(disk.id()).isEmpty()) line = wrapClipped(g, tr("no_contents"), x + 2, line + 3, w - 12, Ui.TEXT_MUTED);
         var files = ComputerArchiveUnlockClientState.diskFiles(disk.id());
         if (!files.isEmpty()) {
             line = section(g, x, line + 9, w - 8, "files", bodyY, bodyY + bodyH);
@@ -291,7 +290,7 @@ final class DisksApp extends ComputerApp {
         var rewards = ComputerArchiveUnlockClientState.diskRewards(disk.id());
         if (!rewards.isEmpty()) {
             line = section(g, x, line + 9, w - 8, "rewards_received", bodyY, bodyY + bodyH);
-            for (var reward : rewards) line = wrapClipped(g, "+ " + com.craisinlord.antos.content.client.DiskRewardsClientState.label(reward), x + 2, line, w - 12, PALE_GREEN) + 3;
+            for (var reward : rewards) line = wrapClipped(g, "+ " + com.craisinlord.antos.content.client.DiskRewardsClientState.label(reward), x + 2, line, w - 12, Ui.TEXT) + 3;
         }
         var listings = com.craisinlord.antos.content.client.AntazonClientState.products().stream().filter(product -> product.unlockDisks().contains(disk.id().toString())).toList();
         if (!listings.isEmpty()) {
@@ -319,14 +318,14 @@ final class DisksApp extends ComputerApp {
         detailScroll = Math.min(detailScroll, detailMaximum);
         g.disableScissor();
         scrollbar(g, x + w - 3, bodyY, bodyH, bodyH, bodyH + detailMaximum, detailScroll, detailMaximum, 2);
-        g.fill(x, y + h - 27, x + w, y + h - 26, DARK_GREEN);
+        g.fill(x, y + h - 27, x + w, y + h - 26, Ui.SURFACE);
         boolean ejectable = installed.contains(disk.id()) && !disk.id().equals(new ResourceLocation("antos", "introduction"));
         button(g, x + w - 101, y + h - 21, 101, 19, tr("eject"), false, ejectable, () -> {
             ComputerNetworking.eject(disk.id());
             screen.loginMessage = Component.translatable("computer.antos.status.ejecting_disk").getString();
             screen.loginMessageTicks = 100;
         });
-        g.drawString(font, screen.trimToWidth(tr(ejectable ? "keeps_unlocks" : "collection_saved"), w - 109), x, y + h - 15, MUTED, false);
+        g.drawString(font, screen.trimToWidth(tr(ejectable ? "keeps_unlocks" : "collection_saved"), w - 109), x, y + h - 15, Ui.TEXT_MUTED, false);
     }
 
     private int detailLink(GuiGraphics g, int x, int y, int w, String label, String app, int clipTop, int clipBottom, Runnable action) {
@@ -335,10 +334,10 @@ final class DisksApp extends ComputerApp {
             int hitTop = Math.max(y, clipTop);
             int hitH = Math.min(y + 19, clipBottom) - hitTop;
             boolean hover = enabled && screen.hovered(x, hitTop, w, hitH);
-            g.fill(x, y, x + w, y + 19, hover ? HOVER_FILL : PANEL);
-            g.drawString(font, screen.trimToWidth(label, w - 19), x + 5, y + 5, enabled ? PALE_GREEN : MUTED, false);
+            g.fill(x, y, x + w, y + 19, hover ? Ui.HOVER : Ui.PANEL);
+            g.drawString(font, screen.trimToWidth(label, w - 19), x + 5, y + 5, enabled ? Ui.TEXT : Ui.TEXT_MUTED, false);
             if (enabled) {
-                g.drawString(font, ">", x + w - 10, y + 5, GREEN, false);
+                g.drawString(font, ">", x + w - 10, y + 5, Ui.TEXT_STRONG, false);
                 hits.add(new Hit(x, hitTop, w, hitH, action));
             }
         }
@@ -352,9 +351,9 @@ final class DisksApp extends ComputerApp {
     private void drawLocked(GuiGraphics g, int x, int y, int w, int h, ComputerGuideData.Disk disk) {
         int textY = y + 79 - detailScroll;
         screen.enableComputerScissor(g, x, y + 79, x + w, y + h - 65);
-        textY = screen.wrap(g, tr("locked_help"), x + 2, textY, w - 8, PALE_GREEN) + 8;
-        if (!disk.features().encryption().hint().isBlank()) textY = screen.wrap(g, tr("hint") + " " + Component.translatable(disk.features().encryption().hint()).getString(), x + 2, textY, w - 8, GREEN) + 8;
-        if (!disk.descriptionKey().isBlank()) textY = screen.wrap(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, textY, w - 8, MUTED);
+        textY = screen.wrap(g, tr("locked_help"), x + 2, textY, w - 8, Ui.TEXT) + 8;
+        if (!disk.features().encryption().hint().isBlank()) textY = screen.wrap(g, tr("hint") + " " + Component.translatable(disk.features().encryption().hint()).getString(), x + 2, textY, w - 8, Ui.TEXT_STRONG) + 8;
+        if (!disk.descriptionKey().isBlank()) textY = screen.wrap(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, textY, w - 8, Ui.TEXT_MUTED);
         detailMaximum = Math.max(0, textY + detailScroll - (y + h - 65));
         detailScroll = Math.min(detailScroll, detailMaximum);
         g.disableScissor();
@@ -364,10 +363,10 @@ final class DisksApp extends ComputerApp {
         button(g, x + w - 72, y + h - 60, 72, 18, tr("decrypt"), false, inserted && !password.isEmpty(), () -> submitPassword(disk));
         var result = com.craisinlord.antos.content.client.ComputerProgramClientState.decryption(disk.id());
         String message = !inserted ? tr("reinsert_decrypt") : result == null ? "" : tr("decrypt." + result.code());
-        g.drawString(font, screen.trimToWidth(message, w), x, y + h - 37, result != null && result.code().equals("access_denied") ? 0xFFFF7777 : MUTED, false);
-        g.fill(x, y + h - 27, x + w, y + h - 26, DARK_GREEN);
+        g.drawString(font, screen.trimToWidth(message, w), x, y + h - 37, result != null && result.code().equals("access_denied") ? Ui.ERROR : Ui.TEXT_MUTED, false);
+        g.fill(x, y + h - 27, x + w, y + h - 26, Ui.SURFACE);
         button(g, x + w - 101, y + h - 21, 101, 19, tr("eject"), false, inserted, () -> ComputerNetworking.eject(disk.id()));
-        g.drawString(font, screen.trimToWidth(tr("locked_footer"), w - 109), x, y + h - 15, MUTED, false);
+        g.drawString(font, screen.trimToWidth(tr("locked_footer"), w - 109), x, y + h - 15, Ui.TEXT_MUTED, false);
     }
 
     private void submitPassword(ComputerGuideData.Disk disk) {
@@ -379,8 +378,8 @@ final class DisksApp extends ComputerApp {
 
     private int section(GuiGraphics g, int x, int y, int w, String key, int clipTop, int clipBottom) {
         if (y + 13 > clipTop && y < clipBottom) {
-            text(g, key, x + 2, y, GREEN);
-            g.fill(x, y + 12, x + w, y + 13, DARK_GREEN);
+            text(g, key, x + 2, y, Ui.TEXT_STRONG);
+            g.fill(x, y + 12, x + w, y + 13, Ui.SURFACE);
         }
         return y + 19;
     }
@@ -467,18 +466,18 @@ final class DisksApp extends ComputerApp {
             ResourceLocation file = new ResourceLocation(texture.getNamespace(), "textures/" + texture.getPath() + ".png");
             g.blit(file, x, y, size, size, 0, 0, 16, 16, 16, 16);
         } else {
-            g.fill(x + 1, y + 3, x + size - 1, y + size - 1, 0xFF172717);
-            g.fill(x + 4, y + 1, x + size - 4, y + size - 1, 0xFF172717);
-            g.fill(x + size / 4, y + 3, x + size * 3 / 4, y + size / 3, PANEL);
-            g.fill(x + size / 4, y + size * 2 / 3, x + size * 3 / 4, y + size - 4, PANEL);
+            g.fill(x + 1, y + 3, x + size - 1, y + size - 1, Ui.DISK_SLOT);
+            g.fill(x + 4, y + 1, x + size - 4, y + size - 1, Ui.DISK_SLOT);
+            g.fill(x + size / 4, y + 3, x + size * 3 / 4, y + size / 3, Ui.PANEL);
+            g.fill(x + size / 4, y + size * 2 / 3, x + size * 3 / 4, y + size - 4, Ui.PANEL);
         }
     }
 
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, boolean active, boolean enabled, Runnable action) {
         boolean hover = enabled && screen.hovered(x, y, w, h);
-        g.fill(x, y, x + w, y + h, active || hover ? HOVER_FILL : PANEL);
-        screen.box(g, x, y, x + w, y + h, active || hover ? GREEN : DARK_GREEN);
-        g.drawString(font, screen.trimToWidth(label, w - 8), x + 4, y + (h - 8) / 2, enabled ? active || hover ? GREEN : PALE_GREEN : MUTED, false);
+        g.fill(x, y, x + w, y + h, active || hover ? Ui.HOVER : Ui.PANEL);
+        screen.box(g, x, y, x + w, y + h, active || hover ? Ui.ACCENT : Ui.BORDER);
+        g.drawString(font, screen.trimToWidth(label, w - 8), x + 4, y + (h - 8) / 2, enabled ? active || hover ? Ui.ACCENT : Ui.TEXT : Ui.TEXT_MUTED, false);
         if (enabled) hits.add(new Hit(x, y, w, h, () -> AntOSUiSounds.action(action)));
     }
 

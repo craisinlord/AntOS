@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
+import com.google.gson.JsonObject;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
@@ -11,9 +13,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
 
 final class ArchiveApp extends ComputerApp {
     final State state = new State();
@@ -138,7 +137,7 @@ final class ArchiveApp extends ComputerApp {
             renderBreadcrumbMenu(g, x, y + 38, w);
         }
         FocusTarget focus = focusTargets.stream().filter(target -> target.key().equals(state.controlFocus)).findFirst().orElse(null);
-        if (focus != null && !state.controlFocus.equals("search") && !state.controlFocus.equals("content")) kit.outline(g, focus.x(), focus.y(), focus.w(), focus.h(), PALE_GREEN);
+        if (focus != null && !state.controlFocus.equals("search") && !state.controlFocus.equals("content")) kit.outline(g, focus.x(), focus.y(), focus.w(), focus.h(), Ui.FOCUS);
         kit.drawTooltip(g, x, y, x + w, y + h);
     }
 
@@ -151,8 +150,8 @@ final class ArchiveApp extends ComputerApp {
             state.searchFocused = false;
         });
         if (visibleItems.isEmpty()) {
-            g.drawString(font, Component.literal(tr(state.search.isBlank() ? "empty" : "no_results")), x + 6, top + 12, PALE_GREEN, false);
-            screen.wrap(g, tr(state.search.isBlank() ? "empty_hint" : "no_results_hint"), x + 6, top + 27, w - 22, AppKit.MUTED);
+            g.drawString(font, Component.literal(tr(state.search.isBlank() ? "empty" : "no_results")), x + 6, top + 12, Ui.TEXT, false);
+            screen.wrap(g, tr(state.search.isBlank() ? "empty_hint" : "no_results_hint"), x + 6, top + 27, w - 22, Ui.TEXT_MUTED);
             if (!state.search.isBlank()) kit.button(g, x + 6, top + 52, kit.labelWidth(tr("clear")), 18, tr("clear"), false, true, this::clearSearch);
         }
         screen.enableComputerScissor(g, x, top, x + w - 8, bottom);
@@ -161,8 +160,8 @@ final class ArchiveApp extends ComputerApp {
             int sectionY = top + section.y() - state.scroll;
             if (!visible(sectionY, ArchiveLayout.HEADING, top, bottom)) continue;
             String label = tr(section.folders() ? "folders" : state.search.isBlank() ? "entries" : "results");
-            g.drawString(font, Component.literal(label), x + 3, sectionY + 3, AppKit.MUTED, false);
-            g.fill(x + 8 + font.width(label), sectionY + 7, x + w - 12, sectionY + 8, AppKit.SOFT);
+            g.drawString(font, Component.literal(label), x + 3, sectionY + 3, Ui.TEXT_MUTED, false);
+            g.fill(x + 8 + font.width(label), sectionY + 7, x + w - 12, sectionY + 8, Ui.LINE);
         }
         for (ArchiveLayout.Cell cell : layout.cells()) {
             int cellY = top + cell.y() - state.scroll;
@@ -179,8 +178,8 @@ final class ArchiveApp extends ComputerApp {
     private void renderCell(ThemedGraphics g, BrowseItem item, int x, int y, int w, int h) {
         boolean hover = kit.hovered(x, y, w, h);
         boolean focused = item.key().equals(state.focusKey) && state.controlFocus.equals("content");
-        if (state.gallery || hover || focused) g.fill(x, y, x + w, y + h, hover ? ComputerScreen.HOVER_FILL : AppKit.PANEL);
-        if (focused) kit.outline(g, x, y, w, h, PALE_GREEN);
+        if (state.gallery || hover || focused) g.fill(x, y, x + w, y + h, hover ? Ui.HOVER : Ui.PANEL);
+        if (focused) kit.outline(g, x, y, w, h, Ui.FOCUS);
         int artSize = state.gallery ? 36 : 26;
         int artX = state.gallery ? x + (w - artSize) / 2 : x + 3;
         int artY = state.gallery ? y + 4 : y + 2;
@@ -192,15 +191,15 @@ final class ArchiveApp extends ComputerApp {
         int countWidth = count.isEmpty() ? 0 : font.width(count) + 14;
         int textWidth = Math.max(8, (state.gallery ? w - 10 : w - 42) - countWidth);
         String title = screen.trimToWidth(item.title(), textWidth);
-        g.drawString(font, Component.literal(title), textX, textY, item.folder() == null ? PALE_GREEN : GREEN, false);
+        g.drawString(font, Component.literal(title), textX, textY, item.folder() == null ? Ui.TEXT : Ui.ACCENT, false);
         String metadata = !state.search.isBlank() ? item.subtitle() : item.folder() != null
                 ? state.gallery ? tr("count", item.count()) : ""
                 : item.entry().subtitleKey().isBlank() ? item.entry().category() : AntOSPlayerText.apply(translated(item.entry().subtitleKey()));
         String shownMetadata = screen.trimToWidth(metadata, state.gallery ? w - 10 : w - 42);
-        if (!metadata.isBlank()) g.drawString(font, Component.literal(shownMetadata), textX, textY + 11, AppKit.MUTED, false);
+        if (!metadata.isBlank()) g.drawString(font, Component.literal(shownMetadata), textX, textY + 11, Ui.TEXT_MUTED, false);
         if (!count.isEmpty()) {
-            g.drawString(font, Component.literal(count), x + w - 13 - font.width(count), y + 11, AppKit.MUTED, false);
-            g.drawString(font, Component.literal(">"), x + w - 8, y + 11, PALE_GREEN, false);
+            g.drawString(font, Component.literal(count), x + w - 13 - font.width(count), y + 11, Ui.TEXT_MUTED, false);
+            g.drawString(font, Component.literal(">"), x + w - 8, y + 11, Ui.TEXT, false);
         }
         if (hover && (!title.equals(item.title()) || !shownMetadata.equals(metadata))) kit.tooltip(item.title() + (metadata.isBlank() ? "" : " — " + metadata));
         kit.hit(x, y, w, h, () -> {
@@ -212,10 +211,10 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private void renderFooter(ThemedGraphics g, int x, int y, int w, ComputerGuideData.Entry selected, int folders) {
-        g.fill(x, y, x + w, y + 1, AppKit.SOFT);
+        g.fill(x, y, x + w, y + 1, Ui.LINE);
         String label = selected != null ? tr("reading", AntOSPlayerText.apply(ComputerGuideData.archiveTitle(selected).getString()))
                 : !state.search.isBlank() ? tr("result_count", visibleItems.size()) : tr("summary", folders, visibleItems.size() - folders);
-        g.drawString(font, Component.literal(screen.trimToWidth(label, w - 8)), x + 3, y + 3, AppKit.MUTED, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(label, w - 8)), x + 3, y + 3, Ui.TEXT_MUTED, false);
     }
 
     private void renderArticle(ThemedGraphics g, ComputerGuideData.Entry entry, List<ComputerGuideData.Entry> entries, int x, int top, int w, int h) {
@@ -226,10 +225,10 @@ final class ArchiveApp extends ComputerApp {
         screen.archiveGreenTint = entry.greenTint();
         screen.enableComputerScissor(g, x, top, x + w, bottom);
         kit.clip(x, top, w, h);
-        line = screen.wrap(g, entry.category().toUpperCase(Locale.ROOT), x + 5, line, contentWidth, AppKit.MUTED) + 7;
+        line = screen.wrap(g, entry.category().toUpperCase(Locale.ROOT), x + 5, line, contentWidth, Ui.TEXT_MUTED) + 7;
         line = renderArticleTitle(g, AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString()), x + 5, line, contentWidth) + 5;
-        if (!entry.subtitleKey().isBlank()) line = screen.wrap(g, AntOSPlayerText.apply(translated(entry.subtitleKey())), x + 5, line, contentWidth, PALE_GREEN) + 7;
-        g.fill(x + 5, line, x + w - 5, line + 1, AppKit.SOFT);
+        if (!entry.subtitleKey().isBlank()) line = screen.wrap(g, AntOSPlayerText.apply(translated(entry.subtitleKey())), x + 5, line, contentWidth, Ui.TEXT) + 7;
+        g.fill(x + 5, line, x + w - 5, line + 1, Ui.LINE);
         line += 8;
         String heroEntity = !entry.entityId().isBlank() ? entry.entityId()
                 : entry.itemId().isBlank() && entry.recipeId().isBlank() ? entry.coverEntityId() : "";
@@ -249,10 +248,10 @@ final class ArchiveApp extends ComputerApp {
                 ? screen.renderArchivePreview(g, "", "", entry.enchantmentId(), x + 5, line, contentWidth) + 8 : line + 56;
         if (!entry.recipeId().isBlank()) line = screen.renderArchiveRecipe(g, entry.recipeId(), x + 5, line, contentWidth) + 8;
         if (!entry.structureId().isBlank() || !entry.locatorId().isBlank()) {
-            g.fill(x + 5, line, x + w - 5, line + 1, AppKit.SOFT);
-            line = screen.wrap(g, com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.get(), x + 5, line + 8, contentWidth, PALE_GREEN) + 6;
+            g.fill(x + 5, line, x + w - 5, line + 1, Ui.LINE);
+            line = screen.wrap(g, com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.get(), x + 5, line + 8, contentWidth, Ui.TEXT) + 6;
         }
-        if (!entry.dimensionId().isBlank()) line = screen.wrap(g, tr("dimension", entry.dimensionId()), x + 5, line, contentWidth, AppKit.MUTED);
+        if (!entry.dimensionId().isBlank()) line = screen.wrap(g, tr("dimension", entry.dimensionId()), x + 5, line, contentWidth, Ui.TEXT_MUTED);
         kit.unclip();
         g.disableScissor();
         state.detailMaxScroll = Math.max(0, (line + state.detailScroll * 11 - bottom + 10) / 11);
@@ -268,7 +267,7 @@ final class ArchiveApp extends ComputerApp {
         try {
             g.pose().translate(x, y, 0);
             g.pose().scale(1.25F, 1.25F, 1.0F);
-            for (int index = 0; index < lines.size(); index++) g.drawString(font, lines.get(index), 0, index * 11, GREEN, false);
+            for (int index = 0; index < lines.size(); index++) g.drawString(font, lines.get(index), 0, index * 11, Ui.TEXT_STRONG, false);
         } finally {
             g.pose().popPose();
         }
@@ -345,8 +344,8 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private void renderBreadcrumbs(ThemedGraphics g, int x, int y, int w) {
-        g.fill(x, y, x + w, y + 16, AppKit.PANEL);
-        kit.outline(g, x, y, w, 16, AppKit.SOFT);
+        g.fill(x, y, x + w, y + 16, Ui.PANEL);
+        kit.outline(g, x, y, w, 16, Ui.LINE);
         List<Identifier> path = new java.util.ArrayList<>();
         path.add(null);
         path.addAll(ComputerGuideData.archiveFolderPath(state.folderId));
@@ -360,7 +359,7 @@ final class ArchiveApp extends ComputerApp {
             Runnable open = () -> breadcrumbMenu = !breadcrumbMenu;
             kit.hit(menuX, y + 1, 20, 14, open);
             focusTargets.add(new FocusTarget("ancestors", menuX, y + 1, 20, 14, open));
-            g.drawString(font, Component.literal("..."), menuX + 1, y + 4, GREEN, false);
+            g.drawString(font, Component.literal("..."), menuX + 1, y + 4, Ui.TEXT_STRONG, false);
             cursor += 28;
             crumb(g, "crumb-current", state.folderId, cursor, y, Math.max(12, x + w - cursor - 4), crumbTitle(state.folderId));
         } else {
@@ -374,7 +373,7 @@ final class ArchiveApp extends ComputerApp {
                 crumb(g, "crumb-" + index, id, cursor, y, width, title);
                 cursor += width;
                 if (index + 1 < path.size()) {
-                    g.drawString(font, Component.literal(">"), cursor + 3, y + 4, AppKit.MUTED, false);
+                    g.drawString(font, Component.literal(">"), cursor + 3, y + 4, Ui.TEXT_MUTED, false);
                     cursor += 12;
                 }
             }
@@ -389,9 +388,9 @@ final class ArchiveApp extends ComputerApp {
     private void crumb(ThemedGraphics g, String key, Identifier folder, int x, int y, int w, String title) {
         boolean current = java.util.Objects.equals(folder, state.folderId);
         boolean hover = kit.hovered(x, y + 1, w, 14);
-        if (hover) g.fill(x, y + 1, x + w, y + 15, ComputerScreen.HOVER_FILL);
+        if (hover) g.fill(x, y + 1, x + w, y + 15, Ui.HOVER);
         String label = screen.trimToWidth(title, Math.max(1, w - 4));
-        g.drawString(font, Component.literal(label), x + 2, y + 4, current ? PALE_GREEN : GREEN, false);
+        g.drawString(font, Component.literal(label), x + 2, y + 4, current ? Ui.TEXT : Ui.ACCENT, false);
         if (hover) kit.tooltip(folderPathTitle(folder).isBlank() ? title : folderPathTitle(folder));
         Runnable navigate = () -> {
             navigateTo(folder);
@@ -414,8 +413,8 @@ final class ArchiveApp extends ComputerApp {
         g.pose().pushPose();
         try {
             g.pose().translate(0, 0, 150);
-            g.fill(x, y, x + menuWidth, y + menuHeight, AppKit.PANEL);
-            kit.outline(g, x, y, menuWidth, menuHeight, PALE_GREEN);
+            g.fill(x, y, x + menuWidth, y + menuHeight, Ui.PANEL);
+            kit.outline(g, x, y, menuWidth, menuHeight, Ui.FOCUS);
             kit.block(x, y, menuWidth, menuHeight);
             for (int index = 0; index < path.size(); index++) {
                 Identifier id = path.get(index);
@@ -646,7 +645,7 @@ final class ArchiveApp extends ComputerApp {
             if (!rendered) PixelIcons.draw(g, FileExplorerApp.icon("text"), centerX - size / 2, centerY - size / 2, size);
             else {
                 int marker = Math.max(8, size / 4);
-                g.fill(centerX + size / 2 - marker - 1, centerY + size / 2 - marker - 1, centerX + size / 2 + 1, centerY + size / 2 + 1, BLACK);
+                g.fill(centerX + size / 2 - marker - 1, centerY + size / 2 - marker - 1, centerX + size / 2 + 1, centerY + size / 2 + 1, Ui.BACKGROUND);
                 PixelIcons.draw(g, FileExplorerApp.icon("text"), centerX + size / 2 - marker, centerY + size / 2 - marker, marker);
             }
         } finally {
@@ -659,7 +658,7 @@ final class ArchiveApp extends ComputerApp {
         List<ComputerGuideData.GalleryItem> gallery = selected.gallery();
         if (gallery.isEmpty()) return y;
         String title = selected.galleryTitleKey().isBlank() ? tr("gallery") : Component.translatable(selected.galleryTitleKey()).getString().toUpperCase(Locale.ROOT);
-        y = screen.wrap(g, title + " // " + gallery.size(), x, y + 2, w, PALE_GREEN) + 3;
+        y = screen.wrap(g, title + " // " + gallery.size(), x, y + 2, w, Ui.TEXT) + 3;
         int cell = 48;
         int cellWidth = 64;
         int cellHeight = cell + 26;
@@ -673,12 +672,12 @@ final class ArchiveApp extends ComputerApp {
             String itemId = entityId.isEmpty() ? galleryItem.id() : "";
             Identifier target = galleryTarget(galleryItem.id(), selected, entries);
             boolean hover = target != null && screen.inside(cellX, cellY, cell, cell, screen.session.archiveMouseX, screen.session.archiveMouseY);
-            g.fill(cellX, cellY, cellX + cell, cellY + cell, hover ? 0xFF173817 : 0xFF102010);
-            if (target != null) screen.box(g, cellX, cellY, cellX + cell, cellY + cell, hover ? GREEN : 0xFF356035);
+            g.fill(cellX, cellY, cellX + cell, cellY + cell, hover ? Ui.HOVER : Ui.SURFACE);
+            if (target != null) screen.box(g, cellX, cellY, cellX + cell, cellY + cell, hover ? Ui.ACCENT : Ui.GRID_LINE);
             screen.renderArchiveAsset(g, itemId, entityId, "", "", cellX + cell / 2, cellY + cell / 2, cell - 6, 0.0F, 1.0F);
             List<net.minecraft.util.FormattedCharSequence> nameLines = font.split(Component.literal(galleryName(galleryItem, entityId)), cellWidth - 4);
             for (int nameLine = 0; nameLine < Math.min(2, nameLines.size()); nameLine++)
-                g.drawString(font, nameLines.get(nameLine), cellX, cellY + cell + 3 + nameLine * 10, target != null ? GREEN : PALE_GREEN, false);
+                g.drawString(font, nameLines.get(nameLine), cellX, cellY + cell + 3 + nameLine * 10, target != null ? Ui.ACCENT : Ui.TEXT, false);
             if (target != null && cellY >= clipTop && cellY + cell <= clipBottom)
                 kit.hit(cellX, cellY, cell, cell, () -> {
                     ComputerGuideData.Entry entry = ComputerGuideData.availableEntry(screen.workspaceDiskIds(),
@@ -721,7 +720,7 @@ final class ArchiveApp extends ComputerApp {
         if (part.startsWith("@enchantment:")) return visible(y, 48, clipTop, clipBottom) ? screen.renderArchivePreview(g, "", "", part.substring(13), x, y, w) + 2 : y + 50;
         if (part.startsWith("@recipe:")) return screen.renderArchiveRecipe(g, part.substring(8), x, y, w) + 2;
         for (var line : detailLines(part, w)) {
-            if (visible(y, 11, clipTop, clipBottom)) g.drawString(font, line, x, y, GREEN, false);
+            if (visible(y, 11, clipTop, clipBottom)) g.drawString(font, line, x, y, Ui.TEXT_STRONG, false);
             y += 11;
         }
         return y + 3;
@@ -863,4 +862,19 @@ final class ArchiveApp extends ComputerApp {
         int detailScroll;
         int detailMaxScroll;
     }
+
+    JsonObject saveResume() {
+        JsonObject json = new JsonObject();
+        if (state.folderId != null) json.addProperty("folder", state.folderId.toString());
+        if (state.entryId != null) json.addProperty("entry", state.entryId.toString());
+        return json;
+    }
+
+    void loadResume(JsonObject json) {
+        String folder = ComputerResume.string(json, "folder");
+        String entry = ComputerResume.string(json, "entry");
+        if (!folder.isEmpty()) state.folderId = Identifier.tryParse(folder);
+        if (!entry.isEmpty()) state.entryId = Identifier.tryParse(entry);
+    }
+
 }

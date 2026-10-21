@@ -43,6 +43,7 @@ public final class AntOSFabricNetworking {
         PayloadTypeRegistry.clientboundPlay().register(AnternetAccountResultPayload.TYPE, AnternetAccountResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(AntmailAnternetResultPayload.TYPE, AntmailAnternetResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(FloppyTextureSyncPayload.TYPE, FloppyTextureSyncPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(JeiSyncPayload.TYPE, JeiSyncPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(ArchiveRecipeResultPayload.TYPE, ArchiveRecipeResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(AnternetComputerPayload.TYPE, AnternetComputerPayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(AnternetAccountPayload.TYPE, AnternetAccountPayload.STREAM_CODEC);
@@ -65,6 +66,7 @@ public final class AntOSFabricNetworking {
         AnternetAccountHandler.setResultSender(ServerPlayNetworking::send);
         AntmailServerHandler.setResultSender(ServerPlayNetworking::send);
         FloppyTextureSync.setSender(ServerPlayNetworking::send);
+        JeiSync.setSender(ServerPlayNetworking::send);
         ArchiveRecipeNetworking.setResultSender(ServerPlayNetworking::send);
     }
 

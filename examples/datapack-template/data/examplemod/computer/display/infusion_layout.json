@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "title": "Crystal infusion",
+  "width": 320,
+  "height": 140,
+  "variables": {
+    "output": {"type": "string"},
+    "output_name": {"type": "string"},
+    "cost": {"type": "string", "default": "Cost: 250 energy"},
+    "duration": {"type": "string", "default": "Duration: 20 seconds"}
+  },
+  "elements": [
+    {"type": "circle", "x": 90, "y": 68, "radius": 50, "color": "line"},
+    {"type": "line", "x": 90, "y": 18, "x2": 90, "y2": 118, "color": "line"},
+    {"type": "line", "x": 40, "y": 68, "x2": 140, "y2": 68, "color": "line"},
+    {"type": "line", "x": 55, "y": 33, "x2": 125, "y2": 103, "color": "line"},
+    {"type": "line", "x": 55, "y": 103, "x2": 125, "y2": 33, "color": "line"},
+    {"type": "slot", "x": 80, "y": 58, "size": 21, "item": "minecraft:amethyst_block"},
+    {"type": "slot", "x": 81, "y": 9, "item": "minecraft:gold_ingot"},
+    {"type": "slot", "x": 116, "y": 24, "item": "minecraft:amethyst_shard"},
+    {"type": "slot", "x": 131, "y": 59, "item": "minecraft:redstone"},
+    {"type": "slot", "x": 116, "y": 94, "item": "minecraft:quartz"},
+    {"type": "slot", "x": 81, "y": 109, "item": "minecraft:gold_ingot"},
+    {"type": "slot", "x": 46, "y": 94, "item": "minecraft:quartz"},
+    {"type": "slot", "x": 31, "y": 59, "item": "minecraft:redstone"},
+    {"type": "slot", "x": 46, "y": 24, "item": "minecraft:amethyst_shard"},
+    {"type": "arrow", "x": 172, "y": 68, "x2": 211, "y2": 68},
+    {"type": "slot", "x": 247, "y": 39, "size": 30, "item": "$output"},
+    {"type": "text", "x": 221, "y": 78, "width": 94, "text": "$output_name", "align": "center"},
+    {"type": "text", "x": 215, "y": 99, "width": 100, "text": "$cost", "color": "muted"},
+    {"type": "text", "x": 215, "y": 113, "width": 100, "text": "$duration", "color": "muted"}
+  ]
+}

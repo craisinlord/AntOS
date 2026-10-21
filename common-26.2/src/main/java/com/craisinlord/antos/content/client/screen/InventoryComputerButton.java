@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.AntOSClientHooks;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractButton;
@@ -23,9 +24,10 @@ public final class InventoryComputerButton extends AbstractButton {
 
     @Override
     protected void extractContents(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        int fill = this.isHoveredOrFocused() ? 0xFF173817 : 0xFF102010;
-        int text = this.active ? 0xFF65FF65 : 0xFF507750;
-        graphics.fill(getX(), getY(), getX() + width, getY() + height, 0xFF65FF65);
+        Ui.refresh();
+        int fill = this.isHoveredOrFocused() ? Ui.HOVER : Ui.SURFACE;
+        int text = this.active ? Ui.ACCENT : Ui.TEXT_INACTIVE;
+        graphics.fill(getX(), getY(), getX() + width, getY() + height, Ui.BORDER_STRONG);
         graphics.fill(getX() + 1, getY() + 1, getX() + width - 1, getY() + height - 1, fill);
         graphics.centeredText(net.minecraft.client.Minecraft.getInstance().font, getMessage(),
                 getX() + width / 2, getY() + 6, text);

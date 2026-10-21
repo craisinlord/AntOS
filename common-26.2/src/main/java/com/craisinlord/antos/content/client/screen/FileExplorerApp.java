@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
+import com.google.gson.JsonObject;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
 import com.craisinlord.antos.content.computer.ComputerFileSystem;
@@ -22,11 +24,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
 
 final class FileExplorerApp extends ComputerApp {
     private static final int TOOLBAR = 18;
@@ -34,7 +31,6 @@ final class FileExplorerApp extends ComputerApp {
     private static final int ROW = 16;
     private static final int SIDEBAR = 82;
     private static final int MENU_ROW = 13;
-    private static final int SELECTED_FILL = 0xFF204820;
     private static final String[] PLACES = {"/", ComputerFileSystem.DOCUMENTS, ComputerFileSystem.PICTURES, ComputerFileSystem.SYSTEM};
 
     final State state = new State();
@@ -46,7 +42,7 @@ final class FileExplorerApp extends ComputerApp {
     private int listBottom;
     private int visibleRows = 1;
     private String notice = "";
-    private int noticeColor = GREEN;
+    private int noticeColor = Ui.ACCENT;
     private long noticeUntil;
     private String typeBuffer = "";
     private long typeTime;
@@ -95,11 +91,11 @@ final class FileExplorerApp extends ComputerApp {
         state.pendingPath = "";
         ComputerNetworking.listFiles();
         if (!success) {
-            notice(tr("notice.failed", AppKit.fileError(error)), AppKit.ERROR);
+            notice(tr("notice.failed", AppKit.fileError(error)), Ui.ERROR);
             return;
         }
         String name = path.substring(path.lastIndexOf('/') + 1);
-        notice(tr("notice." + kind, name), PALE_GREEN);
+        notice(tr("notice." + kind, name), Ui.TEXT);
         if (kind.equals("delete")) {
             state.selected = "";
             return;
@@ -179,8 +175,8 @@ final class FileExplorerApp extends ComputerApp {
 
     private void renderAddress(ThemedGraphics g, int x, int y, int w) {
         int height = 16;
-        g.fill(x, y, x + w, y + height, AppKit.PANEL);
-        kit.outline(g, x, y, w, height, AppKit.SOFT);
+        g.fill(x, y, x + w, y + height, Ui.PANEL);
+        kit.outline(g, x, y, w, height, Ui.LINE);
         List<String> paths = breadcrumbPaths();
         String separator = " > ";
         int available = w - 8;
@@ -207,15 +203,15 @@ final class FileExplorerApp extends ComputerApp {
             if (!path.isEmpty()) {
                 boolean target = dragging && dropTarget.equals(path);
                 boolean hover = kit.hovered(cursor - 2, y + 2, labelWidth + 4, height - 4);
-                if (hover || target) g.fill(cursor - 2, y + 2, cursor + labelWidth + 2, y + height - 2, HOVER_FILL);
-                if (target) kit.outline(g, cursor - 2, y + 2, labelWidth + 4, height - 4, PALE_GREEN);
+                if (hover || target) g.fill(cursor - 2, y + 2, cursor + labelWidth + 2, y + height - 2, Ui.HOVER);
+                if (target) kit.outline(g, cursor - 2, y + 2, labelWidth + 4, height - 4, Ui.FOCUS);
                 kit.hit(cursor - 2, y + 2, labelWidth + 4, height - 4, () -> navigate(path));
                 drops.add(new Drop(cursor - 2, y + 2, labelWidth + 4, height - 4, path));
             }
-            g.drawString(font, Component.literal(label), cursor, y + 4, last ? PALE_GREEN : path.isEmpty() ? AppKit.MUTED : GREEN, false);
+            g.drawString(font, Component.literal(label), cursor, y + 4, last ? Ui.TEXT : path.isEmpty() ? Ui.TEXT_MUTED : Ui.ACCENT, false);
             cursor += labelWidth;
             if (!last) {
-                g.drawString(font, Component.literal(separator), cursor, y + 4, AppKit.MUTED, false);
+                g.drawString(font, Component.literal(separator), cursor, y + 4, Ui.TEXT_MUTED, false);
                 cursor += font.width(separator);
             }
         }
@@ -237,10 +233,10 @@ final class FileExplorerApp extends ComputerApp {
     }
 
     private void renderSidebar(ThemedGraphics g, int x, int top, int bottom, List<Entry> all) {
-        g.fill(x, top, x + SIDEBAR, bottom, AppKit.PANEL);
-        g.fill(x + SIDEBAR, top, x + SIDEBAR + 1, bottom, DARK_GREEN);
-        g.drawString(font, Component.literal(tr("places")), x + 5, top + 4, GREEN, false);
-        g.fill(x + 3, top + 14, x + SIDEBAR - 3, top + 15, DARK_GREEN);
+        g.fill(x, top, x + SIDEBAR, bottom, Ui.PANEL);
+        g.fill(x + SIDEBAR, top, x + SIDEBAR + 1, bottom, Ui.SURFACE);
+        g.drawString(font, Component.literal(tr("places")), x + 5, top + 4, Ui.TEXT_STRONG, false);
+        g.fill(x + 3, top + 14, x + SIDEBAR - 3, top + 15, Ui.SURFACE);
         int rowY = top + 18;
         for (String place : PLACES) {
             if (!place.equals("/") && find(place) == null) continue;
@@ -249,11 +245,11 @@ final class FileExplorerApp extends ComputerApp {
             boolean locked = ComputerFileSystem.isProtected(place);
             boolean target = dragging && dropTarget.equals(place);
             boolean hover = kit.hovered(x + 2, rowY, SIDEBAR - 4, 15);
-            if (current || hover || target) g.fill(x + 2, rowY, x + SIDEBAR - 2, rowY + 15, current ? SELECTED_FILL : HOVER_FILL);
-            if (target) kit.outline(g, x + 2, rowY, SIDEBAR - 4, 15, PALE_GREEN);
+            if (current || hover || target) g.fill(x + 2, rowY, x + SIDEBAR - 2, rowY + 15, current ? Ui.SELECTED_FILL : Ui.HOVER);
+            if (target) kit.outline(g, x + 2, rowY, SIDEBAR - 4, 15, Ui.FOCUS);
             kit.icon(g, icon(locked ? "lock" : "folder"), x + 5, rowY + 2, 12, true);
             String label = tr("place." + (place.equals("/") ? "root" : place.substring(1)));
-            g.drawString(font, Component.literal(screen.trimToWidth(label, SIDEBAR - 26)), x + 20, rowY + 4, current ? PALE_GREEN : GREEN, false);
+            g.drawString(font, Component.literal(screen.trimToWidth(label, SIDEBAR - 26)), x + 20, rowY + 4, current ? Ui.TEXT : Ui.ACCENT, false);
             kit.hit(x + 2, rowY, SIDEBAR - 4, 15, () -> navigate(place));
             if (!locked) drops.add(new Drop(x + 2, rowY, SIDEBAR - 4, 15, place));
             rowY += 16;
@@ -262,25 +258,25 @@ final class FileExplorerApp extends ComputerApp {
         for (Entry entry : all) if (!entry.directory()) used += entry.size();
         int limit = ComputerFileSystem.MAX_TOTAL_SIZE;
         int base = bottom - 34;
-        g.drawString(font, Component.literal(tr("storage")), x + 5, base, AppKit.MUTED, false);
+        g.drawString(font, Component.literal(tr("storage")), x + 5, base, Ui.TEXT_MUTED, false);
         int barX = x + 5;
         int barWidth = SIDEBAR - 10;
-        g.fill(barX, base + 10, barX + barWidth, base + 13, DARK_GREEN);
+        g.fill(barX, base + 10, barX + barWidth, base + 13, Ui.SURFACE);
         int filled = (int) Math.round(barWidth * Math.min(1.0, used / (double) limit));
-        g.fill(barX, base + 10, barX + filled, base + 13, used > limit * 0.9 ? AppKit.ERROR : GREEN);
-        g.drawString(font, Component.literal(screen.trimToWidth(tr("storage.bytes", kilobytes(used), kilobytes(limit)), barWidth)), x + 5, base + 15, PALE_GREEN, false);
-        g.drawString(font, Component.literal(screen.trimToWidth(tr("storage.items", all.size(), ComputerFileSystem.MAX_NODES), barWidth)), x + 5, base + 25, AppKit.MUTED, false);
+        g.fill(barX, base + 10, barX + filled, base + 13, used > limit * 0.9 ? Ui.ERROR : Ui.ACCENT);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("storage.bytes", kilobytes(used), kilobytes(limit)), barWidth)), x + 5, base + 15, Ui.TEXT, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("storage.items", all.size(), ComputerFileSystem.MAX_NODES), barWidth)), x + 5, base + 25, Ui.TEXT_MUTED, false);
     }
 
     private void renderList(ThemedGraphics g, int x, int top, int w, int bottom, List<Entry> rows, List<Entry> all) {
         String nameHeader = tr("column.name") + (!state.sortBySize ? state.descending ? " v" : " ^" : "");
         String sizeHeader = (state.sortBySize ? state.descending ? "v " : "^ " : "") + tr("column.size");
-        int headerColor = AppKit.MUTED;
+        int headerColor = Ui.TEXT_MUTED;
         boolean nameHover = kit.hovered(x, top, w / 2, 12);
         boolean sizeHover = kit.hovered(x + w - 70, top, 70, 12);
-        g.drawString(font, Component.literal(nameHeader), x + 19, top + 2, nameHover || !state.sortBySize ? GREEN : headerColor, false);
-        g.drawString(font, Component.literal(sizeHeader), x + w - 8 - font.width(sizeHeader), top + 2, sizeHover || state.sortBySize ? GREEN : headerColor, false);
-        g.fill(x, top + 12, x + w, top + 13, DARK_GREEN);
+        g.drawString(font, Component.literal(nameHeader), x + 19, top + 2, nameHover || !state.sortBySize ? Ui.ACCENT : headerColor, false);
+        g.drawString(font, Component.literal(sizeHeader), x + w - 8 - font.width(sizeHeader), top + 2, sizeHover || state.sortBySize ? Ui.ACCENT : headerColor, false);
+        g.fill(x, top + 12, x + w, top + 13, Ui.SURFACE);
         listTop = top + 14;
         listBottom = bottom;
         visibleRows = Math.max(1, (listBottom - listTop) / ROW);
@@ -306,16 +302,16 @@ final class FileExplorerApp extends ComputerApp {
             boolean hover = kit.hovered(x, rowY, rowWidth, ROW - 1);
             boolean target = dragging && dropTarget.equals(entry.path());
             boolean dragged = dragging && entry.path().equals(pressPath);
-            if (selected || hover || target) g.fill(x, rowY, x + rowWidth, rowY + ROW - 1, selected ? SELECTED_FILL : HOVER_FILL);
-            if (target) kit.outline(g, x, rowY, rowWidth, ROW - 1, PALE_GREEN);
+            if (selected || hover || target) g.fill(x, rowY, x + rowWidth, rowY + ROW - 1, selected ? Ui.SELECTED_FILL : Ui.HOVER);
+            if (target) kit.outline(g, x, rowY, rowWidth, ROW - 1, Ui.FOCUS);
             boolean locked = ComputerFileSystem.isProtected(entry.path());
             kit.icon(g, icon(locked ? "lock" : entry.directory() ? "folder" : entry.image() ? "image" : "text"), x + 3, rowY + 2, 12, !dragged);
             String size = entry.directory() ? tr("size.items", children.getOrDefault(entry.path(), 0))
                     : entry.image() ? tr("size.painting") : bytes(entry.size());
             int sizeWidth = font.width(size);
-            int nameColor = dragged ? AppKit.DISABLED : selected ? PALE_GREEN : entry.directory() ? GREEN : PALE_GREEN;
+            int nameColor = dragged ? Ui.TEXT_DISABLED : selected ? Ui.TEXT : entry.directory() ? Ui.ACCENT : Ui.TEXT;
             g.drawString(font, Component.literal(screen.trimToWidth(entry.name(), Math.max(12, rowWidth - sizeWidth - 30))), x + 19, rowY + 4, nameColor, false);
-            g.drawString(font, Component.literal(size), x + rowWidth - 4 - sizeWidth, rowY + 4, AppKit.MUTED, false);
+            g.drawString(font, Component.literal(size), x + rowWidth - 4 - sizeWidth, rowY + 4, Ui.TEXT_MUTED, false);
             kit.hit(x, rowY, rowWidth, ROW - 1, () -> pressRow(entry));
             if (entry.directory() && !locked) drops.add(new Drop(x, rowY, rowWidth, ROW - 1, entry.path()));
         }
@@ -333,14 +329,14 @@ final class FileExplorerApp extends ComputerApp {
                 title = tr("empty.title");
                 hint = ComputerFileSystem.isProtected(state.directory) ? tr("empty.locked_hint") : tr("empty.hint");
             }
-            g.drawString(font, Component.literal(screen.trimToWidth(title, w - 12)), x + 6, listTop + 6, GREEN, false);
-            screen.wrapLimited(g, hint, x + 6, listTop + 19, w - 12, listBottom, AppKit.MUTED);
+            g.drawString(font, Component.literal(screen.trimToWidth(title, w - 12)), x + 6, listTop + 6, Ui.TEXT_STRONG, false);
+            screen.wrapLimited(g, hint, x + 6, listTop + 19, w - 12, listBottom, Ui.TEXT_MUTED);
         }
         kit.scrollbar(g, x + w - 3, listTop, listBottom - listTop, visibleRows, rows.size(), state.scroll, state.maximumScroll, value -> state.scroll = value);
     }
 
     private void renderFooter(ThemedGraphics g, int x, int y, int w, List<Entry> rows, Entry selected, List<Entry> all) {
-        g.fill(x, y, x + w, y + 1, DARK_GREEN);
+        g.fill(x, y, x + w, y + 1, Ui.SURFACE);
         int textY = y + 2;
         String left;
         if (selected != null) {
@@ -353,17 +349,17 @@ final class FileExplorerApp extends ComputerApp {
             left = tr("summary", rows.size() - folders, folders);
         }
         String right = "";
-        int rightColor = AppKit.MUTED;
+        int rightColor = Ui.TEXT_MUTED;
         if (dragging) {
             right = dropTarget.isEmpty() ? tr("drag.hint") : tr("drag.target", crumbLabel(dropTarget));
-            rightColor = dropTarget.isEmpty() ? AppKit.MUTED : PALE_GREEN;
+            rightColor = dropTarget.isEmpty() ? Ui.TEXT_MUTED : Ui.TEXT;
         } else if (System.currentTimeMillis() < noticeUntil) {
             right = notice;
             rightColor = noticeColor;
         }
         String shownRight = screen.trimToWidth(right, Math.max(10, w / 2));
         int rightWidth = right.isEmpty() ? 0 : font.width(shownRight);
-        g.drawString(font, Component.literal(screen.trimToWidth(left, Math.max(10, w - rightWidth - 8))), x, textY, selected != null ? PALE_GREEN : AppKit.MUTED, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(left, Math.max(10, w - rightWidth - 8))), x, textY, selected != null ? Ui.TEXT : Ui.TEXT_MUTED, false);
         if (!right.isEmpty()) g.drawString(font, Component.literal(shownRight), x + w - rightWidth, textY, rightColor, false);
     }
 
@@ -377,10 +373,10 @@ final class FileExplorerApp extends ComputerApp {
         g.pose().pushPose();
         try {
             g.pose().translate(0.0F, 0.0F, 250.0F);
-            g.fill(gx, gy, gx + width, gy + 15, BLACK);
-            kit.outline(g, gx, gy, width, 15, dropTarget.isEmpty() ? AppKit.SOFT : PALE_GREEN);
+            g.fill(gx, gy, gx + width, gy + 15, Ui.BACKGROUND);
+            kit.outline(g, gx, gy, width, 15, dropTarget.isEmpty() ? Ui.LINE : Ui.FOCUS);
             kit.icon(g, icon(entry.directory() ? "folder" : entry.image() ? "image" : "text"), gx + 3, gy + 2, 12, true);
-            g.drawString(font, Component.literal(label), gx + 17, gy + 4, PALE_GREEN, false);
+            g.drawString(font, Component.literal(label), gx + 17, gy + 4, Ui.TEXT, false);
         } finally {
             g.pose().popPose();
         }
@@ -400,21 +396,21 @@ final class FileExplorerApp extends ComputerApp {
         g.pose().pushPose();
         try {
             g.pose().translate(0.0F, 0.0F, 100.0F);
-            g.fill(left, top, left + width, top + height, BLACK);
-            screen.box(g, left, top, left + width, top + height, GREEN);
+            g.fill(left, top, left + width, top + height, Ui.BACKGROUND);
+            screen.box(g, left, top, left + width, top + height, Ui.BORDER_STRONG);
             int rowY = top + 3;
             for (MenuItem item : items) {
                 if (item == null) {
-                    g.fill(left + 6, rowY + 2, left + width - 6, rowY + 3, DARK_GREEN);
+                    g.fill(left + 6, rowY + 2, left + width - 6, rowY + 3, Ui.SURFACE);
                     rowY += 5;
                     continue;
                 }
                 boolean hover = item.enabled() && kit.hovered(left + 2, rowY, width - 4, MENU_ROW);
-                if (hover) g.fill(left + 2, rowY, left + width - 2, rowY + MENU_ROW, HOVER_FILL);
-                int color = !item.enabled() ? AppKit.DISABLED : item.danger() ? AppKit.ERROR : hover ? GREEN : PALE_GREEN;
+                if (hover) g.fill(left + 2, rowY, left + width - 2, rowY + MENU_ROW, Ui.HOVER);
+                int color = !item.enabled() ? Ui.TEXT_DISABLED : item.danger() ? Ui.ERROR : hover ? Ui.ACCENT : Ui.TEXT;
                 g.drawString(font, Component.literal(item.label()), left + 7, rowY + 3, color, false);
                 if (!item.shortcut().isEmpty()) {
-                    g.drawString(font, Component.literal(item.shortcut()), left + width - 7 - font.width(item.shortcut()), rowY + 3, AppKit.MUTED, false);
+                    g.drawString(font, Component.literal(item.shortcut()), left + width - 7 - font.width(item.shortcut()), rowY + 3, Ui.TEXT_MUTED, false);
                 }
                 if (item.enabled()) {
                     Runnable action = item.action();
@@ -677,7 +673,7 @@ final class FileExplorerApp extends ComputerApp {
 
     private void refresh() {
         ComputerNetworking.listFiles();
-        notice(tr("notice.refreshed"), AppKit.MUTED);
+        notice(tr("notice.refreshed"), Ui.TEXT_MUTED);
     }
 
     private void sortBy(boolean size) {
@@ -690,12 +686,12 @@ final class FileExplorerApp extends ComputerApp {
 
     private void copyPath(String path) {
         Minecraft.getInstance().keyboardHandler.setClipboard(path);
-        notice(tr("notice.copied"), PALE_GREEN);
+        notice(tr("notice.copied"), Ui.TEXT);
     }
 
     private void newFolder() {
         if (ComputerFileSystem.isProtected(state.directory)) {
-            notice(tr("notice.locked"), AppKit.ERROR);
+            notice(tr("notice.locked"), Ui.ERROR);
             return;
         }
         dialog.openName(tr("new_folder.title"), uniqueName(tr("new_folder.default")), input -> {
@@ -711,7 +707,7 @@ final class FileExplorerApp extends ComputerApp {
 
     private void newTextFile() {
         if (ComputerFileSystem.isProtected(state.directory)) {
-            notice(tr("notice.locked"), AppKit.ERROR);
+            notice(tr("notice.locked"), Ui.ERROR);
             return;
         }
         dialog.openName(tr("new_text.title"), uniqueName(tr("new_text.default")), input -> {
@@ -729,7 +725,7 @@ final class FileExplorerApp extends ComputerApp {
 
     private void newPainting() {
         if (ComputerFileSystem.isProtected(state.directory)) {
-            notice(tr("notice.locked"), AppKit.ERROR);
+            notice(tr("notice.locked"), Ui.ERROR);
             return;
         }
         String initial = uniqueName(tr("new_image.default") + AntPaintFilename.EXTENSION);
@@ -780,11 +776,11 @@ final class FileExplorerApp extends ComputerApp {
         String name = source.substring(source.lastIndexOf('/') + 1);
         String target = join(folder, name);
         if (target.length() > ComputerFileSystem.MAX_PATH_LENGTH) {
-            notice(tr("error.long"), AppKit.ERROR);
+            notice(tr("error.long"), Ui.ERROR);
             return;
         }
         if (find(target) != null) {
-            notice(tr("notice.move_exists", name), AppKit.ERROR);
+            notice(tr("notice.move_exists", name), Ui.ERROR);
             return;
         }
         pending("move", target);
@@ -960,4 +956,20 @@ final class FileExplorerApp extends ComputerApp {
         String pendingPath = "";
         int pendingSerial;
     }
+
+    JsonObject saveResume() {
+        JsonObject json = new JsonObject();
+        json.addProperty("directory", state.directory);
+        json.addProperty("selected", state.selected);
+        return json;
+    }
+
+    void loadResume(JsonObject json) {
+        String directory = ComputerResume.string(json, "directory");
+        if (!directory.startsWith("/")) return;
+        state.directory = directory;
+        state.selected = ComputerResume.string(json, "selected");
+        state.revealSelected = !state.selected.isEmpty();
+    }
+
 }

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AntOS custom displays, format 1",
+  "$ref": "#/$defs/document",
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9_.-]+:[a-z0-9_./-]+$"},
+    "number": {"oneOf": [{"type": "number"}, {"type": "string", "pattern": "^\\$[A-Za-z_][A-Za-z0-9_.]*$"}]},
+    "position": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number", "minimum": -64, "maximum": 64}},
+    "document": {
+      "type": "object",
+      "properties": {
+        "$schema": {"type": "string"},
+        "version": {"const": 1, "default": 1},
+        "title": {"type": "string"},
+        "width": {"type": "number", "minimum": 32, "maximum": 2048, "default": 320},
+        "height": {"type": "number", "minimum": 24, "maximum": 2048, "default": 180},
+        "minimum_scale": {"type": "number", "minimum": 0.25, "maximum": 1.5, "default": 0.6},
+        "maximum_scale": {"type": "number", "minimum": 0.25, "maximum": 4, "default": 1},
+        "template": {"$ref": "#/$defs/id"},
+        "preset": {"enum": ["crafting", "shapeless", "cooking", "machine", "radial", "structure", "chain", "antos:presets/crafting", "antos:presets/shapeless", "antos:presets/cooking", "antos:presets/machine", "antos:presets/radial", "antos:presets/structure", "antos:presets/chain"]},
+        "values": {"type": "object"},
+        "variables": {"type": "object", "additionalProperties": {"type": "object", "required": ["type"], "properties": {"type": {"enum": ["string", "number", "boolean", "array", "object"]}, "default": {}}}},
+        "recipe_binding": {"type": "object", "required": ["recipe"], "properties": {"recipe": {"$ref": "#/$defs/id"}, "adapter": {"$ref": "#/$defs/id", "default": "antos:vanilla"}}},
+        "elements": {"$ref": "#/$defs/elements"},
+        "style": {"type": "object", "properties": {"panel": {"type": "string"}, "frame": {"type": "string"}, "slot_background": {"type": "string"}, "slot_border": {"type": "string"}, "output_border": {"type": "string"}, "scene_background": {"type": "string"}, "scene_grid": {"type": "boolean"}, "role_badges": {"type": "boolean", "default": false}}},
+        "layouts": {"type": "array", "maxItems": 8, "items": {"type": "object", "required": ["id", "elements"], "properties": {"id": {"type": "string"}, "min_width": {"type": "number", "minimum": 0, "maximum": 2048}, "width": {"type": "number", "minimum": 32, "maximum": 2048}, "height": {"type": "number", "minimum": 24, "maximum": 2048}, "elements": {"$ref": "#/$defs/elements"}}}},
+        "variants": {"type": "array", "minItems": 1, "maxItems": 1024, "items": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string", "minLength": 1}, "title": {"type": "string"}, "display": {"$ref": "#/$defs/id"}, "requires_entry": {"$ref": "#/$defs/id"}, "hidden": {"type": "boolean", "default": false}}}}
+      },
+      "oneOf": [
+        {"required": ["template"], "not": {"anyOf": [{"required": ["preset"]}, {"required": ["elements"]}]}},
+        {"required": ["preset"], "not": {"anyOf": [{"required": ["template"]}, {"required": ["elements"]}]}},
+        {"anyOf": [{"required": ["elements"]}, {"required": ["variants"]}], "not": {"anyOf": [{"required": ["template"]}, {"required": ["preset"]}]}}
+      ]
+    },
+    "elements": {"oneOf": [{"type": "string", "pattern": "^\\$"}, {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/element"}}]},
+    "ingredient": {"type": "object", "properties": {"item": {"type": "string"}, "tag": {"type": "string"}, "choices": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/id"}}, "count": {"$ref": "#/$defs/number"}, "role": {"enum": ["generic", "input", "output", "tool", "catalyst", "optional", "material"]}, "consumption": {"type": "string"}, "stack": {"type": "object"}, "stacks": {"type": "array", "maxItems": 128, "items": {"type": "object"}}}},
+    "block": {"type": "object", "required": ["pos", "state"], "properties": {"id": {"type": "string"}, "ghost": {"type": "boolean", "default": false}, "nbt": {"type": "string", "maxLength": 4096}, "pos": {"$ref": "#/$defs/position"}, "state": {"type": "string", "maxLength": 512}, "groups": {"type": "array", "items": {"type": "string"}}, "decorative": {"type": "boolean"}, "highlight": {"type": "boolean"}, "material": {"$ref": "#/$defs/material"}}},
+    "material": {"type": "object", "properties": {"state": {"type": "string"}, "item": {"$ref": "#/$defs/id"}, "key": {"type": "string"}, "label": {"type": "string"}, "count": {"type": "integer", "minimum": 0, "maximum": 1000000}, "exclude": {"type": "boolean"}}},
+    "element": {
+      "allOf": [{"$ref": "#/$defs/ingredient"}],
+      "type": "object",
+      "anyOf": [{"required": ["type"]}, {"required": ["ref"]}],
+      "properties": {
+        "type": {"enum": ["slot", "item", "fluid", "text", "image", "rect", "circle", "polygon", "line", "arrow", "bar", "recipe", "entity", "group", "scene", "materials", "requirements", "conditions", "recipe_list", "repeat"]},
+        "id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "ref": {"type": "string", "minLength": 1},
+        "x": {"$ref": "#/$defs/number"}, "y": {"$ref": "#/$defs/number"},
+        "width": {"$ref": "#/$defs/number"}, "height": {"$ref": "#/$defs/number"}, "size": {"$ref": "#/$defs/number"},
+        "x2": {"$ref": "#/$defs/number"}, "y2": {"$ref": "#/$defs/number"},
+        "color": {"type": "string"}, "tint": {"type": "string"}, "fill": {"type": "boolean"},
+        "text": {"type": "string"}, "tooltip": {"type": "string"}, "archive": {"$ref": "#/$defs/id"}, "task": {"$ref": "#/$defs/id"},
+        "align": {"enum": ["left", "center", "right"]},
+        "fluid": {"$ref": "#/$defs/id"}, "name": {"type": "string"}, "amount": {"$ref": "#/$defs/number"}, "capacity": {"$ref": "#/$defs/number"}, "direction": {"enum": ["up", "right"]},
+        "texture": {"$ref": "#/$defs/id"}, "u": {"$ref": "#/$defs/number"}, "v": {"$ref": "#/$defs/number"}, "source_width": {"$ref": "#/$defs/number"}, "source_height": {"$ref": "#/$defs/number"}, "texture_width": {"$ref": "#/$defs/number"}, "texture_height": {"$ref": "#/$defs/number"},
+        "radius": {"$ref": "#/$defs/number"}, "points": {"type": "array", "minItems": 3, "maxItems": 64, "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}},
+        "value": {"$ref": "#/$defs/number"}, "recipe": {"$ref": "#/$defs/id"}, "entity": {"$ref": "#/$defs/id"}, "rotation": {"$ref": "#/$defs/number"},
+        "elements": {"$ref": "#/$defs/elements"}, "layout": {"enum": ["manual", "grid", "radial", "list"]}, "columns": {"$ref": "#/$defs/number"}, "cell_width": {"$ref": "#/$defs/number"}, "cell_height": {"$ref": "#/$defs/number"}, "start_angle": {"$ref": "#/$defs/number"},
+        "items": {"type": "array", "maxItems": 128}, "element": {"$ref": "#/$defs/element"},
+        "structure": {"$ref": "#/$defs/id"}, "blocks": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/block"}},
+        "pattern": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 64}}},
+        "mapping": {"type": "object", "additionalProperties": {"type": "string"}}, "yaw": {"type": "number"}, "pitch": {"type": "number", "minimum": -80, "maximum": 80}, "scale": {"type": "number", "minimum": 0.3, "maximum": 4}, "origin": {"$ref": "#/$defs/position"},
+        "material_rules": {"type": "array", "items": {"$ref": "#/$defs/material"}},
+        "steps": {"type": "array", "maxItems": 64, "items": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string", "minLength": 1}, "title": {"type": "string"}, "text": {"type": "string"}, "include": {"type": "array", "maxItems": 4096, "items": {"type": "string"}}, "groups": {"type": "array", "items": {"type": "string"}}, "through_y": {"type": "number"}, "states": {"type": "object", "additionalProperties": {"type": "string", "maxLength": 512}}, "yaw": {"type": "number"}, "pitch": {"type": "number", "minimum": -90, "maximum": 90}, "zoom": {"type": "number", "minimum": 0.3, "maximum": 4}, "time": {"type": "number", "minimum": 0.5, "maximum": 30}, "conditions": {"type": "array", "maxItems": 16}, "progress": {"type": "object"}, "image": {"type": "object"}, "markers": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {"block": {"type": "string"}, "pos": {"$ref": "#/$defs/position"}, "icon": {"enum": ["right_click", "left_click", "item", "look", "drop", "warning", "sneak"]}, "item": {"$ref": "#/$defs/id"}, "text": {"type": "string"}}}}}, "not": {"anyOf": [{"required": ["remove"]}, {"required": ["replace"]}]}}},
+        "scene": {"type": "string"}, "scope": {"enum": ["scene", "visible", "cumulative", "added"]}, "step_time": {"type": "number", "minimum": 0.5, "maximum": 30}, "autoplay": {"type": "boolean"}, "hero": {"type": "boolean"}, "ratio": {"type": "number", "minimum": 0.3, "maximum": 1.5}, "max_screen": {"type": "number", "minimum": 0.2, "maximum": 0.95}, "moves": {"type": "array", "maxItems": 32}, "effects": {"type": "array", "maxItems": 64}, "paths": {"type": "array", "maxItems": 32}, "entries": {"type": "array", "maxItems": 64}, "rows": {"type": "array", "maxItems": 1024}, "search": {"type": "boolean"}, "title_width": {"type": "number"}, "jei": {"$ref": "#/$defs/id"}, "jei_uses": {"type": "boolean"}, "animate": {"type": "number", "minimum": 0, "maximum": 600},
+        "entries": {"type": "array", "maxItems": 64, "items": {"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}, "kind": {"type": "string"}}}}
+      }
+    }
+  }
+}

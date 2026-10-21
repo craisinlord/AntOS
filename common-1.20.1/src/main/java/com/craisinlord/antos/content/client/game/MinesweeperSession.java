@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.game;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -34,14 +35,6 @@ public final class MinesweeperSession implements ComputerGame.Session {
     private static final int PANEL_GAP = 10;
     private static final int PANEL_MIN = 104;
     private static final int PAD = 8;
-    private static final int HIDDEN = 0xFF1C421C;
-    private static final int HIDDEN_HOVER = 0xFF2A5E2A;
-    private static final int HIDDEN_LIGHT = 0xFF336A33;
-    private static final int HIDDEN_SHADE = 0xFF0E240E;
-    private static final int REVEALED = 0xFF061206;
-    private static final int GRID = 0xFF143014;
-    private static final int EXPLODED = 0xFF65FF65;
-    private static final int[] NUMBER_COLORS = {0, 0xFF65FF65, 0xFFB8FFB8, 0xFF9CE89C, 0xFFE0FFE0, 0xFF7ACF7A, 0xFFFFFFFF, 0xFF4FB84F, 0xFFC8FFC8};
 
     private final GameButtons buttons = new GameButtons();
     private final GameRewardTracker rewards = new GameRewardTracker();
@@ -80,7 +73,7 @@ public final class MinesweeperSession implements ComputerGame.Session {
     }
 
     private void renderMenu(GuiGraphics graphics, Font font, int x, int y, int width, int mouseX, int mouseY) {
-        graphics.drawString(font, GameButtons.trim(font, Component.translatable("computer.antos.minesweeper.pick"), width - 8), x, y, GameButtons.PALE, false);
+        graphics.drawString(font, GameButtons.trim(font, Component.translatable("computer.antos.minesweeper.pick"), width - 8), x, y, Ui.TEXT, false);
         int top = y + 16;
         for (Mode option : Mode.values()) {
             buttons.row(graphics, font, x, top, width - 8,
@@ -102,7 +95,7 @@ public final class MinesweeperSession implements ComputerGame.Session {
                 drawCell(graphics, font, column, row, x + 1 + column * cell, y + 1 + row * cell, !over && column == hoverColumn && row == hoverRow);
             }
         }
-        graphics.renderOutline(x, y, boardWidth + 2, boardHeight + 2, 0xFF315E43);
+        graphics.renderOutline(x, y, boardWidth + 2, boardHeight + 2, Ui.GAME_OUTLINE);
         int panelX = x + boardWidth + 2 + PANEL_GAP;
         renderPanel(graphics, font, panelX, y, x + width - panelX, boardHeight + 2, mouseX, mouseY);
     }
@@ -110,8 +103,8 @@ public final class MinesweeperSession implements ComputerGame.Session {
     private void renderPanel(GuiGraphics graphics, Font font, int x, int y, int width, int height, int mouseX, int mouseY) {
         GameButtons.panel(graphics, x, y, width, height, false);
         int inner = width - PAD * 2;
-        graphics.drawString(font, GameButtons.trim(font, Component.translatable("computer.antos.minesweeper.mode." + mode.id), inner), x + PAD, y + PAD, GameButtons.GREEN, false);
-        graphics.fill(x + PAD, y + PAD + 13, x + width - PAD, y + PAD + 14, 0xFF315E43);
+        graphics.drawString(font, GameButtons.trim(font, Component.translatable("computer.antos.minesweeper.mode." + mode.id), inner), x + PAD, y + PAD, Ui.TEXT_STRONG, false);
+        graphics.fill(x + PAD, y + PAD + 13, x + width - PAD, y + PAD + 14, Ui.GAME_OUTLINE);
         int flags = 0;
         for (int column = 0; column < mode.columns; column++) for (int row = 0; row < mode.rows; row++) if (flagged[column][row]) flags++;
         long elapsed = !generated ? 0L : ((over ? finishedAt : System.currentTimeMillis()) - startedAt) / 1000L;
@@ -121,51 +114,51 @@ public final class MinesweeperSession implements ComputerGame.Session {
         int buttonsTop = y + height - PAD - GameButtons.BUTTON_HEIGHT * 2 - 4;
         int maxLines = Math.max(0, (buttonsTop - 4 - statusTop) / 10);
         if (over) {
-            graphics.drawString(font, GameButtons.trim(font, Component.translatable(won ? "computer.antos.minesweeper.cleared" : "computer.antos.minesweeper.boom"), inner), x + PAD, statusTop, won ? GameButtons.GREEN : GameButtons.PALE, false);
-            GameButtons.wrap(graphics, font, Component.translatable("computer.antos.minesweeper.again"), x + PAD, statusTop + 12, inner, GameButtons.MUTED, Math.max(0, maxLines - 1));
+            graphics.drawString(font, GameButtons.trim(font, Component.translatable(won ? "computer.antos.minesweeper.cleared" : "computer.antos.minesweeper.boom"), inner), x + PAD, statusTop, won ? Ui.ACCENT : Ui.TEXT, false);
+            GameButtons.wrap(graphics, font, Component.translatable("computer.antos.minesweeper.again"), x + PAD, statusTop + 12, inner, Ui.TEXT_MUTED, Math.max(0, maxLines - 1));
         } else {
-            GameButtons.wrap(graphics, font, Component.translatable("computer.antos.minesweeper.hint"), x + PAD, statusTop, inner, GameButtons.MUTED, maxLines);
+            GameButtons.wrap(graphics, font, Component.translatable("computer.antos.minesweeper.hint"), x + PAD, statusTop, inner, Ui.TEXT_MUTED, maxLines);
         }
         buttons.button(graphics, font, x + PAD, buttonsTop, inner, Component.translatable("computer.antos.minesweeper.new"), mouseX, mouseY, () -> start(mode));
         buttons.button(graphics, font, x + PAD, buttonsTop + GameButtons.BUTTON_HEIGHT + 4, inner, Component.translatable("computer.antos.games.menu"), mouseX, mouseY, () -> mode = null);
     }
 
     private static void stat(GuiGraphics graphics, Font font, int x, int y, int width, Component label, String value) {
-        graphics.drawString(font, label, x + PAD, y, GameButtons.MUTED, false);
-        graphics.drawString(font, value, x + width - PAD - font.width(value), y, GameButtons.PALE, false);
+        graphics.drawString(font, label, x + PAD, y, Ui.TEXT_MUTED, false);
+        graphics.drawString(font, value, x + width - PAD - font.width(value), y, Ui.TEXT, false);
     }
 
     private void drawCell(GuiGraphics graphics, Font font, int column, int row, int left, int top, boolean hover) {
         int size = cell;
         if (!revealed[column][row]) {
-            graphics.fill(left, top, left + size, top + size, HIDDEN_SHADE);
-            graphics.fill(left, top, left + size - 1, top + size - 1, HIDDEN_LIGHT);
-            graphics.fill(left + 1, top + 1, left + size - 1, top + size - 1, hover ? HIDDEN_HOVER : HIDDEN);
+            graphics.fill(left, top, left + size, top + size, Ui.MINE_HIDDEN_SHADE);
+            graphics.fill(left, top, left + size - 1, top + size - 1, Ui.MINE_HIDDEN_LIGHT);
+            graphics.fill(left + 1, top + 1, left + size - 1, top + size - 1, hover ? Ui.SELECTION : Ui.MINE_HIDDEN);
             if (flagged[column][row]) drawFlag(graphics, left, top, size);
-            else if (over && !won && mines[column][row]) drawMine(graphics, left, top, size, GameButtons.PALE);
+            else if (over && !won && mines[column][row]) drawMine(graphics, left, top, size, Ui.TEXT);
             if (over && flagged[column][row] && !mines[column][row]) {
-                graphics.fill(left + 2, top + size / 2, left + size - 2, top + size / 2 + 1, GameButtons.PALE);
+                graphics.fill(left + 2, top + size / 2, left + size - 2, top + size / 2 + 1, Ui.TEXT);
             }
             return;
         }
-        graphics.fill(left, top, left + size, top + size, GRID);
+        graphics.fill(left, top, left + size, top + size, Ui.SURFACE_DEEP);
         boolean exploded = column == explodedX && row == explodedY;
-        graphics.fill(left + 1, top + 1, left + size, top + size, exploded ? EXPLODED : REVEALED);
-        if (mines[column][row]) drawMine(graphics, left, top, size, exploded ? REVEALED : GameButtons.PALE);
+        graphics.fill(left + 1, top + 1, left + size, top + size, exploded ? Ui.ACCENT : Ui.SURFACE_SUNKEN);
+        if (mines[column][row]) drawMine(graphics, left, top, size, exploded ? Ui.SURFACE_SUNKEN : Ui.TEXT);
         else if (adjacent[column][row] > 0) {
             String number = Integer.toString(adjacent[column][row]);
-            graphics.drawString(font, number, left + (size - font.width(number)) / 2 + 1, top + (size - 7) / 2 + 1, NUMBER_COLORS[adjacent[column][row]], false);
+            graphics.drawString(font, number, left + (size - font.width(number)) / 2 + 1, top + (size - 7) / 2 + 1, numberColor(adjacent[column][row]), false);
         }
     }
 
     private static void drawFlag(GuiGraphics graphics, int left, int top, int size) {
         int poleX = left + size / 2;
         int pad = Math.max(2, (size - 10) / 2);
-        graphics.fill(poleX, top + pad, poleX + 1, top + size - pad, GameButtons.PALE);
-        graphics.fill(poleX - 3, top + size - pad - 1, poleX + 4, top + size - pad, GameButtons.PALE);
-        graphics.fill(poleX - 4, top + pad, poleX, top + pad + 2, GameButtons.GREEN);
-        graphics.fill(poleX - 3, top + pad + 2, poleX, top + pad + 3, GameButtons.GREEN);
-        graphics.fill(poleX - 2, top + pad + 3, poleX, top + pad + 4, GameButtons.GREEN);
+        graphics.fill(poleX, top + pad, poleX + 1, top + size - pad, Ui.TEXT);
+        graphics.fill(poleX - 3, top + size - pad - 1, poleX + 4, top + size - pad, Ui.TEXT);
+        graphics.fill(poleX - 4, top + pad, poleX, top + pad + 2, Ui.ACCENT);
+        graphics.fill(poleX - 3, top + pad + 2, poleX, top + pad + 3, Ui.ACCENT);
+        graphics.fill(poleX - 2, top + pad + 3, poleX, top + pad + 4, Ui.ACCENT);
     }
 
     private static void drawMine(GuiGraphics graphics, int left, int top, int size, int color) {
@@ -296,5 +289,19 @@ public final class MinesweeperSession implements ComputerGame.Session {
 
     private boolean valid(int column, int row) {
         return column >= 0 && row >= 0 && column < mode.columns && row < mode.rows;
+    }
+
+    private static int numberColor(int count) {
+        return switch (count) {
+            case 1 -> Ui.ACCENT;
+            case 2 -> Ui.TEXT;
+            case 3 -> Ui.MINE_NUMBER_3;
+            case 4 -> Ui.MINE_NUMBER_4;
+            case 5 -> Ui.MINE_NUMBER_5;
+            case 6 -> Ui.TEXT_BRIGHT;
+            case 7 -> Ui.MINE_NUMBER_7;
+            case 8 -> Ui.MINE_NUMBER_8;
+            default -> 0;
+        };
     }
 }

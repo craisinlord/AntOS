@@ -1,0 +1,8 @@
+{
+  "title": "Workshop recipes",
+  "variants": [
+    {"id": "authored", "title": "Authored recipe", "display": "examplemod:washer_preset"},
+    {"id": "vanilla", "title": "Live recipe", "display": "examplemod:live_smelting"},
+    {"id": "construction", "title": "Construction", "display": "examplemod:altar_walkthrough"}
+  ]
+}

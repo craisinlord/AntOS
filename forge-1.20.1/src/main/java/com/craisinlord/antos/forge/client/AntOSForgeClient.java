@@ -37,8 +37,12 @@ public final class AntOSForgeClient {
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
+            com.craisinlord.antos.config.AntOSSettings.loadClientState(net.minecraftforge.fml.loading.FMLPaths.GAMEDIR.get().resolve("antos").resolve("client.json"),
+                    net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get().resolve("antos.json"));
             MinecraftForge.EVENT_BUS.addListener(AntOSForgeClient::onScreenInit);
             MinecraftForge.EVENT_BUS.addListener(AntOSForgeClient::onClientLogout);
+            MinecraftForge.EVENT_BUS.addListener(AntOSForgeClient::onTooltip);
+            MinecraftForge.EVENT_BUS.addListener(AntOSForgeClient::onClientTick);
             AntOSComputerGames.register();
             AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
             AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
@@ -72,5 +76,20 @@ public final class AntOSForgeClient {
 
     private static void onClientLogout(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
         AntOSClientHooks.clearConnectionState();
+    }
+
+    private static void onTooltip(net.minecraftforge.event.entity.player.ItemTooltipEvent event) {
+        com.craisinlord.antos.content.client.ArchiveLookup.tooltip(event.getItemStack(), event.getToolTip());
+    }
+
+    private static void onClientTick(net.minecraftforge.event.TickEvent.ClientTickEvent event) {
+        if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) com.craisinlord.antos.content.client.ArchiveLookup.tick();
+    }
+
+    @SubscribeEvent
+    public static void registerKeys(net.minecraftforge.client.event.RegisterKeyMappingsEvent event) {
+        net.minecraft.client.KeyMapping key = com.craisinlord.antos.content.client.ArchiveLookup.create(org.lwjgl.glfw.GLFW.GLFW_KEY_W);
+        key.setKeyConflictContext(net.minecraftforge.client.settings.KeyConflictContext.GUI);
+        event.register(key);
     }
 }

@@ -30,15 +30,17 @@ import net.minecraftforge.eventbus.api.IEventBus;
 @Mod(AntOS.MODID)
 public final class AntOSForge {
     public AntOSForge() {
-        AntOSSettings.load(FMLPaths.CONFIGDIR.get().resolve("antos.json"));
+        AntOSSettings.loadConfig(FMLPaths.CONFIGDIR.get().resolve("antos.json"));
         IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         AntOSForgeContent.register(modBus);
         AntOSForgeNetworking.register();
+        com.craisinlord.antos.content.network.JeiSync.register();
         MinecraftForge.EVENT_BUS.addListener(this::registerReloadListeners);
         MinecraftForge.EVENT_BUS.addListener(this::registerCommands);
         MinecraftForge.EVENT_BUS.addListener(this::onServerTick);
         MinecraftForge.EVENT_BUS.addListener(this::onServerStopped);
         MinecraftForge.EVENT_BUS.addListener(this::onPlayerLogout);
+        MinecraftForge.EVENT_BUS.addListener(this::onPlayerLogin);
         MinecraftForge.EVENT_BUS.addListener(this::onAdvancementEarned);
         AntmailEventData.setAdvancementEvents(true);
         AntmailEventData.registerListeners();
@@ -49,9 +51,11 @@ public final class AntOSForge {
 
     private void registerCommands(RegisterCommandsEvent event) {
         TaskDebugCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.guide.DisplayCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antmail.AntmailDebugCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntazonCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntcoinCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.computer.AccountCommands.register(event.getDispatcher());
     }
 
     private void registerReloadListeners(AddReloadListenerEvent event) {
@@ -66,8 +70,11 @@ public final class AntOSForge {
     private void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
         var server = event.getServer();
+        com.craisinlord.antos.content.guide.DisplayCommands.tick(server);
         FieldGuideCompat.tick(server);
         FloppyTextureSync.tick(server);
+        com.craisinlord.antos.content.network.JeiSync.tick(server);
+        com.craisinlord.antos.content.network.DisplaySync.tick(server);
         AntmailEventData.onTick(server);
         com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
         com.craisinlord.antos.content.computer.ComputerPrograms.tick(server);
@@ -80,8 +87,15 @@ public final class AntOSForge {
     }
 
     private void onServerStopped(ServerStoppedEvent event) {
+        com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
         FieldGuideCompat.shutdown();
         com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
+    }
+
+    private void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            com.craisinlord.antos.content.network.ComputerAccessHandler.sendLookup(player);
+        }
     }
 
     private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {

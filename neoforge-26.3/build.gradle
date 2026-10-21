@@ -44,6 +44,8 @@ dependencies {
     compileOnly("dev.ftb.mods:ftb-library-neoforge:${ftb_library_version_26_1}") { transitive = false }
     compileOnly "dev.ftb.mods:ftb-teams:${ftb_teams_version_26_1}"
     compileOnly("dev.ftb.mods:ftb-teams-neoforge:${ftb_teams_version_26_1}") { transitive = false }
+    compileOnly "mezz.jei:jei-26.3-neoforge-api:${jei_version_26_3}"
+    runtimeOnly("mezz.jei:jei-26.3-neoforge:${jei_version_26_3}") { transitive = false }
 }
 
 tasks.withType(ProcessResources).configureEach {

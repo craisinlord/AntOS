@@ -21,6 +21,10 @@ repositories {
     maven { url = 'https://maven.ftb.dev/releases' }
     maven { url = 'https://maven.architectury.dev/' }
     maven {
+        url = 'https://maven.blamejared.com/'
+        content { includeGroup 'mezz.jei' }
+    }
+    maven {
         url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/'
         content { includeGroup 'software.bernie.geckolib' }
     }
@@ -85,6 +89,9 @@ dependencies {
     compileOnly("dev.ftb.mods:ftb-library-forge:2001.2.13") { transitive = false }
     compileOnly("dev.ftb.mods:ftb-teams-forge:2001.3.2") { transitive = false }
     compileOnly "dev.architectury:architectury-forge:9.2.14"
+    compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}-common-api:${jei_version}")
+    compileOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge-api:${jei_version}")
+    runtimeOnly fg.deobf("mezz.jei:jei-${minecraft_version}-forge:${jei_version}")
 }
 
 mixin {
@@ -100,3 +107,61 @@ tasks.named('processResources', ProcessResources).configure {
 }
 
 tasks.named('jar', Jar).configure { finalizedBy 'reobfJar' }
+
+def displayTestClasses = layout.buildDirectory.dir('classes/java/displayTest')
+
+tasks.register('compileDisplayTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files(
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/content/guide/DisplayFeaturesTest.java',
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/content/guide/DisplayRecipesTest.java',
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/content/guide/CustomDisplaysTest.java',
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/content/client/screen/ArchiveFolderTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = displayTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+[
+    displayFeaturesTest: [testClass: 'com.craisinlord.antos.content.guide.DisplayFeaturesTest', withRoot: false, dir: 'custom-display-tests',
+                          description: 'Verifies display materials, steps, layouts, variants, indexing, presets, and adapter registration.'],
+    displayRecipesTest: [testClass: 'com.craisinlord.antos.content.guide.DisplayRecipesTest', withRoot: true, dir: 'custom-display-tests',
+                         description: 'Verifies vanilla recipe extraction, reload behavior, and all custom display examples.'],
+    customDisplaysTest: [testClass: 'com.craisinlord.antos.content.guide.CustomDisplaysTest', withRoot: true, dir: 'custom-display-tests',
+                         description: 'Verifies custom display validation, templates, structures, and synchronization.'],
+    archiveFolderTest: [testClass: 'com.craisinlord.antos.content.client.screen.ArchiveFolderTest', withRoot: false, dir: 'archive-folder-tests',
+                        description: 'Verifies Archive folder sync, unlocking, ordering, search, and navigation.']
+].each { name, test ->
+    tasks.register(name, JavaExec) {
+        group = 'verification'
+        description = test.description
+        dependsOn tasks.named('compileDisplayTests')
+        classpath = files(displayTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
+        mainClass = test.testClass
+        if (test.withRoot) args file('..').absolutePath
+        workingDir = layout.buildDirectory.dir(test.dir).get().asFile
+        doFirst { workingDir.mkdirs() }
+    }
+}
+
+
+
+def merchantTestClasses = layout.buildDirectory.dir('classes/java/merchantTest')
+
+tasks.register('compileMerchantTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source fileTree('../common-1.20.1/src/test/java/com/craisinlord/antos/content/merchant') { include '**/*.java' }
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = merchantTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+tasks.register('merchantTest', JavaExec) {
+    group = 'verification'
+    dependsOn tasks.named('compileMerchantTests')
+    classpath = files(merchantTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
+    mainClass = 'com.craisinlord.antos.content.merchant.MerchantStoreTest'
+    args '--rules-only'
+}

@@ -9,7 +9,8 @@
   "environment": "*",
   "entrypoints": {
     "main": ["com.craisinlord.antos.fabric.AntOSFabric"],
-    "client": ["com.craisinlord.antos.fabric.client.AntOSFabricClient"]
+    "client": ["com.craisinlord.antos.fabric.client.AntOSFabricClient"],
+    "jei_mod_plugin": ["com.craisinlord.antos.compat.jei.AntOSJeiPlugin"]
   },
   "depends": {
     "fabricloader": ">=${fabric_loader_version}",
@@ -20,6 +21,7 @@
   },
   "suggests": {
     "ftbquests": "*",
-    "fieldguide": "*"
+    "fieldguide": "*",
+    "jei": "*"
   }
 }

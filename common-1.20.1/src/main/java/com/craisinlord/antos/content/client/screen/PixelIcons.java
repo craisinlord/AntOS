@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.AntOS;
 import com.mojang.blaze3d.platform.NativeImage;
 import java.io.InputStream;
@@ -40,8 +41,8 @@ final class PixelIcons {
         Sprite sprite = CACHE.computeIfAbsent(id, PixelIcons::load);
         if (sprite.runs().isEmpty()) {
             int inset = Math.max(1, size / 8);
-            g.fill(x + inset, y + inset, x + size - inset, y + size - inset, ComputerScreen.BLACK);
-            g.fill(x + inset + 2, y + inset + 2, x + size - inset - 2, y + size - inset - 2, ComputerScreen.GREEN);
+            g.fill(x + inset, y + inset, x + size - inset, y + size - inset, Ui.BACKGROUND);
+            g.fill(x + inset + 2, y + inset + 2, x + size - inset - 2, y + size - inset - 2, Ui.ACCENT);
             return;
         }
         boolean scaled = sprite.width() != size || sprite.height() != size;
@@ -49,7 +50,7 @@ final class PixelIcons {
         try {
             g.pose().translate(x, y, 0.0F);
             if (scaled) g.pose().scale(size / (float) sprite.width(), size / (float) sprite.height(), 1.0F);
-            for (int[] run : sprite.runs()) g.fill(run[0], run[1], run[0] + run[2], run[1] + run[4], run[3]);
+            for (int[] run : sprite.runs()) g.fill(run[0], run[1], run[0] + run[2], run[1] + run[4], Ui.icon(run[3]));
         } finally {
             g.pose().popPose();
         }

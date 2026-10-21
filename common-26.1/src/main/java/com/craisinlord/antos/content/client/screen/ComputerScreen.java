@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.client.ComputerAccessClientState;
 import com.craisinlord.antos.content.client.AntazonClientState;
@@ -83,11 +84,6 @@ import java.util.UUID;
 public final class ComputerScreen extends Screen {
     static final int WIDTH = 440;
     static final int HEIGHT = 286;
-    static final int GREEN = 0xFF65FF65;
-    static final int PALE_GREEN = 0xFFB8FFB8;
-    static final int DARK_GREEN = 0xFF102010;
-    static final int BLACK = 0xFF030603;
-    static final int HOVER_FILL = 0xFF173817;
     private static final int TITLE_BAR_HEIGHT = 20;
     private static final int WINDOW_CONTROL_WIDTH = 18;
     private static final int WINDOW_CONTROL_COUNT = 3;
@@ -97,7 +93,7 @@ public final class ComputerScreen extends Screen {
     public static void clearCachedSessions() {
         SESSIONS.clear();
     }
-    private static final String[] ICONS = {"ARCHIVE", "FILES", "SETTINGS", "TASKS", "TERMINAL", "TEXT", "PAINT", "ANTMAIL", "ANTAZON", "GAMES", "DISKS"};
+    private static final String[] ICONS = {"ARCHIVE", "FILES", "SETTINGS", "TASKS", "TERMINAL", "TEXT", "PAINT", "ANTMAIL", "ANTAZON", "GAMES", "DISKS", "MERCHANT"};
     private static final Map<Identifier, int[]> WALLPAPER_TEXTURE_SIZES = new HashMap<>();
     private final String sessionKey;
     final Session session;
@@ -108,6 +104,9 @@ public final class ComputerScreen extends Screen {
     private String accountPassword = "";
     private boolean creatingAccount;
     private boolean accountPasswordFocused;
+    private boolean accountHintFocused;
+    private String accountHint = "";
+    private String accountHintMessage = "";
     private boolean accountWaiting;
     private long faceIdStatusAtOpen;
     private boolean faceIdAutoLoginStarted;
@@ -159,6 +158,7 @@ public final class ComputerScreen extends Screen {
         PixelIcons.clear();
         var accountResult = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
         this.sessionKey = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
+        boolean freshSession = !SESSIONS.containsKey(sessionKey);
         this.session = SESSIONS.computeIfAbsent(sessionKey, ignored -> new Session());
         this.session.attach(this);
         for (ComputerApp app : List.of(tasks, games)) app.attach(this);
@@ -182,6 +182,14 @@ public final class ComputerScreen extends Screen {
         if (!loggedIn) {
             session.authenticated = false;
             session.windows.clear();
+        }
+        if (loggedIn && freshSession && AntOSSettings.preferences().resumeSession) {
+            ComputerResume.restore(this, session, AntOSSettings.resumeSnapshot(sessionKey));
+        }
+        if (activeWindow == null) {
+            for (int index = session.windows.size() - 1; index >= 0 && activeWindow == null; index--) {
+                if (!session.windows.get(index).minimized) activeWindow = session.windows.get(index);
+            }
         }
     }
 
@@ -208,6 +216,12 @@ public final class ComputerScreen extends Screen {
                 } else if (currentResult.result() == ComputerAccessResultPayload.INVALID_PASSWORD) {
                     loginMessage = Component.translatable("computer.antos.status.access_denied").getString();
                     loginMessageTicks = 100;
+                } else if (currentResult.result() == ComputerAccessResultPayload.ACCOUNT_MISMATCH && loggedIn) {
+                    loggedIn = false;
+                    session.authenticated = false;
+                    creatingAccount = false;
+                    faceIdAutoLoginStarted = true;
+                    accountMessage = Component.translatable("computer.antos.account.sign_in_here").getString();
                 } else if (currentResult.result() == ComputerAccessResultPayload.BUSY) {
                     loginMessage = Component.translatable("computer.antos.status.terminal_busy").getString();
                     loginMessageTicks = 100;
@@ -215,6 +229,7 @@ public final class ComputerScreen extends Screen {
             }
         }
         session.antmail.tick(loggedIn);
+        session.merchant.tick(loggedIn, loggedIn && session.windows.stream().anyMatch(window -> window.type.equals("MERCHANT") && !window.minimized));
         session.antazon.tick(loggedIn, session.windows.stream().anyMatch(window -> window.type.equals("ANTAZON") && !window.minimized));
         tasks.tick(loggedIn && session.windows.stream().anyMatch(window -> window.type.equals("TASKS") && !window.minimized));
         var accountSession = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
@@ -235,6 +250,8 @@ public final class ComputerScreen extends Screen {
                 Minecraft.getInstance().setScreen(new ComputerScreen());
                 return;
             }
+            accountHintMessage = accountSession.result() == AnternetAccountResultPayload.INVALID_CREDENTIALS && accountSession.username() != null
+                    ? accountSession.username() : "";
             accountMessage = switch (accountSession.result()) {
                 case AnternetAccountResultPayload.USERNAME_TAKEN -> "USERNAME UNAVAILABLE";
                 case AnternetAccountResultPayload.INVALID_CREDENTIALS -> "USERNAME OR PASSWORD NOT RECOGNIZED";
@@ -260,6 +277,10 @@ public final class ComputerScreen extends Screen {
             session.authenticated = false;
             session.windows.clear();
             session.antmail.state.pickingAttachment = false;
+        }
+        if (loggedIn && session.onboardingCompleted && session.bootTicks <= 0 && !lookPickerOpen() && AnternetAccountClientState.mustChangePassword()
+                && session.windows.stream().noneMatch(window -> window.type.equals("SETTINGS") && !window.minimized)) {
+            open("SETTINGS");
         }
         if (loggedIn && !session.desktopRequested) {
             ComputerNetworking.requestDesktopState();
@@ -301,6 +322,7 @@ public final class ComputerScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor source, int mouseX, int mouseY, float partialTick) {
         super.extractRenderState(source, mouseX, mouseY, partialTick);
         if (archivePreviewLevel != null && archivePreviewLevel != Minecraft.getInstance().level) clearArchivePreviews();
+        Ui.refresh();
         ThemedGraphics graphics = new com.craisinlord.antos.content.client.ThemedGraphics(source);
         float scale = uiScale();
         graphics.pose().pushPose();
@@ -312,9 +334,9 @@ public final class ComputerScreen extends Screen {
         int localMouseY = (int) ((mouseY - height / 2.0F) / scale);
         session.mouseX = localMouseX;
         session.mouseY = localMouseY;
-        graphics.fill(left - 5, top - 5, left + WIDTH + 5, top + HEIGHT + 5, GREEN);
-        graphics.fill(left, top, left + WIDTH, top + HEIGHT, BLACK);
-        graphics.fill(left + 5, top + 5, left + WIDTH - 5, top + HEIGHT - 5, DARK_GREEN);
+        graphics.fill(left - 5, top - 5, left + WIDTH + 5, top + HEIGHT + 5, Ui.BORDER_STRONG);
+        graphics.fill(left, top, left + WIDTH, top + HEIGHT, Ui.BACKGROUND);
+        graphics.fill(left + 5, top + 5, left + WIDTH - 5, top + HEIGHT - 5, Ui.SURFACE);
         if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, localMouseX, localMouseY); else renderLogin(graphics, left, top);
         graphics.pose().popPose();
         graphics.flush();
@@ -328,37 +350,47 @@ public final class ComputerScreen extends Screen {
     private void renderBoot(ThemedGraphics g, int l, int t) {
         int progress = Math.min(100, (80 - session.bootTicks) * 100 / 80);
         int message = Math.min(BOOT_MESSAGES.length - 1, progress * BOOT_MESSAGES.length / 101);
-        g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 28, t + 78, GREEN, false);
-        g.drawString(font, Component.literal("INITIALIZING SYSTEM..."), l + 28, t + 105, PALE_GREEN, false);
-        g.fill(l + 28, t + 132, l + WIDTH - 28, t + 148, BLACK);
-        box(g, l + 28, t + 132, l + WIDTH - 28, t + 148, GREEN);
-        g.fill(l + 32, t + 136, l + 32 + (WIDTH - 64) * progress / 100, t + 144, GREEN);
-        g.drawString(font, Component.literal(progress + "%"), l + 28, t + 164, GREEN, false);
-        g.drawString(font, Component.literal(BOOT_MESSAGES[message]), l + 28, t + 190, PALE_GREEN, false);
+        g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 28, t + 78, Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal("INITIALIZING SYSTEM..."), l + 28, t + 105, Ui.TEXT, false);
+        g.fill(l + 28, t + 132, l + WIDTH - 28, t + 148, Ui.BACKGROUND);
+        box(g, l + 28, t + 132, l + WIDTH - 28, t + 148, Ui.BORDER_STRONG);
+        g.fill(l + 32, t + 136, l + 32 + (WIDTH - 64) * progress / 100, t + 144, Ui.ACCENT);
+        g.drawString(font, Component.literal(progress + "%"), l + 28, t + 164, Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal(BOOT_MESSAGES[message]), l + 28, t + 190, Ui.TEXT, false);
     }
 
     private void renderLogin(ThemedGraphics g, int l, int t) {
-        g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 28, t + 25, GREEN, false);
-        g.drawString(font, Component.literal("ANTERNET // ACCOUNT"), l + 28, t + 43, PALE_GREEN, false);
-        g.fill(l + 28, t + 59, l + WIDTH - 28, t + 61, GREEN);
+        g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 28, t + 25, Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal("ANTERNET // ACCOUNT"), l + 28, t + 43, Ui.TEXT, false);
+        g.fill(l + 28, t + 59, l + WIDTH - 28, t + 61, Ui.BORDER_STRONG);
         int buttonX = l + WIDTH / 2 - 70;
         loginButton(g, buttonX, t + 70, 66, 20, "LOG IN", !creatingAccount);
         loginButton(g, buttonX + 74, t + 70, 66, 20, "CREATE", creatingAccount);
-        g.drawString(font, Component.literal("USERNAME"), l + 28, t + 99, PALE_GREEN, false);
-        g.fill(l + 28, t + 109, l + WIDTH - 28, t + 132, BLACK);
-        box(g, l + 28, t + 109, l + WIDTH - 28, t + 132, accountPasswordFocused ? 0xFF527952 : GREEN);
-        g.drawString(font, Component.literal(accountUsername + (accountPasswordFocused ? "" : "_")), l + 34, t + 117, PALE_GREEN, false);
-        g.drawString(font, Component.literal("PASSWORD"), l + 28, t + 140, PALE_GREEN, false);
-        g.fill(l + 28, t + 150, l + WIDTH - 28, t + 173, BLACK);
-        box(g, l + 28, t + 150, l + WIDTH - 28, t + 173, accountPasswordFocused ? GREEN : 0xFF527952);
-        g.drawString(font, Component.literal("*".repeat(accountPassword.length()) + (accountPasswordFocused ? "_" : "")), l + 34, t + 158, PALE_GREEN, false);
-        loginButton(g, buttonX, t + 184, 140, 22, accountWaiting ? "CONNECTING..." : creatingAccount ? "CREATE ACCOUNT" : "SIGN IN", true);
+        g.drawString(font, Component.literal("USERNAME"), l + 28, t + 99, Ui.TEXT, false);
+        g.fill(l + 28, t + 109, l + WIDTH - 28, t + 132, Ui.BACKGROUND);
+        box(g, l + 28, t + 109, l + WIDTH - 28, t + 132, accountPasswordFocused || accountHintFocused ? Ui.BORDER_INACTIVE : Ui.ACCENT);
+        g.drawString(font, Component.literal(accountUsername + (accountPasswordFocused || accountHintFocused ? "" : "_")), l + 34, t + 117, Ui.TEXT, false);
+        g.drawString(font, Component.literal("PASSWORD"), l + 28, t + 140, Ui.TEXT, false);
+        g.fill(l + 28, t + 150, l + WIDTH - 28, t + 173, Ui.BACKGROUND);
+        box(g, l + 28, t + 150, l + WIDTH - 28, t + 173, accountPasswordFocused ? Ui.ACCENT : Ui.BORDER_INACTIVE);
+        g.drawString(font, Component.literal("*".repeat(accountPassword.length()) + (accountPasswordFocused ? "_" : "")), l + 34, t + 158, Ui.TEXT, false);
+        if (creatingAccount) {
+            g.drawString(font, Component.translatable("computer.antos.account.hint_label"), l + 28, t + 178, Ui.TEXT, false);
+            g.fill(l + 28, t + 188, l + WIDTH - 28, t + 208, Ui.BACKGROUND);
+            box(g, l + 28, t + 188, l + WIDTH - 28, t + 208, accountHintFocused ? Ui.ACCENT : Ui.BORDER_INACTIVE);
+            g.drawString(font, Component.literal(trimToWidth(accountHint + (accountHintFocused ? "_" : ""), WIDTH - 68)), l + 34, t + 194, Ui.TEXT, false);
+        }
+        loginButton(g, buttonX, t + (creatingAccount ? 214 : 184), 140, 22, accountWaiting ? "CONNECTING..." : creatingAccount ? "CREATE ACCOUNT" : "SIGN IN", true);
         Component accountMessageComponent = accountMessage == null
                 ? Component.translatable("computer.antos.account.initial_prompt")
                 : Component.literal(accountMessage);
-        g.drawCenteredString(font, accountMessageComponent, l + WIDTH / 2, t + 218,
-                accountMessage != null && (accountMessage.contains("UNAVAILABLE") || accountMessage.contains("NOT RECOGNIZED")) ? 0xFFFF7777 : PALE_GREEN);
-        g.drawCenteredString(font, Component.literal("Turn on FACE ID in settings to skip login"), l + WIDTH / 2, t + HEIGHT - 14, PALE_GREEN);
+        g.drawCenteredString(font, accountMessageComponent, l + WIDTH / 2, t + (creatingAccount ? 242 : 218),
+                accountMessage != null && (accountMessage.contains("UNAVAILABLE") || accountMessage.contains("NOT RECOGNIZED")) ? Ui.ERROR : Ui.TEXT);
+        if (!creatingAccount && !accountHintMessage.isEmpty()) {
+            g.drawCenteredString(font, Component.literal(trimToWidth(Component.translatable("computer.antos.account.hint_shown", accountHintMessage).getString(), WIDTH - 56)),
+                    l + WIDTH / 2, t + 231, Ui.TEXT);
+        }
+        g.drawCenteredString(font, Component.literal("Turn on FACE ID in settings to skip login"), l + WIDTH / 2, t + HEIGHT - 14, Ui.TEXT);
     }
 
     void submitFaceIdLink() {
@@ -371,8 +403,20 @@ public final class ComputerScreen extends Screen {
 
     private void loginButton(ThemedGraphics g, int x, int y, int width, int height, String label, boolean selected) {
         if (hovered(x, y, width, height)) drawHover(g, x, y, width, height);
-        box(g, x, y, x + width, y + height, selected || hovered(x, y, width, height) ? GREEN : 0xFF527952);
-        g.drawCenteredString(font, Component.literal(label), x + width / 2, y + (height - 8) / 2, selected ? GREEN : PALE_GREEN);
+        box(g, x, y, x + width, y + height, selected || hovered(x, y, width, height) ? Ui.ACCENT : Ui.BORDER_INACTIVE);
+        g.drawCenteredString(font, Component.literal(label), x + width / 2, y + (height - 8) / 2, selected ? Ui.ACCENT : Ui.TEXT);
+    }
+
+    private void cycleAccountField() {
+        if (accountHintFocused) {
+            accountHintFocused = false;
+            accountPasswordFocused = false;
+        } else if (accountPasswordFocused) {
+            accountPasswordFocused = false;
+            accountHintFocused = creatingAccount;
+        } else {
+            accountPasswordFocused = true;
+        }
     }
 
     private void submitAccount() {
@@ -380,11 +424,16 @@ public final class ComputerScreen extends Screen {
         String username = accountUsername.trim();
         if (username.length() < 3) { accountMessage = "USERNAME NEEDS AT LEAST 3 CHARACTERS"; return; }
         if (accountPassword.isEmpty()) { accountMessage = "PASSWORD CANNOT BE EMPTY"; return; }
+        if (creatingAccount && !com.craisinlord.antos.content.computer.ComputerWorkspaceData.validHint(accountHint, accountPassword)) {
+            accountMessage = Component.translatable("computer.antos.account.hint_contains_password").getString();
+            return;
+        }
+        accountHintMessage = "";
         accountWaiting = true;
         accountMessage = creatingAccount ? "CREATING ACCOUNT..." : "SIGNING IN...";
         AnternetAccountClientState.clear();
         AnternetAccountNetworking.checkFaceId();
-        if (creatingAccount) AnternetAccountNetworking.create(username, accountPassword);
+        if (creatingAccount) AnternetAccountNetworking.create(username, accountPassword, accountHint.strip());
         else AnternetAccountNetworking.login(username, accountPassword);
         accountPassword = "";
     }
@@ -404,7 +453,10 @@ public final class ComputerScreen extends Screen {
         for (Window window : session.windows) {
             if (!window.minimized) renderWindow(g, window, l, t, mouseX, mouseY, layer++);
         }
-        if (!session.onboardingCompleted) {
+        if (lookPickerOpen()) {
+            beginLayer(g);
+            renderLookPicker(g, l, t);
+        } else if (!session.onboardingCompleted) {
             beginLayer(g);
             renderOnboarding(g, l, t, mouseX, mouseY);
         }
@@ -424,12 +476,12 @@ public final class ComputerScreen extends Screen {
             int h = 40 + rows * 12 + (diskRewardToast.rewards().size() > rows ? 12 : 0);
             int x = l + WIDTH - 230;
             int y = t + HEIGHT - h - 14;
-            g.fill(x, y, x + 216, y + h, BLACK);
-            box(g, x, y, x + 216, y + h, GREEN);
-            g.drawString(font, Component.translatable("computer.antos.disks.rewards_received"), x + 8, y + 7, GREEN, false);
-            g.drawString(font, trimToWidth(Component.translatable(diskRewardToast.title()).getString(), 198), x + 8, y + 21, PALE_GREEN, false);
-            for (int i = 0; i < rows; i++) g.drawString(font, trimToWidth("+ " + com.craisinlord.antos.content.client.DiskRewardsClientState.label(diskRewardToast.rewards().get(i)), 198), x + 8, y + 35 + i * 12, PALE_GREEN, false);
-            if (diskRewardToast.rewards().size() > rows) g.drawString(font, Component.translatable("computer.antos.disks.more_rewards"), x + 8, y + 35 + rows * 12, GREEN, false);
+            g.fill(x, y, x + 216, y + h, Ui.BACKGROUND);
+            box(g, x, y, x + 216, y + h, Ui.BORDER_STRONG);
+            g.drawString(font, Component.translatable("computer.antos.disks.rewards_received"), x + 8, y + 7, Ui.TEXT_STRONG, false);
+            g.drawString(font, trimToWidth(Component.translatable(diskRewardToast.title()).getString(), 198), x + 8, y + 21, Ui.TEXT, false);
+            for (int i = 0; i < rows; i++) g.drawString(font, trimToWidth("+ " + com.craisinlord.antos.content.client.DiskRewardsClientState.label(diskRewardToast.rewards().get(i)), 198), x + 8, y + 35 + i * 12, Ui.TEXT, false);
+            if (diskRewardToast.rewards().size() > rows) g.drawString(font, Component.translatable("computer.antos.disks.more_rewards"), x + 8, y + 35 + rows * 12, Ui.TEXT_STRONG, false);
         } finally {
             g.flush();
             g.pose().popPose();
@@ -438,8 +490,8 @@ public final class ComputerScreen extends Screen {
 
     private void renderDesktopSurface(ThemedGraphics g, int l, int t, int mouseX, int mouseY) {
         renderWallpaper(g, l, t);
-        g.fill(l + 9, t + 9, l + WIDTH - 9, t + 30, BLACK);
-        g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 18, t + 15, GREEN, false);
+        g.fill(l + 9, t + 9, l + WIDTH - 9, t + 30, Ui.BACKGROUND);
+        g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 18, t + 15, Ui.TEXT_STRONG, false);
         long dayTime = Minecraft.getInstance().level == null ? 0L : Minecraft.getInstance().level.getOverworldClockTime();
         long dayTicks = Math.floorMod(dayTime, 24000L);
         int hours = (int) ((dayTicks / 1000L + 6L) % 24L);
@@ -449,8 +501,8 @@ public final class ComputerScreen extends Screen {
             clockMinute = minute;
             clockLabel = String.format("%02d:%02d", hours, minutes);
         }
-        g.drawString(font, Component.literal(clockLabel), l + WIDTH - 48, t + 15, PALE_GREEN, false);
-        g.fill(l + 9, t + 31, l + WIDTH - 9, t + 33, GREEN);
+        g.drawString(font, Component.literal(clockLabel), l + WIDTH - 48, t + 15, Ui.TEXT, false);
+        g.fill(l + 9, t + 31, l + WIDTH - 9, t + 33, Ui.BORDER_STRONG);
         List<String> desktopApps = renderedDesktopApps();
         for (int i = 0; i < desktopApps.size(); i++) {
             String app = desktopApps.get(i);
@@ -461,10 +513,11 @@ public final class ComputerScreen extends Screen {
             drawDesktopIcon(g, app, x + 25, y + 2);
             if (app.equals("ANTMAIL") && session.antmail.hasUnreadMessages()) drawNotificationBadge(g, x + 35, y + 6);
             if (app.equals("ANTAZON") && session.antazon.hasUnseenDeals()) drawNotificationBadge(g, x + 35, y + 6);
-            g.drawString(font, Component.translatable(appNameKey(app)), x, y + 35, GREEN, false);
+            if (app.equals("MERCHANT") && session.merchant.hasPending()) drawNotificationBadge(g, x + 35, y + 6);
+            g.drawString(font, Component.translatable(appNameKey(app)), x, y + 35, Ui.TEXT_STRONG, false);
             if (desktopKeyboardFocus && desktopFocusIndex == i) {
-                box(g, x - 10, y - 10, x + 76, y + 53, BLACK);
-                box(g, x - 9, y - 9, x + 75, y + 52, PALE_GREEN);
+                box(g, x - 10, y - 10, x + 76, y + 53, Ui.BACKGROUND);
+                box(g, x - 9, y - 9, x + 75, y + 52, Ui.FOCUS);
             }
         }
     }
@@ -473,17 +526,17 @@ public final class ComputerScreen extends Screen {
         List<String> apps = renderedDesktopApps();
         int appStep = session.onboardingStep - 1;
         boolean welcome = session.onboardingStep == 0;
-        g.fill(l + 9, t + 34, l + WIDTH - 9, t + HEIGHT - 9, 0xC4000000);
+        g.fill(l + 9, t + 34, l + WIDTH - 9, t + HEIGHT - 9, Ui.alpha(Ui.SHADOW, 0xC4));
         if (!welcome && appStep >= 0 && appStep < apps.size()) {
             String app = apps.get(appStep);
             int desktopIndex = renderedDesktopApps().indexOf(app);
             if (desktopIndex >= 0) {
                 int iconX = desktopIconX(l, desktopIndex);
                 int iconY = desktopIconY(t, desktopIndex);
-                g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, HOVER_FILL);
-                box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, GREEN);
+                g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.HOVER);
+                box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.ACCENT);
                 drawDesktopIcon(g, app, iconX + 25, iconY + 2);
-                g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, GREEN, false);
+                g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, Ui.TEXT_STRONG, false);
             }
             int panelX = onboardingAppPanelX(l, desktopIndex);
             int panelY = onboardingAppPanelY(t, desktopIndex);
@@ -491,14 +544,14 @@ public final class ComputerScreen extends Screen {
             int panelH = 154;
             int contentX = panelX + 10;
             int actionY = panelY + 121;
-            g.fill(panelX, panelY, panelX + panelW, panelY + panelH, BLACK);
-            box(g, panelX, panelY, panelX + panelW, panelY + panelH, GREEN);
-            g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, DARK_GREEN);
-            g.drawString(font, Component.translatable("computer.antos.onboarding.app_tour"), contentX, panelY + 8, GREEN, false);
-            g.drawString(font, Component.translatable(appNameKey(app)), contentX, panelY + 35, GREEN, false);
-            g.drawString(font, Component.translatable("computer.antos.onboarding.app_step", appStep + 1, apps.size()), panelX + panelW - 68, panelY + 35, PALE_GREEN, false);
-            g.drawString(font, Component.literal(onboardingAppTitle(app)), contentX, panelY + 53, PALE_GREEN, false);
-            wrap(g, onboardingAppDescription(app), contentX, panelY + 70, panelW - 20, PALE_GREEN);
+            g.fill(panelX, panelY, panelX + panelW, panelY + panelH, Ui.BACKGROUND);
+            box(g, panelX, panelY, panelX + panelW, panelY + panelH, Ui.BORDER_STRONG);
+            g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, Ui.SURFACE);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.app_tour"), contentX, panelY + 8, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.translatable(appNameKey(app)), contentX, panelY + 35, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.app_step", appStep + 1, apps.size()), panelX + panelW - 68, panelY + 35, Ui.TEXT, false);
+            g.drawString(font, Component.literal(onboardingAppTitle(app)), contentX, panelY + 53, Ui.TEXT, false);
+            wrap(g, onboardingAppDescription(app), contentX, panelY + 70, panelW - 20, Ui.TEXT);
             if (appStep > 0) onboardingButton(g, contentX, actionY, 82, Component.translatable("computer.antos.onboarding.back"), hovered(contentX, actionY, 82, 22));
             Component nextLabel = Component.translatable(appStep + 1 < apps.size()
                     ? "computer.antos.onboarding.next" : "computer.antos.onboarding.done");
@@ -506,10 +559,10 @@ public final class ComputerScreen extends Screen {
             if (desktopIndex >= 0) {
                 int iconX = desktopIconX(l, desktopIndex);
                 int iconY = desktopIconY(t, desktopIndex);
-                g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, HOVER_FILL);
-                box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, GREEN);
+                g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.HOVER);
+                box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.ACCENT);
                 drawDesktopIcon(g, app, iconX + 25, iconY + 2);
-            g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, GREEN, false);
+            g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, Ui.TEXT_STRONG, false);
             }
             return;
         }
@@ -519,16 +572,16 @@ public final class ComputerScreen extends Screen {
         int panelH = 228;
         int contentX = panelX + 22;
         int actionY = panelY + 185;
-        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, BLACK);
-        box(g, panelX, panelY, panelX + panelW, panelY + panelH, GREEN);
-        g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, DARK_GREEN);
-        g.drawString(font, Component.translatable("computer.antos.onboarding.title"), contentX, panelY + 8, GREEN, false);
+        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, Ui.BACKGROUND);
+        box(g, panelX, panelY, panelX + panelW, panelY + panelH, Ui.BORDER_STRONG);
+        g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, Ui.SURFACE);
+        g.drawString(font, Component.translatable("computer.antos.onboarding.title"), contentX, panelY + 8, Ui.TEXT_STRONG, false);
         if (welcome) {
-            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome_title"), contentX, panelY + 43, GREEN, false);
-            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome_subtitle"), contentX, panelY + 62, PALE_GREEN, false);
-            wrap(g, Component.translatable("computer.antos.onboarding.welcome_description"), contentX, panelY + 91, panelW - 44, PALE_GREEN);
-            g.drawString(font, Component.translatable("computer.antos.onboarding.duration"), contentX, panelY + 145, GREEN, false);
-            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome"), contentX, panelY + 166, PALE_GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome_title"), contentX, panelY + 43, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome_subtitle"), contentX, panelY + 62, Ui.TEXT, false);
+            wrap(g, Component.translatable("computer.antos.onboarding.welcome_description"), contentX, panelY + 91, panelW - 44, Ui.TEXT);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.duration"), contentX, panelY + 145, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.translatable("computer.antos.onboarding.welcome"), contentX, panelY + 166, Ui.TEXT, false);
             onboardingButton(g, contentX, actionY, 126, Component.translatable("computer.antos.onboarding.start_tour"), hovered(contentX, actionY, 126, 22));
             onboardingButton(g, panelX + panelW - 110, actionY, 88, Component.translatable("computer.antos.onboarding.skip"), hovered(panelX + panelW - 110, actionY, 88, 22));
             return;
@@ -538,7 +591,7 @@ public final class ComputerScreen extends Screen {
 
     private void onboardingButton(ThemedGraphics g, int x, int y, int width, Component label, boolean hover) {
         if (hover) drawHover(g, x, y, width, 22);
-        g.drawCenteredString(font, label, x + width / 2, y + 7, GREEN);
+        g.drawCenteredString(font, label, x + width / 2, y + 7, Ui.TEXT_STRONG);
     }
 
     private List<String> onboardingApps() {
@@ -587,9 +640,9 @@ public final class ComputerScreen extends Screen {
     }
 
     private void drawNotificationBadge(ThemedGraphics g, int x, int y) {
-        for (int[] rect : BADGE_RECTS) g.fill(x - 6 + rect[0], y - 6 + rect[1], x - 6 + rect[2], y - 6 + rect[3], rect[4] == 0 ? BLACK : GREEN);
-        g.fill(x - 1, y - 4, x + 1, y + 2, BLACK);
-        g.fill(x - 1, y + 3, x + 1, y + 5, BLACK);
+        for (int[] rect : BADGE_RECTS) g.fill(x - 6 + rect[0], y - 6 + rect[1], x - 6 + rect[2], y - 6 + rect[3], rect[4] == 0 ? Ui.BACKGROUND : Ui.ACCENT);
+        g.fill(x - 1, y - 4, x + 1, y + 2, Ui.BACKGROUND);
+        g.fill(x - 1, y + 3, x + 1, y + 5, Ui.BACKGROUND);
     }
 
     private static int[][] badgeRects() {
@@ -653,17 +706,17 @@ public final class ComputerScreen extends Screen {
         int hash = wallpaperId.hashCode();
         int green = 24 + Math.floorMod(hash, 40);
         int blue = 12 + Math.floorMod(hash >>> 8, 24);
-        int base = 0xFF000000 | (green / 2 << 16) | (green << 8) | blue;
+        int base = Ui.proceduralWallpaper(Ui.alpha(green / 2 << 16 | green << 8 | blue, 255));
         g.fill(left, top, right, bottom, base);
         if (wallpaperId.endsWith("grid_ant")) {
             for (int py = top + 2; py < bottom; py += 18) {
                 for (int px = left + 2; px < right; px += 36) {
-                    g.fill(px, py, px + 2, py + 2, 0xFF173817);
+                    g.fill(px, py, px + 2, py + 2, Ui.HOVER);
                 }
             }
             return;
         }
-        int accent = 0xFF000000 | (Math.min(120, green + 34) << 8) | Math.min(80, blue + 34);
+        int accent = Ui.proceduralWallpaper(Ui.alpha(Math.min(120, green + 34) << 8 | Math.min(80, blue + 34), 255));
         int spacing = 18 + Math.floorMod(hash, 13);
         int offset = Math.floorMod(hash >>> 16, spacing);
         for (int y = top - spacing; y < bottom + spacing; y += spacing) {
@@ -732,7 +785,8 @@ public final class ComputerScreen extends Screen {
                     sourceHeight = croppedHeight;
                 }
             }
-            g.blit(texture, x, y, width, height, u, v, sourceWidth, sourceHeight, size[0], size[1]);
+            Identifier drawn = Ui.matchWallpapers() ? com.craisinlord.antos.content.client.palette.WallpaperRecolor.recolored(texture) : null;
+            g.blit(drawn == null ? texture : drawn, x, y, width, height, u, v, sourceWidth, sourceHeight, size[0], size[1]);
             return true;
         } catch (Exception exception) {
             return false;
@@ -775,28 +829,28 @@ public final class ComputerScreen extends Screen {
         int h = windowHeight(window);
         window.renderWidth = w;
         window.renderHeight = h;
-        g.fill(x - 2, y - 2, x + w + 2, y + h + 2, GREEN);
-        g.fill(x, y, x + w, y + h, BLACK);
-        g.fill(x, y, x + w, y + TITLE_BAR_HEIGHT, 0xFF173817);
+        g.fill(x - 2, y - 2, x + w + 2, y + h + 2, Ui.BORDER_STRONG);
+        g.fill(x, y, x + w, y + h, Ui.BACKGROUND);
+        g.fill(x, y, x + w, y + TITLE_BAR_HEIGHT, Ui.TITLE_BAR);
         int controlsLeft = x + w - WINDOW_CONTROL_WIDTH * WINDOW_CONTROL_COUNT;
         String title = window.title;
         if (window.type.equals("ANTMAIL")) {
             AntmailMailbox mailbox = session.antmail.mailbox(AntmailClientState.getMailbox());
             if (mailbox != null) title = mailbox.address().fullAddress();
         }
-        g.drawString(font, Component.literal(trimToWidth(title, Math.max(1, controlsLeft - x - 12))), x + 7, y + 6, GREEN, false);
-        g.fill(controlsLeft, y, x + w, y + TITLE_BAR_HEIGHT, 0xFF173817);
-        g.fill(controlsLeft, y, controlsLeft + 1, y + TITLE_BAR_HEIGHT, GREEN);
-        g.fill(controlsLeft + WINDOW_CONTROL_WIDTH, y, controlsLeft + WINDOW_CONTROL_WIDTH + 1, y + TITLE_BAR_HEIGHT, GREEN);
-        g.fill(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, controlsLeft + WINDOW_CONTROL_WIDTH * 2 + 1, y + TITLE_BAR_HEIGHT, GREEN);
+        g.drawString(font, Component.literal(trimToWidth(title, Math.max(1, controlsLeft - x - 12))), x + 7, y + 6, Ui.TEXT_STRONG, false);
+        g.fill(controlsLeft, y, x + w, y + TITLE_BAR_HEIGHT, Ui.TITLE_BAR);
+        g.fill(controlsLeft, y, controlsLeft + 1, y + TITLE_BAR_HEIGHT, Ui.BORDER_STRONG);
+        g.fill(controlsLeft + WINDOW_CONTROL_WIDTH, y, controlsLeft + WINDOW_CONTROL_WIDTH + 1, y + TITLE_BAR_HEIGHT, Ui.BORDER_STRONG);
+        g.fill(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, controlsLeft + WINDOW_CONTROL_WIDTH * 2 + 1, y + TITLE_BAR_HEIGHT, Ui.BORDER_STRONG);
         for (int control = 0; control < WINDOW_CONTROL_COUNT; control++) {
             if (hovered(controlsLeft + control * WINDOW_CONTROL_WIDTH, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT)) {
-                g.fill(controlsLeft + control * WINDOW_CONTROL_WIDTH, y, controlsLeft + (control + 1) * WINDOW_CONTROL_WIDTH, y + TITLE_BAR_HEIGHT, HOVER_FILL);
+                g.fill(controlsLeft + control * WINDOW_CONTROL_WIDTH, y, controlsLeft + (control + 1) * WINDOW_CONTROL_WIDTH, y + TITLE_BAR_HEIGHT, Ui.TITLE_BAR);
             }
         }
-        g.drawCenteredString(font, Component.literal("_"), controlsLeft + WINDOW_CONTROL_WIDTH / 2, y + 5, PALE_GREEN);
-        g.drawCenteredString(font, Component.literal(window.maximized ? "❐" : "□"), controlsLeft + WINDOW_CONTROL_WIDTH + WINDOW_CONTROL_WIDTH / 2, y + 5, PALE_GREEN);
-        g.drawCenteredString(font, Component.literal("X"), controlsLeft + WINDOW_CONTROL_WIDTH * 2 + WINDOW_CONTROL_WIDTH / 2, y + 6, GREEN);
+        g.drawCenteredString(font, Component.literal("_"), controlsLeft + WINDOW_CONTROL_WIDTH / 2, y + 5, Ui.TEXT);
+        g.drawCenteredString(font, Component.literal(window.maximized ? "❐" : "□"), controlsLeft + WINDOW_CONTROL_WIDTH + WINDOW_CONTROL_WIDTH / 2, y + 5, Ui.TEXT);
+        g.drawCenteredString(font, Component.literal("X"), controlsLeft + WINDOW_CONTROL_WIDTH * 2 + WINDOW_CONTROL_WIDTH / 2, y + 6, Ui.TEXT_STRONG);
         int cx = x + 8;
         int cy = y + 28;
         enableComputerScissor(g, x + 1, y + TITLE_BAR_HEIGHT, x + w - 1, y + h - 1);
@@ -810,6 +864,7 @@ public final class ComputerScreen extends Screen {
             else if (window.type.equals("TEXT")) session.text.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("PAINT")) session.paint.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("ANTMAIL")) session.antmail.render(g, cx, cy, w - 16, h - 34);
+            else if (window.type.equals("MERCHANT")) session.merchant.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("ANTAZON")) session.antazon.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("GAMES")) games.render(g, window, cx, cy, w - 16, h - 34, mouseX, mouseY);
             else if (window.type.equals("WALLPAPERS")) session.wallpaperPicker.render(g, cx, cy, h - 34);
@@ -836,6 +891,7 @@ public final class ComputerScreen extends Screen {
 
     private AppKit windowAppKit(Window window) {
         return switch (window.type) {
+            case "MERCHANT" -> session.merchant.kit;
             case "ARCHIVE" -> session.archive.kit;
             case "FILES" -> session.files.kit;
             case "PAINT" -> session.paint.kit;
@@ -851,12 +907,12 @@ public final class ComputerScreen extends Screen {
                 if (resolveArchiveRecipe(itemId) != null) return renderArchiveRecipe(g, itemId, x, y, w);
             } catch (RuntimeException ignored) { }
         }
-        return wrap(g, "NO RECIPE FOUND", x, y, w, 0xFF87B787);
+        return wrap(g, "NO RECIPE FOUND", x, y, w, Ui.TEXT_SOFT);
     }
 
     int renderTaskSectionLabel(ThemedGraphics g, String label, int x, int y, int width) {
-        g.drawString(font, Component.literal(label), x, y, GREEN, false);
-        g.fill(x, y + 10, x + width, y + 11, DARK_GREEN);
+        g.drawString(font, Component.literal(label), x, y, Ui.TEXT_STRONG, false);
+        g.fill(x, y + 10, x + width, y + 11, Ui.SURFACE);
         return y + 13;
     }
 
@@ -885,7 +941,7 @@ public final class ComputerScreen extends Screen {
         int slot = 16;
         int recipeWidth = slot * 5 + 8;
         if (!renderArchiveRecipe(g, recipeId, x, y, Math.min(w, recipeWidth), slot)) {
-            return wrap(g, "RECIPE // " + recipeId, x, y, w, PALE_GREEN);
+            return wrap(g, "RECIPE // " + recipeId, x, y, w, Ui.TEXT);
         }
         return y + slot * 3;
     }
@@ -914,7 +970,7 @@ public final class ComputerScreen extends Screen {
                 if (ingredientIndex == -2) continue;
                 int cellX = x + column * actualSlot;
                 int cellY = y + row * actualSlot;
-                g.fill(cellX, cellY, cellX + actualSlot - 1, cellY + actualSlot - 1, 0xFF173817);
+                g.fill(cellX, cellY, cellX + actualSlot - 1, cellY + actualSlot - 1, Ui.HOVER);
                 if (ingredientIndex >= 0 && ingredientIndex < ingredients.size()) {
                     List<ItemStack> choices = ingredients.get(ingredientIndex);
                     if (!choices.isEmpty()) {
@@ -923,12 +979,12 @@ public final class ComputerScreen extends Screen {
                     }
                 }
             }
-            g.fill(x + gridWidth + 2, y + actualSlot + actualSlot / 2 - 1, x + gridWidth + 6, y + actualSlot + actualSlot / 2 + 1, PALE_GREEN);
-            g.fill(x + gridWidth + 5, y + actualSlot + actualSlot / 2 - 3, x + gridWidth + 7, y + actualSlot + actualSlot / 2 + 3, PALE_GREEN);
+            g.fill(x + gridWidth + 2, y + actualSlot + actualSlot / 2 - 1, x + gridWidth + 6, y + actualSlot + actualSlot / 2 + 1, Ui.TEXT);
+            g.fill(x + gridWidth + 5, y + actualSlot + actualSlot / 2 - 3, x + gridWidth + 7, y + actualSlot + actualSlot / 2 + 3, Ui.TEXT);
             List<ItemStack> results = recipe.results();
             for (int index = 0; index < Math.min(2, results.size()); index++) {
                 int resultY = outputY + index * actualSlot;
-                g.fill(outputX, resultY, outputX + actualSlot - 1, resultY + actualSlot - 1, 0xFF173817);
+                g.fill(outputX, resultY, outputX + actualSlot - 1, resultY + actualSlot - 1, Ui.HOVER);
                 renderArchiveItem(g, results.get(index), outputX, resultY, actualSlot);
                 renderArchiveStackCount(g, results.get(index), outputX, resultY, actualSlot);
             }
@@ -976,7 +1032,7 @@ public final class ComputerScreen extends Screen {
         String count = Integer.toString(stack.getCount());
         g.pose().pushPose();
         g.pose().translate(0.0F, 0.0F, 300.0F);
-        g.drawString(font, Component.literal(count), x + size - font.width(count), y + size - 8, 0xFFFFFFFF, true);
+        g.drawString(font, Component.literal(count), x + size - font.width(count), y + size - 8, Ui.TEXT_BRIGHT, true);
         g.pose().popPose();
     }
 
@@ -991,15 +1047,15 @@ public final class ComputerScreen extends Screen {
     int renderArchivePreview(ThemedGraphics g, String itemId, String entityId, String enchantmentId, int x, int y, int w, float rotation, float renderScale) {
         int previewSize = entityId.isBlank() ? 48 : 96;
         int boxWidth = Math.min(previewSize, w);
-        g.fill(x, y, x + boxWidth, y + previewSize, 0xFF102010);
+        g.fill(x, y, x + boxWidth, y + previewSize, Ui.SURFACE);
         int centerX = x + boxWidth / 2;
         int centerY = y + previewSize / 2;
         if (!renderArchiveAsset(g, itemId, entityId, enchantmentId, "", centerX, centerY, boxWidth, rotation, renderScale)) {
             String fallback = !enchantmentId.isBlank() ? enchantmentId : entityId;
-            if (!fallback.isBlank()) g.drawString(font, Component.literal(trimToWidth(fallback, Math.max(1, w - boxWidth - 6))), x + boxWidth + 6, y + previewSize / 2 - 4, PALE_GREEN, false);
+            if (!fallback.isBlank()) g.drawString(font, Component.literal(trimToWidth(fallback, Math.max(1, w - boxWidth - 6))), x + boxWidth + 6, y + previewSize / 2 - 4, Ui.TEXT, false);
         } else if (!entityId.isBlank() || !enchantmentId.isBlank()) {
             String label = !enchantmentId.isBlank() ? "ENCHANTMENT // " + enchantmentId : "MOB // " + archiveMobName(entityId);
-            g.drawString(font, Component.literal(trimToWidth(label, Math.max(1, w - boxWidth - 6))), x + boxWidth + 6, y + previewSize / 2 - 4, PALE_GREEN, false);
+            g.drawString(font, Component.literal(trimToWidth(label, Math.max(1, w - boxWidth - 6))), x + boxWidth + 6, y + previewSize / 2 - 4, Ui.TEXT, false);
         }
         return y + previewSize;
     }
@@ -1113,7 +1169,7 @@ public final class ComputerScreen extends Screen {
                     int previewSize = Math.max(1, Math.round(size * previewScale));
                     enableComputerScissor(g, centerX - previewSize / 2, centerY - previewSize / 2, centerX + (previewSize + 1) / 2, centerY + (previewSize + 1) / 2);
                     if (archiveGreenTint) {
-                        float[] tint = com.craisinlord.antos.content.client.ComputerTheme.active().tint();
+                        float[] tint = Ui.previewTint();
                         g.setColor(tint[0], tint[1], tint[2], 1.0F);
                     }
                     try {
@@ -1177,7 +1233,7 @@ public final class ComputerScreen extends Screen {
     private void renderArchiveItem(ThemedGraphics g, ItemStack stack, float x, float y, float size) {
         if (archiveGreenTint) {
             g.flush();
-            float[] tint = com.craisinlord.antos.content.client.ComputerTheme.active().tint();
+            float[] tint = Ui.previewTint();
             g.setColor(tint[0], tint[1], tint[2], 1.0F);
         }
         g.pose().pushPose();
@@ -1252,8 +1308,8 @@ public final class ComputerScreen extends Screen {
         int safeScroll = Math.max(0, Math.min(scroll, safeMaximum));
         int thumbHeight = scrollbarThumbHeight(safeTrackHeight, visible, total);
         int thumbTop = top + (safeTrackHeight - thumbHeight) * safeScroll / safeMaximum;
-        g.fill(x, top, x + 3, top + safeTrackHeight, 0xFF173817);
-        g.fill(x, thumbTop, x + 3, thumbTop + thumbHeight, GREEN);
+        g.fill(x, top, x + 3, top + safeTrackHeight, Ui.HOVER);
+        g.fill(x, thumbTop, x + 3, thumbTop + thumbHeight, Ui.BORDER_STRONG);
     }
 
     int scrollbarThumbHeight(int trackHeight, int visible, int total) {
@@ -1293,15 +1349,15 @@ public final class ComputerScreen extends Screen {
 
     void drawFilterButton(ThemedGraphics g, int x, int y, int width, boolean selected, String label) {
         boolean hover = hovered(x, y, width, 17);
-        g.fill(x, y, x + width, y + 17, selected ? PALE_GREEN : hover ? HOVER_FILL : DARK_GREEN);
-        box(g, x, y, x + width, y + 17, selected ? GREEN : 0xFF315531);
+        g.fill(x, y, x + width, y + 17, selected ? Ui.TEXT : hover ? Ui.HOVER : Ui.SURFACE);
+        box(g, x, y, x + width, y + 17, selected ? Ui.ACCENT : Ui.LINE);
         float scale = Math.min(0.82F, Math.max(0.55F, (width - 8.0F) / Math.max(1, font.width(label))));
         g.pose().pushPose();
         try {
             g.pose().translate(x + width / 2.0F, y + 4.0F, 0.0F);
             g.pose().scale(scale, scale, 1.0F);
             g.drawString(font, Component.literal(label), -font.width(label) / 2, 0,
-                    selected ? BLACK : GREEN, false);
+                    selected ? Ui.BACKGROUND : Ui.ACCENT, false);
         } finally {
             g.pose().popPose();
         }
@@ -1372,8 +1428,8 @@ public final class ComputerScreen extends Screen {
     }
 
     void drawHover(ThemedGraphics g, int x, int y, int width, int height) {
-        g.fill(x, y, x + width, y + height, HOVER_FILL);
-        box(g, x, y, x + width, y + height, GREEN);
+        g.fill(x, y, x + width, y + height, Ui.HOVER);
+        box(g, x, y, x + width, y + height, Ui.ACCENT);
     }
 
     @Override
@@ -1391,16 +1447,26 @@ public final class ComputerScreen extends Screen {
             int buttonX = l + WIDTH / 2 - 70;
             if (inside(buttonX, t + 70, 66, 20, mouseX, mouseY)) {
                 creatingAccount = false;
+                accountHintFocused = false;
                 accountMessage = "SIGN IN TO YOUR ANTERNET ACCOUNT";
             } else if (inside(buttonX + 74, t + 70, 66, 20, mouseX, mouseY)) {
                 creatingAccount = true;
+                accountHintMessage = "";
                 accountMessage = "CHOOSE A USERNAME AND PASSWORD";
-            } else if (inside(l + 28, t + 109, WIDTH - 56, 23, mouseX, mouseY)) accountPasswordFocused = false;
-            else if (inside(l + 28, t + 150, WIDTH - 56, 23, mouseX, mouseY)) accountPasswordFocused = true;
-            else if (inside(buttonX, t + 184, 140, 22, mouseX, mouseY)) submitAccount();
+            } else if (inside(l + 28, t + 109, WIDTH - 56, 23, mouseX, mouseY)) {
+                accountPasswordFocused = false;
+                accountHintFocused = false;
+            } else if (inside(l + 28, t + 150, WIDTH - 56, 23, mouseX, mouseY)) {
+                accountPasswordFocused = true;
+                accountHintFocused = false;
+            } else if (creatingAccount && inside(l + 28, t + 188, WIDTH - 56, 20, mouseX, mouseY)) {
+                accountPasswordFocused = false;
+                accountHintFocused = true;
+            } else if (inside(buttonX, t + (creatingAccount ? 214 : 184), 140, 22, mouseX, mouseY)) submitAccount();
             return true;
         }
         session.lastUse = System.currentTimeMillis();
+        if (lookPickerOpen()) return lookPickerClicked(mouseX, mouseY);
         if (!session.onboardingCompleted) return onboardingClicked(mouseX, mouseY);
         for (int i = session.windows.size() - 1; i >= 0; i--) {
             Window window = session.windows.get(i);
@@ -1425,7 +1491,8 @@ public final class ComputerScreen extends Screen {
                     case "PAINT" -> session.paint.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "TEXT" -> session.text.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "ANTMAIL" -> session.antmail.click(window, mouseX, mouseY, button, x, y, w, h);
-                    case "ANTAZON" -> session.antazon.click(mouseX, mouseY);
+                    case "MERCHANT" -> session.merchant.click(mouseX, mouseY);
+            case "ANTAZON" -> session.antazon.click(mouseX, mouseY);
                     case "GAMES" -> games.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "WALLPAPERS" -> session.wallpaperPicker.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "TERMINAL" -> session.terminal.click(window, mouseX, mouseY, button, x, y, w, h);
@@ -1499,6 +1566,90 @@ public final class ComputerScreen extends Screen {
         return true;
     }
 
+    private static final String[] LOOKS = {"terminal", "graphite"};
+
+    private boolean lookPickerOpen() {
+        return loggedIn && session.bootTicks <= 0 && !AntOSSettings.preferences().lookChosen;
+    }
+
+    private void renderLookPicker(ThemedGraphics g, int l, int t) {
+        int panelX = l + 30;
+        int panelY = t + 43;
+        int panelW = WIDTH - 60;
+        int panelH = 228;
+        int contentX = panelX + 22;
+        g.fill(l + 9, t + 34, l + WIDTH - 9, t + HEIGHT - 9, Ui.alpha(Ui.SHADOW, 0xC4));
+        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, Ui.BACKGROUND);
+        box(g, panelX, panelY, panelX + panelW, panelY + panelH, Ui.BORDER_STRONG);
+        g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, Ui.SURFACE);
+        g.drawString(font, Component.translatable("computer.antos.onboarding.look_title"), contentX, panelY + 8, Ui.TEXT_STRONG, false);
+        wrap(g, Component.translatable("computer.antos.onboarding.look_subtitle"), contentX, panelY + 34, panelW - 44, Ui.TEXT);
+        String current = AntOSSettings.preferences().displayLook;
+        int cardW = (panelW - 56) / 2;
+        for (int index = 0; index < LOOKS.length; index++) {
+            renderLookCard(g, LOOKS[index], contentX + index * (cardW + 12), panelY + 60, cardW, LOOKS[index].equals(current));
+        }
+        int actionY = panelY + 192;
+        onboardingButton(g, panelX + panelW - 110, actionY, 88, Component.translatable("computer.antos.onboarding.look_continue"),
+                hovered(panelX + panelW - 110, actionY, 88, 22));
+    }
+
+    private void renderLookCard(ThemedGraphics g, String look, int x, int y, int w, boolean selected) {
+        Ui.Preview colors = Ui.preview(look);
+        g.fill(x, y, x + w, y + 120, hovered(x, y, w, 120) ? Ui.HOVER : Ui.PANEL);
+        box(g, x, y, x + w, y + 120, selected ? Ui.ACCENT : Ui.LINE);
+        if (selected) box(g, x + 1, y + 1, x + w - 1, y + 119, Ui.ACCENT);
+        int mockX = x + 6;
+        int mockY = y + 6;
+        int mockW = w - 12;
+        int mockH = 74;
+        g.fill(mockX, mockY, mockX + mockW, mockY + mockH, colors.desktop());
+        for (int icon = 0; icon < 3; icon++) {
+            g.fill(mockX + 5, mockY + 6 + icon * 14, mockX + 13, mockY + 14 + icon * 14, colors.accent());
+        }
+        int windowX = mockX + 22;
+        int windowY = mockY + 6;
+        int windowW = mockW - 28;
+        int windowH = mockH - 12;
+        g.fill(windowX - 1, windowY - 1, windowX + windowW + 1, windowY + windowH + 1, colors.border());
+        g.fill(windowX, windowY, windowX + windowW, windowY + windowH, colors.window());
+        g.fill(windowX, windowY, windowX + windowW, windowY + 9, colors.titleBar());
+        g.fill(windowX + 4, windowY + 3, windowX + 34, windowY + 6, colors.heading());
+        g.fill(windowX + 4, windowY + 15, windowX + windowW - 8, windowY + 18, colors.text());
+        g.fill(windowX + 4, windowY + 22, windowX + windowW - 20, windowY + 25, colors.text());
+        g.fill(windowX + 4, windowY + 29, windowX + windowW / 2, windowY + 32, colors.muted());
+        g.fill(windowX + 4, windowY + 38, windowX + windowW - 4, windowY + 39, colors.line());
+        int buttonY = windowY + windowH - 13;
+        g.fill(windowX + 4, buttonY, windowX + 38, buttonY + 9, colors.hover());
+        box(g, windowX + 4, buttonY, windowX + 38, buttonY + 9, colors.accent());
+        g.drawString(font, Component.translatable("computer.antos.onboarding.look_" + look), x + 6, y + 86, selected ? Ui.ACCENT : Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal(trimToWidth(Component.translatable("computer.antos.onboarding.look_" + look + "_detail").getString(), w - 12)),
+                x + 6, y + 100, Ui.TEXT_MUTED, false);
+    }
+
+    private boolean lookPickerClicked(double mouseX, double mouseY) {
+        int panelX = -WIDTH / 2 + 30;
+        int panelY = -HEIGHT / 2 + 43;
+        int panelW = WIDTH - 60;
+        int cardW = (panelW - 56) / 2;
+        for (int index = 0; index < LOOKS.length; index++) {
+            if (inside(panelX + 22 + index * (cardW + 12), panelY + 60, cardW, 120, mouseX, mouseY)) {
+                chooseLook(LOOKS[index]);
+                return true;
+            }
+        }
+        if (inside(panelX + panelW - 110, panelY + 192, 88, 22, mouseX, mouseY)) confirmLook();
+        return true;
+    }
+
+    private void chooseLook(String look) {
+        AntOSSettings.updatePreferences(p -> p.displayLook = look);
+    }
+
+    private void confirmLook() {
+        AntOSSettings.updatePreferences(p -> p.lookChosen = true);
+    }
+
     private void finishOnboarding() {
         session.onboardingCompleted = true;
         session.onboardingStep = -1;
@@ -1517,9 +1668,11 @@ public final class ComputerScreen extends Screen {
         mouseX = (mouseX - width / 2.0F) / scale;
         mouseY = (mouseY - height / 2.0F) / scale;
         tasks.drag(mouseX, mouseY, button);
+        if (activeWindow != null && activeWindow.type.equals("MERCHANT")) session.merchant.drag(mouseY);
         session.archive.drag(mouseY);
         session.settings.drag(mouseY);
         session.disks.drag(mouseY);
+        if (activeWindow != null && activeWindow.type.equals("GAMES")) games.drag(mouseY);
         if (dragging != null) {
             int l = -WIDTH / 2;
             int t = -HEIGHT / 2;
@@ -1543,9 +1696,11 @@ public final class ComputerScreen extends Screen {
         mouseY = (mouseY - height / 2.0F) / scale;
         dragging = null;
         tasks.release();
+        session.merchant.release();
         session.archive.release();
         session.settings.release();
         session.disks.release();
+        games.release();
         session.paint.release(button);
         session.text.release();
         session.files.release(mouseX, mouseY);
@@ -1567,6 +1722,10 @@ public final class ComputerScreen extends Screen {
             case "PAINT" -> session.paint.scroll(activeWindow, mouseX, mouseY, scrollY);
             case "TERMINAL" -> session.terminal.scroll(activeWindow, mouseX, mouseY, scrollY);
             case "ANTMAIL" -> session.antmail.scroll(activeWindow, mouseX, mouseY, scrollY);
+            case "MERCHANT" -> {
+                float scale = uiScale();
+                yield session.merchant.scroll((mouseX - width / 2.0F) / scale, (mouseY - height / 2.0F) / scale, scrollY);
+            }
             case "ANTAZON" -> {
                 float scale = uiScale();
                 yield session.antazon.scroll((mouseX - width / 2.0F) / scale, (mouseY - height / 2.0F) / scale, scrollY);
@@ -1589,7 +1748,9 @@ public final class ComputerScreen extends Screen {
     private void typeCharacter(char codePoint) {
         int modifiers = 0;
         if (!loggedIn) {
-            if (accountPasswordFocused) {
+            if (accountHintFocused) {
+                if (codePoint >= 32 && accountHint.length() < com.craisinlord.antos.content.computer.ComputerWorkspaceData.MAX_HINT_LENGTH) accountHint += codePoint;
+            } else if (accountPasswordFocused) {
                 if (codePoint >= 32 && accountPassword.length() < 128) accountPassword += codePoint;
             } else if ((Character.isLetterOrDigit(codePoint) || codePoint == '_') && accountUsername.length() < 16) accountUsername += codePoint;
             return;
@@ -1606,6 +1767,7 @@ public final class ComputerScreen extends Screen {
             case "ANTMAIL" -> session.antmail.type(activeWindow, codePoint, modifiers);
             case "GAMES" -> games.type(activeWindow, codePoint, modifiers);
             case "TERMINAL" -> session.terminal.type(activeWindow, codePoint, modifiers);
+            case "MERCHANT" -> session.merchant.type(codePoint);
             case "ANTAZON" -> session.antazon.type(codePoint);
             default -> { }
         }
@@ -1618,11 +1780,21 @@ public final class ComputerScreen extends Screen {
         int modifiers = event.modifiers();
         if (!loggedIn) {
             if (keyCode == InputConstants.KEY_ESCAPE) { onClose(); return true; }
-            if (keyCode == InputConstants.KEY_TAB) accountPasswordFocused = !accountPasswordFocused;
+            if (keyCode == InputConstants.KEY_TAB) cycleAccountField();
             else if (keyCode == InputConstants.KEY_BACKSPACE) {
-                if (accountPasswordFocused && !accountPassword.isEmpty()) accountPassword = accountPassword.substring(0, accountPassword.length() - 1);
+                if (accountHintFocused) {
+                    if (!accountHint.isEmpty()) accountHint = accountHint.substring(0, accountHint.length() - 1);
+                } else if (accountPasswordFocused && !accountPassword.isEmpty()) accountPassword = accountPassword.substring(0, accountPassword.length() - 1);
                 else if (!accountPasswordFocused && !accountUsername.isEmpty()) accountUsername = accountUsername.substring(0, accountUsername.length() - 1);
             } else if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) submitAccount();
+            return true;
+        }
+        if (lookPickerOpen()) {
+            if (keyCode == InputConstants.KEY_LEFT || keyCode == InputConstants.KEY_RIGHT) {
+                chooseLook(AntOSSettings.preferences().displayLook.equals("graphite") ? "terminal" : "graphite");
+            } else if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER || keyCode == InputConstants.KEY_SPACE || keyCode == InputConstants.KEY_ESCAPE) {
+                confirmLook();
+            }
             return true;
         }
         if (!session.onboardingCompleted) {
@@ -1674,6 +1846,7 @@ public final class ComputerScreen extends Screen {
             case "PAINT" -> session.paint.key(activeWindow, keyCode, scanCode, modifiers);
             case "SETTINGS" -> session.settings.key(activeWindow, keyCode, scanCode, modifiers);
             case "ARCHIVE" -> session.archive.key(activeWindow, keyCode, scanCode, modifiers);
+            case "MERCHANT" -> session.merchant.key(keyCode);
             case "ANTAZON" -> session.antazon.key(keyCode);
             default -> false;
         };
@@ -1716,13 +1889,19 @@ public final class ComputerScreen extends Screen {
             session.windows.add(window);
             activeWindow = window;
             if (type.equals("FILES")) ComputerNetworking.listFiles();
+              else if (type.equals("MERCHANT")) session.merchant.refresh();
               else if (type.equals("ANTAZON")) session.antazon.refocus();
             return;
         }
         Window window = new Window(type, Component.translatable("computer.antos.app." + type.toLowerCase(Locale.ROOT) + ".window_title").getString(), 112 + session.windows.size() * 12, 52 + session.windows.size() * 10);
         session.windows.add(window);
         activeWindow = window;
+        windowOpened(type);
+    }
+
+    void windowOpened(String type) {
         if (type.equals("ANTMAIL")) session.antmail.requestState();
+        else if (type.equals("MERCHANT")) session.merchant.refresh();
         else if (type.equals("ANTAZON")) session.antazon.refresh();
         else if (type.equals("TASKS")) tasks.opened();
         else if (type.equals("FILES")) ComputerNetworking.listFiles();
@@ -1754,14 +1933,21 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
     @Override
     public void onClose() {
         ComputerNetworking.close();
-        com.craisinlord.antos.content.network.AnternetAccountNetworking.logout();
-        com.craisinlord.antos.content.client.AnternetAccountClientState.clear();
-        AntmailClientState.clear();
+        var accountSession = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
+        boolean signedIn = accountSession != null && accountSession.result() == AnternetAccountResultPayload.SUCCESS;
+        if (!signedIn || !AntOSSettings.preferences().resumeSession) {
+            com.craisinlord.antos.content.network.AnternetAccountNetworking.logout();
+            com.craisinlord.antos.content.client.AnternetAccountClientState.clear();
+            AntmailClientState.clear();
+        }
         super.onClose();
     }
 
     @Override
     public void removed() {
+        if (loggedIn && AntOSSettings.preferences().resumeSession) {
+            AntOSSettings.setResumeSnapshot(sessionKey, ComputerResume.capture(session));
+        }
         clearArchivePreviews();
         wrapCache.clear();
         super.removed();
@@ -1778,6 +1964,7 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         String wallpaperId = ComputerDesktopState.DEFAULT_WALLPAPER.toString();
         List<String> wallpapers = List.of(ComputerDesktopState.DEFAULT_WALLPAPER.toString());
         final AntazonApp antazon = new AntazonApp();
+        final MerchantApp merchant = new MerchantApp();
         final TerminalApp terminal = new TerminalApp();
         final WallpapersApp wallpaperPicker = new WallpapersApp();
         final SettingsApp settings = new SettingsApp();
@@ -1791,9 +1978,10 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         int bootTicks = -1;
         boolean onboardingCompleted;
         int onboardingStep;
+        boolean gamesGallery = true;
 
         void attach(ComputerScreen screen) {
-            for (ComputerApp app : List.of(antazon, terminal, wallpaperPicker, settings, disks, text, paint, files, archive, antmail)) app.attach(screen);
+            for (ComputerApp app : List.of(merchant, antazon, terminal, wallpaperPicker, settings, disks, text, paint, files, archive, antmail)) app.attach(screen);
         }
     }
 
@@ -1817,9 +2005,9 @@ static boolean inside(int x, int y, int w, int h, double mx, double my) { return
         Window(String type, String title, int x, int y) {
             this.type = type;
             this.title = title;
-            this.height = type.equals("ANTAZON") || type.equals("SETTINGS") || type.equals("DISKS") || type.equals("GAMES") ? 250 : type.equals("ARCHIVE") ? 230 : 210;
+            this.height = type.equals("MERCHANT") || type.equals("ANTAZON") || type.equals("SETTINGS") || type.equals("DISKS") || type.equals("GAMES") ? 250 : type.equals("ARCHIVE") ? 230 : 210;
             this.renderHeight = this.height;
-            this.width = type.equals("TASKS") || type.equals("ANTAZON") || type.equals("DISKS") || type.equals("GAMES") || type.equals("SETTINGS") ? 390 : (type.equals("FILES") || type.equals("ARCHIVE")) ? 300 : 230;
+            this.width = type.equals("MERCHANT") || type.equals("TASKS") || type.equals("ANTAZON") || type.equals("DISKS") || type.equals("GAMES") || type.equals("SETTINGS") ? 390 : (type.equals("FILES") || type.equals("ARCHIVE")) ? 300 : 230;
             this.renderWidth = this.width;
             this.x = x;
             this.y = y;

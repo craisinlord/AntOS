@@ -23,9 +23,10 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 @Mod(AntOS.MODID)
 public final class AntOSNeoForge {
     public AntOSNeoForge(IEventBus modBus) {
-        AntOSSettings.load(net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get().resolve("antos.json"));
+        AntOSSettings.loadConfig(net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get().resolve("antos.json"));
         AntOSNeoForgeContent.register(modBus);
         AntOSNeoForgeNetworking.register(modBus);
+        com.craisinlord.antos.content.network.JeiSync.register();
         if (net.neoforged.fml.ModList.get().isLoaded("ftbquests")) {
             com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat.initialize();
             NeoForge.EVENT_BUS.addListener((dev.ftb.mods.ftbquests.api.neoforge.FTBQuestsEvent.TaskProgress event) ->
@@ -57,6 +58,7 @@ public final class AntOSNeoForge {
         com.craisinlord.antos.content.antmail.AntmailDebugCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntazonCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntcoinCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.computer.AccountCommands.register(event.getDispatcher());
     }
     private void registerReloadListeners(AddServerReloadListenersEvent event) {
         event.addListener(net.minecraft.resources.Identifier.fromNamespaceAndPath(AntOS.MODID, "computer_guide"), ComputerGuideData.instance());
@@ -71,6 +73,7 @@ public final class AntOSNeoForge {
         var server = event.getServer();
         FieldGuideCompat.tick(server);
         FloppyTextureSync.tick(server);
+        com.craisinlord.antos.content.network.JeiSync.tick(server);
         AntmailEventData.onTick(server);
         com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
         com.craisinlord.antos.content.computer.ComputerPrograms.tick(server);

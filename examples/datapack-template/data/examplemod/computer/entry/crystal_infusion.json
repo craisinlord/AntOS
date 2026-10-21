@@ -1,0 +1,16 @@
+{
+  "type": "article",
+  "category": "Arcane workshop",
+  "title": "literal:Crystal infusion",
+  "unlocked_by_default": true,
+  "green_tint": false,
+  "content": [
+    {"text": "Arrange the ingredients around the focus, then assemble the altar below."},
+    {"display": "examplemod:crystal_infusion"},
+    {"text": "Place the corner pillars and central focus on a five-by-five stone platform."},
+    {"display": "examplemod:altar_structure"},
+    {"text": "Custom displays can also describe machine recipes with fluids and ingredient alternatives."},
+    {"display": "examplemod:machine_recipe"},
+    {"text": "These examples illustrate authored documentation; they do not add working recipes."}
+  ]
+}

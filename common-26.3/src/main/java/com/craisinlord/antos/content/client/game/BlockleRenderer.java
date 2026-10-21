@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.game;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import net.minecraft.client.gui.Font;
 import com.craisinlord.antos.content.client.ThemedGraphics;
 import net.minecraft.network.chat.Component;
@@ -10,11 +11,6 @@ import net.minecraft.resources.Identifier;
 import java.util.List;
 
 public final class BlockleRenderer {
-    private static final int EMPTY = 0xFF102010;
-    private static final int GREY = 0xFF3A403A;
-    private static final int YELLOW = 0xFFB59F3B;
-    private static final int GREEN = 0xFF538D4E;
-    private static final int PALE = 0xFFB8FFB8;
     private static Identifier answerStackId;
     private static ItemStack answerStack = ItemStack.EMPTY;
 
@@ -24,52 +20,47 @@ public final class BlockleRenderer {
     public static void render(ThemedGraphics graphics, Font font, int x, int y, int width, int height,
                               List<String> guesses, List<String> colors, String input, String status, String phase,
                               Identifier answerId) {
-        com.craisinlord.antos.content.client.ComputerTheme.pause();
-        try {
-            renderBoard(graphics, font, x, y, width, height, guesses, colors, input, status, phase, answerId);
-        } finally {
-            com.craisinlord.antos.content.client.ComputerTheme.resume();
-        }
+        renderBoard(graphics, font, x, y, width, height, guesses, colors, input, status, phase, answerId);
     }
 
     private static void renderBoard(ThemedGraphics graphics, Font font, int x, int y, int width, int height,
                                     List<String> guesses, List<String> colors, String input, String status, String phase,
                                     Identifier answerId) {
-        graphics.drawString(font, Component.literal("BLOCKLE"), x, y, 0xFF65FF65, false);
         int cell = 18;
         int gap = 3;
         int boardX = x + Math.max(0, (width - cell * 5 - gap * 4) / 2);
-        int boardY = y + 18;
+        int boardY = y + 4;
         for (int row = 0; row < 6; row++) {
             String guess = row < guesses.size() ? guesses.get(row) : row == guesses.size() ? input : "";
             String rowColors = row < colors.size() ? colors.get(row) : "";
             for (int column = 0; column < 5; column++) {
                 int left = boardX + column * (cell + gap);
                 int top = boardY + row * (cell + gap);
-                int fill = EMPTY;
+                int fill = Ui.SURFACE;
                 if (column < rowColors.length()) fill = switch (rowColors.charAt(column)) {
-                    case 'G' -> GREEN;
-                    case 'Y' -> YELLOW;
-                    default -> GREY;
+                    case 'G' -> Ui.GAME_CORRECT;
+                    case 'Y' -> Ui.GAME_PRESENT;
+                    default -> Ui.GAME_ABSENT;
                 };
                 graphics.fill(left, top, left + cell, top + cell, fill);
                 if (column < guess.length()) {
                     String letter = Character.toString(Character.toUpperCase(guess.charAt(column)));
-                    graphics.drawCenteredString(font, letter, left + cell / 2, top + 5, PALE);
+                    graphics.drawCenteredString(font, letter, left + cell / 2, top + 5, Ui.TEXT);
                 }
             }
         }
         String message = status.isBlank() ? "ENTER TO SUBMIT" : status;
         if (phase.equals("PLAYING") && input.length() < 5) message = input.length() + "/5 LETTERS";
-        graphics.drawString(font, Component.literal(message), x, y + 145, PALE, false);
+        graphics.drawString(font, Component.literal(message), x, y + 136, Ui.TEXT, false);
         if (!phase.equals("PLAYING") && answerId != null) {
             if (!answerId.equals(answerStackId)) {
                 answerStack = BuiltInRegistries.ITEM.getOptional(answerId).map(ItemStack::new).orElse(ItemStack.EMPTY);
                 answerStackId = answerId;
             }
             if (!answerStack.isEmpty()) {
-                graphics.setColor(0.35F, 1.0F, 0.35F, 1.0F);
-                graphics.renderItem(answerStack, x + width - 28, y + 137);
+                float[] answerTint = Ui.tint(Ui.ANSWER_TINT);
+                graphics.setColor(answerTint[0], answerTint[1], answerTint[2], 1.0F);
+                graphics.renderItem(answerStack, x + width - 28, y + 132);
                 graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
             }
         }

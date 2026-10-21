@@ -1,0 +1,9 @@
+{
+  "type": "article", "category": "Arcane workshop", "title": "literal:Workshop displays", "unlocked_by_default": true,
+  "content": [
+    {"text": "Explore authored recipes, live vanilla recipe data, and construction walkthroughs."},
+    {"display": "examplemod:workshop_variants"},
+    {"text": "Requirement labels are descriptive; the question mark means they are not checked against your surroundings."},
+    {"display": "examplemod:requirements_demo"}
+  ]
+}

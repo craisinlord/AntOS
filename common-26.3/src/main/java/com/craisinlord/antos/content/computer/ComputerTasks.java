@@ -112,7 +112,7 @@ public final class ComputerTasks {
         return true;
     }
 
-    private static boolean hasClaimableRewards(ComputerGuideData.Task task) {
+    public static boolean hasClaimableRewards(ComputerGuideData.Task task) {
         return task != null && task.rewards().stream().anyMatch(reward -> !reward.type().equals("archive"));
     }
 
@@ -953,13 +953,13 @@ public final class ComputerTasks {
         return spots;
     }
 
-    private static boolean available(ComputerGuideData.Task task, ComputerTaskProgress progress) {
+    public static boolean available(ComputerGuideData.Task task, ComputerTaskProgress progress) {
         if (progress.isGranted(task.id())) return true;
         if (!task.hasPrerequisites()) return task.availability().equals("automatic");
         return task.prerequisitesMet(progress::isComplete);
     }
 
-    private static boolean visible(ComputerGuideData.Task task, ComputerTaskProgress progress) {
+    public static boolean visible(ComputerGuideData.Task task, ComputerTaskProgress progress) {
         if (task.invisibleUntilCompleted() && !progress.isComplete(task.id())) return false;
         if (task.hideUntilDependenciesComplete() && !task.prerequisitesMet(progress::isComplete)) return false;
         return true;

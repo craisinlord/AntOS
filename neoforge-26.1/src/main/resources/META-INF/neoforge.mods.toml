@@ -43,3 +43,10 @@ type="optional"
 versionRange="[1.18.0,)"
 ordering="AFTER"
 side="BOTH"
+
+[[dependencies.antos]]
+modId="jei"
+type="optional"
+versionRange="*"
+ordering="NONE"
+side="CLIENT"

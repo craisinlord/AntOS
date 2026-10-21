@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.computer.ComputerDesktopState;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
@@ -11,16 +12,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
 
 final class WallpapersApp extends ComputerApp {
     final State state = new State();
 
     void render(GuiGraphics g, int x, int y, int h) {
         List<ComputerGuideData.Wallpaper> available = unlockedWallpapers();
-        g.drawString(font, Component.literal("INSERT A FLOPPY TO UNLOCK MORE"), x, y, GREEN, false);
+        g.drawString(font, Component.literal("INSERT A FLOPPY TO UNLOCK MORE"), x, y, Ui.TEXT_STRONG, false);
         int visible = Math.max(1, (h - 34) / 38);
         int maxScroll = Math.max(0, available.size() - visible);
         state.scroll = Math.max(0, Math.min(state.scroll, maxScroll));
@@ -28,14 +26,14 @@ final class WallpapersApp extends ComputerApp {
             ComputerGuideData.Wallpaper wallpaper = available.get(state.scroll + row);
             int rowY = y + 18 + row * 38;
             boolean selected = wallpaper.id().toString().equals(screen.session.wallpaperId);
-            if (selected || screen.hovered(x, rowY - 2, 214, 36)) g.fill(x, rowY - 2, x + 214, rowY + 34, HOVER_FILL);
-            screen.box(g, x, rowY - 2, x + 214, rowY + 34, selected ? PALE_GREEN : GREEN);
+            if (selected || screen.hovered(x, rowY - 2, 214, 36)) g.fill(x, rowY - 2, x + 214, rowY + 34, Ui.HOVER);
+            screen.box(g, x, rowY - 2, x + 214, rowY + 34, selected ? Ui.FOCUS : Ui.ACCENT);
             drawWallpaperPreview(g, x + 5, rowY + 3, 48, 26, wallpaper.id().toString());
             String name = Component.translatable(wallpaper.titleKey()).getString();
-            g.drawString(font, Component.literal(screen.trimToWidth(name, 150)), x + 60, rowY + 4, selected ? PALE_GREEN : GREEN, false);
-            g.drawString(font, Component.literal(selected ? "SELECTED" : "CLICK TO APPLY"), x + 60, rowY + 18, PALE_GREEN, false);
+            g.drawString(font, Component.literal(screen.trimToWidth(name, 150)), x + 60, rowY + 4, selected ? Ui.TEXT : Ui.ACCENT, false);
+            g.drawString(font, Component.literal(selected ? "SELECTED" : "CLICK TO APPLY"), x + 60, rowY + 18, Ui.TEXT, false);
         }
-        if (available.isEmpty()) g.drawString(font, Component.literal("NO WALLPAPERS AVAILABLE"), x, y + 24, PALE_GREEN, false);
+        if (available.isEmpty()) g.drawString(font, Component.literal("NO WALLPAPERS AVAILABLE"), x, y + 24, Ui.TEXT, false);
     }
 
     List<ComputerGuideData.Wallpaper> unlockedWallpapers() {
@@ -53,10 +51,10 @@ final class WallpapersApp extends ComputerApp {
         int hash = id.hashCode();
         int green = 24 + Math.floorMod(hash, 40);
         int blue = 12 + Math.floorMod(hash >>> 8, 24);
-        int base = 0xFF000000 | (green / 2 << 16) | (green << 8) | blue;
-        g.fill(x - 1, y - 1, x + w + 1, y + h + 1, GREEN);
+        int base = Ui.proceduralWallpaper(Ui.alpha(green / 2 << 16 | green << 8 | blue, 255));
+        g.fill(x - 1, y - 1, x + w + 1, y + h + 1, Ui.BORDER_STRONG);
         g.fill(x, y, x + w, y + h, base);
-        int accent = 0xFF000000 | (Math.min(120, green + 34) << 8) | Math.min(80, blue + 34);
+        int accent = Ui.proceduralWallpaper(Ui.alpha(Math.min(120, green + 34) << 8 | Math.min(80, blue + 34), 255));
         for (int py = y + 4; py < y + h; py += 9) {
             for (int px = x + 4; px < x + w; px += 12) {
                 if (Math.floorMod(px + py + hash, 3) == 0) g.fill(px, py, Math.min(x + w, px + 3), Math.min(y + h, py + 2), accent);

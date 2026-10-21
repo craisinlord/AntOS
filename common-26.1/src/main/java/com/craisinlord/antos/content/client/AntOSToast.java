@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import java.util.List;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.Minecraft;
@@ -45,15 +46,17 @@ public final class AntOSToast implements Toast {
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, Font font, long time) {
-        int green = ComputerTheme.remap(0xFF65FF65);
-        int pale = ComputerTheme.remap(0xFFB8FFB8);
+        Ui.refresh();
+        int border = Ui.BORDER_STRONG;
+        int green = Ui.ACCENT;
+        int pale = Ui.TEXT;
         int height = height();
-        graphics.fill(0, 0, WIDTH, height, ComputerTheme.remap(0xF0030603));
-        graphics.fill(0, 0, WIDTH, 1, green);
-        graphics.fill(0, height - 1, WIDTH, height, green);
-        graphics.fill(0, 0, 1, height, green);
-        graphics.fill(WIDTH - 1, 0, WIDTH, height, green);
-        graphics.fill(1, 1, 4, height - 1, ComputerTheme.remap(0xFF173817));
+        graphics.fill(0, 0, WIDTH, height, Ui.alpha(Ui.BACKGROUND, 0xF0));
+        graphics.fill(0, 0, WIDTH, 1, border);
+        graphics.fill(0, height - 1, WIDTH, height, border);
+        graphics.fill(0, 0, 1, height, border);
+        graphics.fill(WIDTH - 1, 0, WIDTH, height, border);
+        graphics.fill(1, 1, 4, height - 1, Ui.HOVER);
         graphics.text(font, title, 9, 6, green, false);
         int y = 18;
         for (FormattedCharSequence line : lines) {
@@ -62,6 +65,6 @@ public final class AntOSToast implements Toast {
         }
         long elapsed = Math.min(DURATION, time);
         int progress = (int) ((WIDTH - 2) * (1.0 - elapsed / (double) DURATION));
-        graphics.fill(1, height - 2, 1 + progress, height - 1, ComputerTheme.remap(0xFF315531));
+        graphics.fill(1, height - 2, 1 + progress, height - 1, Ui.LINE);
     }
 }

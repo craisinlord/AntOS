@@ -291,6 +291,14 @@ public final class ComputerTasksClientState {
         List<TaskRow> taskRows = List.copyOf(rows);
         for (LinkDefinition link : definitions.links()) rows.add(linkRow(link, definitions, tasksById, taskRows));
         TASKS.put(key, List.copyOf(rows));
+        if (!key.equals("workspace:unbound")) {
+            Map<String, String> lookup = new java.util.HashMap<>();
+            for (boolean finished : new boolean[] {false, true}) for (TaskRow row : taskRows) {
+                if (row.complete() != finished || !row.visible() || !(row.available() || row.complete())) continue;
+                for (TaskObjective objective : row.objectives()) if (!objective.item().isBlank()) lookup.putIfAbsent(objective.item(), row.id());
+            }
+            ArchiveLookup.rememberTasks(lookup);
+        }
     }
 
     public static List<TaskRow> get() { return TASKS.getOrDefault(ComputerWorkspaceClientKey.of(), List.of()); }

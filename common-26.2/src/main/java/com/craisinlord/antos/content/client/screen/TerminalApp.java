@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.antmail.AntmailWire;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
@@ -19,11 +20,6 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
 
 final class TerminalApp extends ComputerApp {
     private static final int LINE = 11;
@@ -81,8 +77,8 @@ final class TerminalApp extends ComputerApp {
         kit.begin();
         boolean active = screen.activeWindow != null && screen.activeWindow.type.equals("TERMINAL");
         int bottom = y + h - 12;
-        g.fill(x, y, x + w, bottom, BLACK);
-        screen.box(g, x, y, x + w, bottom, active ? PALE_GREEN : AppKit.SOFT);
+        g.fill(x, y, x + w, bottom, Ui.BACKGROUND);
+        screen.box(g, x, y, x + w, bottom, active ? Ui.FOCUS : Ui.LINE);
         textX = x + 6;
         textTop = y + 6;
         textWidth = Math.max(20, w - 18);
@@ -118,7 +114,7 @@ final class TerminalApp extends ComputerApp {
                 int[] segment = promptRows.get(caretRow);
                 int caretX = textX + font.width(promptText.substring(segment[0], Math.min(caret, segment[1])));
                 int caretY = textTop + (visualRow - state.scroll) * LINE;
-                g.fill(caretX, caretY - 1, caretX + 1, caretY + 9, GREEN);
+                g.fill(caretX, caretY - 1, caretX + 1, caretY + 9, Ui.TEXT_STRONG);
             }
         }
         if (state.unseen) {
@@ -127,9 +123,9 @@ final class TerminalApp extends ComputerApp {
             int markerX = x + w - width - 10;
             int markerY = bottom - 18;
             boolean hover = kit.hovered(markerX, markerY, width, 14);
-            g.fill(markerX, markerY, markerX + width, markerY + 14, hover ? HOVER_FILL : DARK_GREEN);
-            kit.outline(g, markerX, markerY, width, 14, GREEN);
-            g.drawString(font, Component.literal(label), markerX + 5, markerY + 3, PALE_GREEN, false);
+            g.fill(markerX, markerY, markerX + width, markerY + 14, hover ? Ui.HOVER : Ui.SURFACE);
+            kit.outline(g, markerX, markerY, width, 14, Ui.BORDER_STRONG);
+            g.drawString(font, Component.literal(label), markerX + 5, markerY + 3, Ui.TEXT, false);
             kit.hit(markerX, markerY, width, 14, this::jumpToBottom);
         }
         kit.scrollbar(g, x + w - 6, y + 4, bottom - y - 8, visibleRows, total, state.scroll, state.maximumScroll, value -> {
@@ -141,17 +137,17 @@ final class TerminalApp extends ComputerApp {
     }
 
     private void renderFooter(ThemedGraphics g, int x, int y, int w) {
-        g.fill(x, y, x + w, y + 1, DARK_GREEN);
+        g.fill(x, y, x + w, y + 1, Ui.SURFACE);
         String right;
-        int rightColor = AppKit.MUTED;
+        int rightColor = Ui.TEXT_MUTED;
         if (System.currentTimeMillis() < noticeUntil) {
             right = notice;
-            rightColor = PALE_GREEN;
+            rightColor = Ui.TEXT;
         } else if (revealing()) {
             right = tr("footer.skip");
         } else if (busy) {
             right = tr("busy") + ".".repeat((int) (System.currentTimeMillis() / 300L % 4L));
-            rightColor = PALE_GREEN;
+            rightColor = Ui.TEXT;
         } else if (passwordDisk != null) {
             right = tr("footer.password");
         } else {
@@ -160,7 +156,7 @@ final class TerminalApp extends ComputerApp {
         String shownRight = screen.trimToWidth(right, Math.max(10, w / 2));
         int rightWidth = font.width(shownRight);
         String left = tr("footer.directory", state.directory);
-        g.drawString(font, Component.literal(screen.trimToWidth(left, Math.max(10, w - rightWidth - 8))), x, y + 2, GREEN, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(left, Math.max(10, w - rightWidth - 8))), x, y + 2, Ui.TEXT_STRONG, false);
         g.drawString(font, Component.literal(shownRight), x + w - rightWidth, y + 2, rightColor, false);
     }
 
@@ -174,11 +170,11 @@ final class TerminalApp extends ComputerApp {
         int start = segment[0];
         int end = segment[1];
         int split = Math.max(start, Math.min(end, promptLength));
-        int promptColor = busy || revealing() ? AppKit.MUTED : passwordDisk != null ? AppKit.PLACEHOLDER : GREEN;
+        int promptColor = busy || revealing() ? Ui.TEXT_MUTED : passwordDisk != null ? Ui.TEXT_PLACEHOLDER : Ui.ACCENT;
         if (split > start) g.drawString(font, Component.literal(promptText.substring(start, split) + (end == split && segment[2] == 1 ? "-" : "")), textX, lineY, promptColor, false);
         if (end > split) {
             int offset = font.width(promptText.substring(start, split));
-            g.drawString(font, Component.literal(promptText.substring(split, end) + (segment[2] == 1 ? "-" : "")), textX + offset, lineY, PALE_GREEN, false);
+            g.drawString(font, Component.literal(promptText.substring(split, end) + (segment[2] == 1 ? "-" : "")), textX + offset, lineY, Ui.TEXT, false);
         }
     }
 
@@ -217,21 +213,21 @@ final class TerminalApp extends ComputerApp {
             String usage = helpUsage(entry);
             String description = helpDescription(entry);
             if (font.width(usage) + 6 <= helpColumn && helpColumn + font.width(description) <= textWidth) {
-                rows.add(new Visual(Component.literal(usage).getVisualOrderText(), GREEN, 0,
-                        Component.literal(description).getVisualOrderText(), PALE_GREEN, helpColumn, entry));
+                rows.add(new Visual(Component.literal(usage).getVisualOrderText(), Ui.ACCENT, 0,
+                        Component.literal(description).getVisualOrderText(), Ui.TEXT, helpColumn, entry));
             } else {
-                for (FormattedCharSequence line : font.split(Component.literal(usage), textWidth)) rows.add(new Visual(line, GREEN, 0, null, 0, 0, entry));
-                for (FormattedCharSequence line : font.split(Component.literal(description), Math.max(10, textWidth - 10))) rows.add(new Visual(line, PALE_GREEN, 10, null, 0, 0, entry));
+                for (FormattedCharSequence line : font.split(Component.literal(usage), textWidth)) rows.add(new Visual(line, Ui.ACCENT, 0, null, 0, 0, entry));
+                for (FormattedCharSequence line : font.split(Component.literal(description), Math.max(10, textWidth - 10))) rows.add(new Visual(line, Ui.TEXT, 10, null, 0, 0, entry));
             }
             return rows;
         }
         String text = TerminalText.plain(entry.text());
         if (shown >= 0) text = text.substring(0, Math.min(text.length(), shown));
         int color = switch (entry.kind()) {
-            case COMMAND, DIRECTORY -> GREEN;
-            case ERROR -> AppKit.ERROR;
-            case SYSTEM -> AppKit.MUTED;
-            default -> PALE_GREEN;
+            case COMMAND, DIRECTORY -> Ui.ACCENT;
+            case ERROR -> Ui.ERROR;
+            case SYSTEM -> Ui.TEXT_MUTED;
+            default -> Ui.TEXT;
         };
         List<FormattedCharSequence> lines = font.split(Component.literal(text), textWidth);
         if (lines.isEmpty()) rows.add(new Visual(FormattedCharSequence.EMPTY, color, 0, null, 0, 0, entry));

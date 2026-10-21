@@ -11,7 +11,8 @@ public final class AntOSUiSounds {
     public enum Cue {
         CLICK(0, 0.28F), OPEN(1, 0.22F), CLOSE(1, 0.22F),
         MINIMIZE(1, 0.25F), MAXIMIZE(1, 0.25F), COMMAND(1, 0.35F),
-        LOGIN(2, 0.5F), SAVE(2, 0.45F), DISK(2, 0.4F), ORDER(2, 0.45F), SALE(2, 0.45F), ERROR(3, 0.4F);
+        LOGIN(2, 0.5F), SAVE(2, 0.45F), DISK(2, 0.4F), ORDER(2, 0.45F), SALE(2, 0.45F), ERROR(3, 0.4F),
+        BREAKOUT_PADDLE(0, 0.3F), BREAKOUT_HIT(0, 0.28F), BREAKOUT_BRICK(1, 0.35F), BREAKOUT_POWERUP(2, 0.42F), BREAKOUT_MISS(3, 0.35F);
 
         final int priority;
         final float volume;

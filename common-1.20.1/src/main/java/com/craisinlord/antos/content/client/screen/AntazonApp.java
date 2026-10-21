@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
+import com.google.gson.JsonObject;
 import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
@@ -22,11 +24,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
 
 final class AntazonApp extends ComputerApp {
     private final State state = new State();
@@ -46,11 +43,6 @@ final class AntazonApp extends ComputerApp {
         }
     }
 
-    private static final int MUTED = 0xFF7EA77E;
-    private static final int DIVIDER = 0xFF315531;
-    private static final int DIM = 0xFF638063;
-    private static final int RED = 0xFFFF7777;
-    private static final int PANEL = 0xFF071007;
     private static final int ROW = 25;
     private final List<Hit> hits = new ArrayList<>();
     private final List<ScrollArea> scrollAreas = new ArrayList<>();
@@ -110,9 +102,9 @@ final class AntazonApp extends ComputerApp {
 
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, boolean enabled, boolean primary, Runnable action) {
         boolean hover = enabled && screen.hovered(x, y, w, h);
-        g.fill(x, y, x + w, y + h, hover ? HOVER_FILL : primary && enabled ? 0xFF143014 : DARK_GREEN);
-        screen.box(g, x, y, x + w, y + h, !enabled ? DIVIDER : hover ? PALE_GREEN : primary ? GREEN : DIVIDER);
-        centered(g, label, x + w / 2.0F, y + (h - 8) / 2.0F + 1, w - 6, !enabled ? DIM : primary ? GREEN : PALE_GREEN);
+        g.fill(x, y, x + w, y + h, hover ? Ui.HOVER : primary && enabled ? Ui.SURFACE_DEEP : Ui.SURFACE);
+        screen.box(g, x, y, x + w, y + h, !enabled ? Ui.LINE : hover ? Ui.FOCUS : primary ? Ui.ACCENT : Ui.LINE);
+        centered(g, label, x + w / 2.0F, y + (h - 8) / 2.0F + 1, w - 6, !enabled ? Ui.TEXT_DIM : primary ? Ui.ACCENT : Ui.TEXT);
         if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 
@@ -162,17 +154,17 @@ final class AntazonApp extends ComputerApp {
     private void searchField(GuiGraphics g, int x, int y, int w, String value, String placeholder, int focusId, Runnable onClear) {
         boolean focused = state.focus == focusId;
         boolean hover = screen.hovered(x, y, w, 17);
-        g.fill(x, y, x + w, y + 17, hover || focused ? HOVER_FILL : DARK_GREEN);
-        screen.box(g, x, y, x + w, y + 17, focused ? PALE_GREEN : DIVIDER);
+        g.fill(x, y, x + w, y + 17, hover || focused ? Ui.HOVER : Ui.SURFACE);
+        screen.box(g, x, y, x + w, y + 17, focused ? Ui.FOCUS : Ui.LINE);
         int clearWidth = value.isEmpty() ? 0 : 14;
         String text = value.isEmpty() && !focused ? placeholder : value;
         int textWidth = w - 8 - clearWidth;
         while (focused && text.length() > 1 && font.width(text + "|") > textWidth) text = text.substring(1);
         if (focused && screen.caretVisible()) text = text + "|";
-        g.drawString(font, screen.trimToWidth(text, textWidth), x + 4, y + 5, value.isEmpty() && !focused ? MUTED : PALE_GREEN, false);
+        g.drawString(font, screen.trimToWidth(text, textWidth), x + 4, y + 5, value.isEmpty() && !focused ? Ui.TEXT_PLACEHOLDER : Ui.TEXT, false);
         hit(x, y, w - clearWidth, 17, () -> state.focus = focusId);
         if (clearWidth > 0) {
-            g.drawCenteredString(font, "x", x + w - 8, y + 4, screen.hovered(x + w - clearWidth, y, clearWidth, 17) ? GREEN : MUTED);
+            g.drawCenteredString(font, "x", x + w - 8, y + 4, screen.hovered(x + w - clearWidth, y, clearWidth, 17) ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER);
             hit(x + w - clearWidth, y, clearWidth, 17, onClear);
         }
     }
@@ -182,8 +174,8 @@ final class AntazonApp extends ComputerApp {
         for (int row = 0; row < coin.length; row++) {
             for (int column = 0; column < coin[row].length(); column++) {
                 char pixel = coin[row].charAt(column);
-                if (pixel == '#') g.fill(x + column, y + row, x + column + 1, y + row + 1, GREEN);
-                else if (pixel == '+') g.fill(x + column, y + row, x + column + 1, y + row + 1, 0xFF1F4A1F);
+                if (pixel == '#') g.fill(x + column, y + row, x + column + 1, y + row + 1, Ui.ACCENT);
+                else if (pixel == '+') g.fill(x + column, y + row, x + column + 1, y + row + 1, Ui.BRAND_MARK);
             }
         }
     }
@@ -343,7 +335,7 @@ final class AntazonApp extends ComputerApp {
     private int drawStars(GuiGraphics g, double rating, int x, int y) {
         int filled = (int) Math.round(rating);
         int step = font.width("★") + 1;
-        for (int star = 0; star < 5; star++) g.drawString(font, "★", x + star * step, y, star < filled ? GREEN : DIVIDER, false);
+        for (int star = 0; star < 5; star++) g.drawString(font, "★", x + star * step, y, star < filled ? Ui.ACCENT : Ui.LINE, false);
         return x + step * 5;
     }
 
@@ -352,12 +344,12 @@ final class AntazonApp extends ComputerApp {
     }
 
     private void renderAsset(GuiGraphics g, AntazonClientState.PreviewAsset asset, int centerX, int centerY, int size, boolean greenTint, boolean renderMobFromSpawnEgg) {
-        g.fill(centerX - size / 2, centerY - size / 2, centerX + size / 2, centerY + size / 2, 0xFF102010);
+        g.fill(centerX - size / 2, centerY - size / 2, centerX + size / 2, centerY + size / 2, Ui.SURFACE);
         boolean previousTint = screen.archiveGreenTint;
         screen.archiveGreenTint = greenTint;
         try {
             if (!screen.renderArchiveAsset(g, asset.item(), asset.entity(), "", "", centerX, centerY, size, 0.0F, 1.0F, renderMobFromSpawnEgg)) {
-                g.drawString(font, Component.literal("?"), centerX - 3, centerY - 4, PALE_GREEN, false);
+                g.drawString(font, Component.literal("?"), centerX - 3, centerY - 4, Ui.TEXT, false);
             }
         } finally {
             screen.archiveGreenTint = previousTint;
@@ -366,12 +358,12 @@ final class AntazonApp extends ComputerApp {
 
     private void renderLoading(GuiGraphics g, int x, int y, int w, String label) {
         String dots = ".".repeat((int) (System.currentTimeMillis() / 400L % 4L));
-        g.drawCenteredString(font, label + dots, x + w / 2, y, PALE_GREEN);
+        g.drawCenteredString(font, label + dots, x + w / 2, y, Ui.TEXT);
     }
 
     private void renderEmpty(GuiGraphics g, int x, int y, int w, String title, String detail, String action, Runnable onAction) {
-        g.drawCenteredString(font, title, x + w / 2, y, GREEN);
-        if (!detail.isBlank()) small(g, detail, x + w / 2 - Math.min(w, smallWidth(detail)) / 2, y + 13, w, MUTED);
+        g.drawCenteredString(font, title, x + w / 2, y, Ui.TEXT_STRONG);
+        if (!detail.isBlank()) small(g, detail, x + w / 2 - Math.min(w, smallWidth(detail)) / 2, y + 13, w, Ui.TEXT_PLACEHOLDER);
         if (action != null) {
             int buttonWidth = Math.max(96, font.width(action) + 16);
             button(g, x + w / 2 - buttonWidth / 2, y + 28, buttonWidth, 18, action, true, true, onAction);
@@ -455,30 +447,30 @@ final class AntazonApp extends ComputerApp {
         int savedCount = AntazonClientState.wishlist().size();
         String[] labels = {"SHOP", "SELL", "ORDERS", savedCount > 0 ? "SAVED " + savedCount : "SAVED"};
         int selectedTab = tab();
-        g.fill(x, y, x + groupWidth, y + 20, DARK_GREEN);
+        g.fill(x, y, x + groupWidth, y + 20, Ui.SURFACE);
         for (int tab = 0; tab < labels.length; tab++) {
             int tabX = x + tab * slot;
             boolean selected = tab == selectedTab;
             boolean hover = screen.hovered(tabX, y, slot, 20);
-            g.fill(tabX, y, tabX + slot, y + 20, selected ? PALE_GREEN : hover ? HOVER_FILL : DARK_GREEN);
-            if (tab > 0) g.fill(tabX, y + 2, tabX + 1, y + 18, DIVIDER);
-            screen.drawTabLabel(g, labels[tab], tabX, y, slot, selected ? BLACK : GREEN);
-            if (tab == 3 && hasUnseenDeals()) g.fill(tabX + slot - 7, y + 4, tabX + slot - 4, y + 7, selected ? BLACK : GREEN);
+            g.fill(tabX, y, tabX + slot, y + 20, selected ? Ui.TEXT : hover ? Ui.HOVER : Ui.SURFACE);
+            if (tab > 0) g.fill(tabX, y + 2, tabX + 1, y + 18, Ui.LINE);
+            screen.drawTabLabel(g, labels[tab], tabX, y, slot, selected ? Ui.BACKGROUND : Ui.ACCENT);
+            if (tab == 3 && hasUnseenDeals()) g.fill(tabX + slot - 7, y + 4, tabX + slot - 4, y + 7, selected ? Ui.BACKGROUND : Ui.ACCENT);
             int target = tab;
             hit(tabX, y, slot, 20, () -> switchTab(target));
         }
-        screen.box(g, x, y, x + groupWidth, y + 20, GREEN);
+        screen.box(g, x, y, x + groupWidth, y + 20, Ui.BORDER_STRONG);
         int walletX = x + groupWidth + 4;
-        g.fill(walletX, y, walletX + walletWidth, y + 20, PANEL);
-        screen.box(g, walletX, y, walletX + walletWidth, y + 20, DIVIDER);
+        g.fill(walletX, y, walletX + walletWidth, y + 20, Ui.PANEL);
+        screen.box(g, walletX, y, walletX + walletWidth, y + 20, Ui.LINE);
         coin(g, walletX + 6, y + 7);
-        g.drawString(font, wallet, walletX + 15, y + 6, PALE_GREEN, false);
+        g.drawString(font, wallet, walletX + 15, y + 6, Ui.TEXT, false);
         int cartX = x + w - cartWidth;
         boolean cartSelected = state.mode.equals("cart");
         boolean cartHover = screen.hovered(cartX, y, cartWidth, 20);
-        g.fill(cartX, y, cartX + cartWidth, y + 20, cartSelected ? PALE_GREEN : cartHover ? HOVER_FILL : DARK_GREEN);
-        screen.box(g, cartX, y, cartX + cartWidth, y + 20, cartHover ? PALE_GREEN : GREEN);
-        screen.drawTabLabel(g, cartLabel, cartX, y, cartWidth, cartSelected ? BLACK : GREEN);
+        g.fill(cartX, y, cartX + cartWidth, y + 20, cartSelected ? Ui.TEXT : cartHover ? Ui.HOVER : Ui.SURFACE);
+        screen.box(g, cartX, y, cartX + cartWidth, y + 20, cartHover ? Ui.FOCUS : Ui.ACCENT);
+        screen.drawTabLabel(g, cartLabel, cartX, y, cartWidth, cartSelected ? Ui.BACKGROUND : Ui.ACCENT);
         hit(cartX, y, cartWidth, 20, () -> switchTab(-1));
     }
 
@@ -487,11 +479,11 @@ final class AntazonApp extends ComputerApp {
         int footerY = y + h - 8;
         if (notice != null && System.currentTimeMillis() - notice.createdAt() < 6000L) {
             String text = noticeText(notice);
-            g.fill(x - 2, footerY - 3, x + w, y + h, notice.success() ? 0xFF102A10 : 0xFF2A1010);
-            small(g, text, x + 2, footerY, w - 4, notice.success() ? GREEN : RED);
+            g.fill(x - 2, footerY - 3, x + w, y + h, notice.success() ? Ui.NOTICE_SUCCESS : Ui.NOTICE_ERROR);
+            small(g, text, x + 2, footerY, w - 4, notice.success() ? Ui.ACCENT : Ui.ERROR);
             return;
         }
-        if (!fallback.isBlank()) small(g, fallback, x + 2, footerY, w - 4, MUTED);
+        if (!fallback.isBlank()) small(g, fallback, x + 2, footerY, w - 4, Ui.TEXT_PLACEHOLDER);
     }
 
     private String noticeText(AntazonClientState.Notice notice) {
@@ -626,20 +618,20 @@ final class AntazonApp extends ComputerApp {
                 String category = categories.get(index);
                 int rowY = bodyTop + (index - state.categoryScroll) * 15;
                 boolean selected = category.equals(state.category);
-                if (selected || screen.hovered(x, rowY, railWidth, 14)) g.fill(x, rowY, x + railWidth, rowY + 14, HOVER_FILL);
-                if (selected) g.fill(x, rowY, x + 2, rowY + 14, GREEN);
+                if (selected || screen.hovered(x, rowY, railWidth, 14)) g.fill(x, rowY, x + railWidth, rowY + 14, Ui.HOVER);
+                if (selected) g.fill(x, rowY, x + 2, rowY + 14, Ui.ACCENT);
                 long count = categoryCount(view, category);
                 String countLabel = Long.toString(count);
                 int countWidth = smallWidth(countLabel);
-                small(g, category, x + 6, rowY + 4, railWidth - countWidth - 12, selected ? GREEN : 0xFF87B787);
-                small(g, countLabel, x + railWidth - countWidth - 4, rowY + 4, countWidth + 2, selected ? PALE_GREEN : DIM);
+                small(g, category, x + 6, rowY + 4, railWidth - countWidth - 12, selected ? Ui.ACCENT : Ui.TEXT_SOFT);
+                small(g, countLabel, x + railWidth - countWidth - 4, rowY + 4, countWidth + 2, selected ? Ui.TEXT : Ui.TEXT_DIM);
                 hit(x, rowY, railWidth, 14, () -> {
                     state.category = category;
                     state.scroll = 0;
                 });
             }
             scrollArea(x, bodyTop, railWidth, bodyBottom - bodyTop, delta -> state.categoryScroll = Math.max(0, Math.min(railMaximum, state.categoryScroll + delta)));
-            g.fill(x + railWidth + 3, bodyTop, x + railWidth + 4, bodyBottom, DIVIDER);
+            g.fill(x + railWidth + 3, bodyTop, x + railWidth + 4, bodyBottom, Ui.LINE);
         }
         int listX = railWidth > 0 ? x + railWidth + 8 : x;
         int listWidth = x + w - listX - 5;
@@ -677,31 +669,31 @@ final class AntazonApp extends ComputerApp {
     private void renderProductRow(GuiGraphics g, AntazonClientState.ProductRow product, int x, int y, int w, boolean hover) {
         String blocker = blocker(product);
         boolean available = blocker.isEmpty();
-        if (hover) g.fill(x, y, x + w, y + ROW - 1, HOVER_FILL);
+        if (hover) g.fill(x, y, x + w, y + ROW - 1, Ui.HOVER);
         renderAsset(g, product.thumbnail(), x + 11, y + 13, 20, product.greenTint(), product.renderMobFromSpawnEgg());
         var payment = payment(product, 0);
         int priceRight = x + w - 4;
         int priceWidth = payment == null ? 0 : amountWidth(payment, payment.price());
         if (payment != null) {
-            int priceColor = !available ? DIM : affordable(product, 0, 1) ? GREEN : MUTED;
+            int priceColor = !available ? Ui.TEXT_DIM : affordable(product, 0, 1) ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER;
             drawAmount(g, payment, payment.price(), priceRight - priceWidth, y + 4, priceColor);
         }
         int textX = x + 26;
-        g.drawString(font, screen.trimToWidth(name(product), Math.max(1, priceRight - priceWidth - 8 - textX)), textX, y + 4, available ? GREEN : MUTED, false);
+        g.drawString(font, screen.trimToWidth(name(product), Math.max(1, priceRight - priceWidth - 8 - textX)), textX, y + 4, available ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER, false);
         String badge = !available ? blocker : product.onSale() ? "-" + product.dealDiscount() + "%" : "";
         int badgeWidth = badge.isEmpty() ? 0 : smallWidth(badge) + 6;
         int badgeX = priceRight - badgeWidth;
         if (!badge.isEmpty()) {
             boolean deal = available;
-            g.fill(badgeX, y + 14, priceRight, y + 23, deal ? GREEN : 0xFF1A2A1A);
-            small(g, badge, badgeX + 3, y + 15, badgeWidth, deal ? BLACK : product.locked() ? MUTED : RED);
+            g.fill(badgeX, y + 14, priceRight, y + 23, deal ? Ui.ACCENT : Ui.BADGE_IDLE);
+            small(g, badge, badgeX + 3, y + 15, badgeWidth, deal ? Ui.BACKGROUND : product.locked() ? Ui.TEXT_PLACEHOLDER : Ui.ERROR);
         }
         int metaRight = badgeX - 4;
         if (product.dealActive() && payment != null && payment.amount() != payment.price()) {
             String was = number(payment.amount());
             int wasWidth = smallWidth(was);
-            small(g, was, metaRight - wasWidth, y + 15, wasWidth + 2, MUTED);
-            g.fill(metaRight - wasWidth - 1, y + 18, metaRight + 1, y + 19, MUTED);
+            small(g, was, metaRight - wasWidth, y + 15, wasWidth + 2, Ui.TEXT_PLACEHOLDER);
+            g.fill(metaRight - wasWidth - 1, y + 18, metaRight + 1, y + 19, Ui.TEXT_PLACEHOLDER);
             metaRight -= wasWidth + 6;
         }
         List<String> meta = new ArrayList<>();
@@ -709,8 +701,8 @@ final class AntazonApp extends ComputerApp {
         if (available) meta.add(stockLabel(product));
         if (product.reviewCount() > 0) meta.add("★" + String.format(Locale.ROOT, "%.1f", product.rating()));
         if (product.payments().size() > 1) meta.add(product.payments().size() + " WAYS TO PAY");
-        small(g, String.join(" · ", meta), textX, y + 15, Math.max(1, metaRight - textX), MUTED);
-        g.fill(x, y + ROW - 1, x + w, y + ROW, DIVIDER);
+        small(g, String.join(" · ", meta), textX, y + 15, Math.max(1, metaRight - textX), Ui.TEXT_PLACEHOLDER);
+        g.fill(x, y + ROW - 1, x + w, y + ROW, Ui.LINE);
     }
 
     void openProduct(String productId, String returnMode) {
@@ -778,8 +770,8 @@ final class AntazonApp extends ComputerApp {
         button(g, x + 44, top, 52, saved ? "SAVED" : "SAVE", true, () -> toggleSaved(product.id()));
         button(g, x + 100, top, 52, "SHARE", true, () -> screen.session.antmail.composeAntazonMail("Antazon product link", "ANTAZON PRODUCT LINK\nantazon://product/" + product.id()));
         String crumb = (state.returnMode.equals("saved") ? "SAVED" : "SHOP") + " > " + product.category().toUpperCase(Locale.ROOT);
-        small(g, crumb, x + w - smallWidth(crumb) - 2, top + 6, w - 160, MUTED);
-        g.fill(x, top + 21, x + w, top + 22, DIVIDER);
+        small(g, crumb, x + w - smallWidth(crumb) - 2, top + 6, w - 160, Ui.TEXT_PLACEHOLDER);
+        g.fill(x, top + 21, x + w, top + 22, Ui.LINE);
         int bodyTop = top + 25;
         int bodyBottom = y + h - 12;
         int boxWidth = Math.max(112, Math.min(132, w / 3));
@@ -791,20 +783,20 @@ final class AntazonApp extends ComputerApp {
         int line = bodyTop - state.detailScroll;
         try {
             int imageSize = 44;
-            g.fill(detailX, line, detailX + imageSize, line + imageSize, DARK_GREEN);
+            g.fill(detailX, line, detailX + imageSize, line + imageSize, Ui.SURFACE);
             var shown = state.galleryIndex >= 0 && state.galleryIndex < product.gallery().size()
                     ? product.gallery().get(state.galleryIndex) : product.thumbnail();
             if (product.variantMode().equals("choose")) shown = variantPreview(product, state.selectedVariant);
             renderAsset(g, shown, detailX + imageSize / 2, line + imageSize / 2, 40, product.greenTint(), product.renderMobFromSpawnEgg());
-            screen.box(g, detailX, line, detailX + imageSize, line + imageSize, DIVIDER);
+            screen.box(g, detailX, line, detailX + imageSize, line + imageSize, Ui.LINE);
             int textX = detailX + imageSize + 7;
             int textWidth = detailWidth - imageSize - 7;
-            int textLine = screen.wrap(g, name(product), textX, line + 1, textWidth, GREEN);
-            if (product.reviewCount() == 0) small(g, "NO REVIEWS YET", textX, textLine + 1, textWidth, MUTED);
+            int textLine = screen.wrap(g, name(product), textX, line + 1, textWidth, Ui.TEXT_STRONG);
+            if (product.reviewCount() == 0) small(g, "NO REVIEWS YET", textX, textLine + 1, textWidth, Ui.TEXT_PLACEHOLDER);
             else {
                 int starsEnd = drawStars(g, product.rating(), textX, textLine);
                 small(g, String.format(Locale.ROOT, "%.1f · %d REVIEW%s", product.rating(), product.reviewCount(), product.reviewCount() == 1 ? "" : "S"),
-                        starsEnd + 4, textLine + 1, textWidth - (starsEnd - textX) - 4, MUTED);
+                        starsEnd + 4, textLine + 1, textWidth - (starsEnd - textX) - 4, Ui.TEXT_PLACEHOLDER);
             }
             textLine += 11;
             if (product.dealActive()) {
@@ -812,10 +804,10 @@ final class AntazonApp extends ComputerApp {
                 String dealLine = product.onSale()
                         ? dealLabel + " // " + product.dealDiscount() + "% OFF" + (product.dealEndsAt() > 0L ? " // ENDS IN " + countdown(product.dealEndsAt(), product.dealReal()) : "")
                         : dealLabel + " // DEAL LIMIT REACHED";
-                small(g, dealLine, textX, textLine + 1, textWidth, product.onSale() ? GREEN : MUTED);
+                small(g, dealLine, textX, textLine + 1, textWidth, product.onSale() ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER);
                 textLine += 11;
                 if (product.onSale() && product.dealRemaining() > 0) {
-                    small(g, product.dealRemaining() + " LEFT AT THE DEAL PRICE, THEN REGULAR PRICE", textX, textLine + 1, textWidth, MUTED);
+                    small(g, product.dealRemaining() + " LEFT AT THE DEAL PRICE, THEN REGULAR PRICE", textX, textLine + 1, textWidth, Ui.TEXT_PLACEHOLDER);
                     textLine += 11;
                 }
             }
@@ -826,7 +818,7 @@ final class AntazonApp extends ComputerApp {
                     if (thumbX + 18 > detailX + detailWidth) break;
                     var asset = index < 0 ? product.thumbnail() : product.gallery().get(index);
                     renderAsset(g, asset, thumbX + 9, galleryY + 9, 16, product.greenTint(), product.renderMobFromSpawnEgg());
-                    screen.box(g, thumbX, galleryY, thumbX + 18, galleryY + 18, index == state.galleryIndex ? GREEN : DIVIDER);
+                    screen.box(g, thumbX, galleryY, thumbX + 18, galleryY + 18, index == state.galleryIndex ? Ui.ACCENT : Ui.LINE);
                     int galleryIndex = index;
                     clippedHit(thumbX, galleryY, 18, 18, bodyTop, bodyBottom, () -> state.galleryIndex = galleryIndex);
                 }
@@ -841,7 +833,7 @@ final class AntazonApp extends ComputerApp {
                     state.selectedVariant = product.variants().get((selectedIndex + product.variants().size() - 1) % product.variants().size());
                     state.buyConfirmUntil = 0L;
                 });
-                small(g, itemName(state.selectedVariant).toUpperCase(Locale.ROOT), detailX + 22, selectorY + 4, selectorWidth - 44, PALE_GREEN);
+                small(g, itemName(state.selectedVariant).toUpperCase(Locale.ROOT), detailX + 22, selectorY + 4, selectorWidth - 44, Ui.TEXT);
                 button(g, detailX + selectorWidth - 18, selectorY, 18, 16, ">", product.variants().size() > 1, false, () -> {
                     state.selectedVariant = product.variants().get((selectedIndex + 1) % product.variants().size());
                     state.buyConfirmUntil = 0L;
@@ -850,7 +842,7 @@ final class AntazonApp extends ComputerApp {
             }
             if (product.locked()) {
                 line = screen.renderTaskSectionLabel(g, "HOW TO UNLOCK", detailX, line, detailWidth) + 2;
-                line = screen.wrap(g, product.unlockMode().equals("any") ? "Meet any of these requirements:" : "Meet all of these requirements:", detailX, line, detailWidth, PALE_GREEN) + 1;
+                line = screen.wrap(g, product.unlockMode().equals("any") ? "Meet any of these requirements:" : "Meet all of these requirements:", detailX, line, detailWidth, Ui.TEXT) + 1;
                 for (String taskId : product.unlockTasks()) {
                     var task = ComputerTasksClientState.get().stream()
                             .filter(row -> row.id().equals(taskId)).findFirst().orElse(null);
@@ -858,14 +850,14 @@ final class AntazonApp extends ComputerApp {
                     String title = known ? AntOSPlayerText.apply(Component.translatable(task.title()).getString()) : taskId;
                     String prefix = task != null && task.complete() ? "[X] " : "[ ] ";
                     int rowY = line;
-                    if (known && screen.hovered(detailX, rowY - 1, detailWidth, 11)) g.fill(detailX, rowY - 1, detailX + detailWidth, rowY + 10, HOVER_FILL);
-                    line = screen.wrap(g, prefix + title + (known ? "  >" : ""), detailX + 2, line, detailWidth - 4, known ? GREEN : MUTED);
+                    if (known && screen.hovered(detailX, rowY - 1, detailWidth, 11)) g.fill(detailX, rowY - 1, detailX + detailWidth, rowY + 10, Ui.HOVER);
+                    line = screen.wrap(g, prefix + title + (known ? "  >" : ""), detailX + 2, line, detailWidth - 4, known ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER);
                     if (known) clippedHit(detailX, rowY - 1, detailWidth, line - rowY, bodyTop, bodyBottom, () -> openTask(taskId));
                 }
                 for (String diskId : product.unlockDisks()) {
                     boolean owned = collectedDisk(diskId);
                     int rowY = line;
-                    line = screen.wrap(g, (owned ? "[X] " : "[ ] ") + "Requires the " + diskTitle(diskId) + " disk", detailX + 2, line, detailWidth - 4, owned ? GREEN : MUTED);
+                    line = screen.wrap(g, (owned ? "[X] " : "[ ] ") + "Requires the " + diskTitle(diskId) + " disk", detailX + 2, line, detailWidth - 4, owned ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER);
                     if (com.craisinlord.antos.config.AntOSSettings.appEnabled("DISKS")) clippedHit(detailX, rowY - 1, detailWidth, line - rowY, bodyTop, bodyBottom, () -> {
                         screen.open("DISKS");
                         ResourceLocation id = ResourceLocation.tryParse(diskId);
@@ -873,24 +865,24 @@ final class AntazonApp extends ComputerApp {
                     });
                 }
                 for (String hint : product.unlockCommands())
-                    line = screen.wrap(g, "[?] " + Component.translatable(hint).getString(), detailX + 2, line, detailWidth - 4, MUTED);
+                    line = screen.wrap(g, "[?] " + Component.translatable(hint).getString(), detailX + 2, line, detailWidth - 4, Ui.TEXT_PLACEHOLDER);
                 line += 4;
             }
             line = screen.renderTaskSectionLabel(g, "IN EVERY ORDER", detailX, line, detailWidth) + 2;
             if (product.variantMode().equals("all")) {
                 for (String variant : product.variants()) {
-                    small(g, number(product.quantity()) + "x " + itemName(variant), detailX + 20, line + 3, detailWidth - 24, PALE_GREEN);
+                    small(g, number(product.quantity()) + "x " + itemName(variant), detailX + 20, line + 3, detailWidth - 24, Ui.TEXT);
                     line += 13;
                 }
             } else if (product.variantMode().equals("random")) {
-                line = screen.wrap(g, "One random item from the variant tag is selected at checkout.", detailX + 20, line + 2, detailWidth - 24, PALE_GREEN) + 2;
+                line = screen.wrap(g, "One random item from the variant tag is selected at checkout.", detailX + 20, line + 2, detailWidth - 24, Ui.TEXT) + 2;
             } else if (product.variantMode().equals("choose") && !state.selectedVariant.isBlank()) {
-                line = screen.wrap(g, number(product.quantity()) + "x " + itemName(state.selectedVariant), detailX + 20, line + 2, detailWidth - 24, PALE_GREEN) + 2;
+                line = screen.wrap(g, number(product.quantity()) + "x " + itemName(state.selectedVariant), detailX + 20, line + 2, detailWidth - 24, Ui.TEXT) + 2;
             }
             for (var reward : product.rewards()) {
                 int rowY = line;
                 boolean expanded = state.recipeItem.equals(reward.item());
-                if (screen.hovered(detailX, rowY, detailWidth, 16)) g.fill(detailX, rowY, detailX + detailWidth, rowY + 16, HOVER_FILL);
+                if (screen.hovered(detailX, rowY, detailWidth, 16)) g.fill(detailX, rowY, detailX + detailWidth, rowY + 16, Ui.HOVER);
                 boolean previousTint = screen.archiveGreenTint;
                 screen.archiveGreenTint = product.greenTint();
                 try {
@@ -899,63 +891,63 @@ final class AntazonApp extends ComputerApp {
                     screen.archiveGreenTint = previousTint;
                 }
                 g.drawString(font, screen.trimToWidth(number((long) reward.count() * Math.max(1, product.quantity())) + "x " + itemName(reward.item()), detailWidth - 40),
-                        detailX + 20, rowY + 4, PALE_GREEN, false);
+                        detailX + 20, rowY + 4, Ui.TEXT, false);
                 String toggle = expanded ? "HIDE" : "RECIPE";
-                small(g, toggle, detailX + detailWidth - smallWidth(toggle) - 2, rowY + 5, 40, MUTED);
+                small(g, toggle, detailX + detailWidth - smallWidth(toggle) - 2, rowY + 5, 40, Ui.TEXT_PLACEHOLDER);
                 clippedHit(detailX, rowY, detailWidth, 16, bodyTop, bodyBottom, () -> state.recipeItem = expanded ? "" : reward.item());
                 line += 17;
                 if (expanded) line = screen.renderTaskItemRecipe(g, reward.item(), detailX + 20, line, detailWidth - 22) + 3;
             }
-            small(g, "+ 1x Chest // packaging you can ship back to Antazon", detailX + 20, line + 1, detailWidth - 20, MUTED);
+            small(g, "+ 1x Chest // packaging you can ship back to Antazon", detailX + 20, line + 1, detailWidth - 20, Ui.TEXT_PLACEHOLDER);
             line += 14;
             String description = Component.translatable(product.description()).getString();
             if (product.variantMode().equals("choose") && !state.selectedVariant.isBlank()) description = description.replace("{item}", itemName(state.selectedVariant));
             if (!description.isBlank()) {
                 line = screen.renderTaskSectionLabel(g, "DESCRIPTION", detailX, line, detailWidth) + 2;
-                line = screen.wrap(g, description, detailX, line, detailWidth, PALE_GREEN) + 4;
+                line = screen.wrap(g, description, detailX, line, detailWidth, Ui.TEXT) + 4;
             }
             line = screen.renderTaskSectionLabel(g, "REVIEWS", detailX, line, detailWidth) + 3;
             if (product.reviewCount() == 0) {
-                line = screen.wrap(g, "No reviews yet.", detailX, line, detailWidth, MUTED) + 2;
+                line = screen.wrap(g, "No reviews yet.", detailX, line, detailWidth, Ui.TEXT_PLACEHOLDER) + 2;
             } else {
                 g.pose().pushPose();
                 try {
                     g.pose().translate(detailX, line, 0.0F);
                     g.pose().scale(1.6F, 1.6F, 1.0F);
-                    g.drawString(font, String.format(Locale.ROOT, "%.1f", product.rating()), 0, 0, GREEN, false);
+                    g.drawString(font, String.format(Locale.ROOT, "%.1f", product.rating()), 0, 0, Ui.TEXT_STRONG, false);
                 } finally {
                     g.pose().popPose();
                 }
-                small(g, product.reviewCount() + " REVIEW" + (product.reviewCount() == 1 ? "" : "S"), detailX, line + 16, 44, MUTED);
+                small(g, product.reviewCount() + " REVIEW" + (product.reviewCount() == 1 ? "" : "S"), detailX, line + 16, 44, Ui.TEXT_PLACEHOLDER);
                 int barX = detailX + 50;
                 int barWidth = Math.max(10, detailWidth - 74);
                 for (int stars = 5; stars >= 1; stars--) {
                     long matching = product.ratingCount(stars);
                     int barY = line + (5 - stars) * 8;
-                    chartSmall(g, Integer.toString(stars), barX, barY, 8, MUTED);
-                    g.fill(barX + 7, barY + 1, barX + 7 + barWidth, barY + 5, DARK_GREEN);
+                    chartSmall(g, Integer.toString(stars), barX, barY, 8, Ui.TEXT_PLACEHOLDER);
+                    g.fill(barX + 7, barY + 1, barX + 7 + barWidth, barY + 5, Ui.SURFACE);
                     int filled = (int) (barWidth * matching / Math.max(1, product.reviewCount()));
-                    if (filled > 0) g.fill(barX + 7, barY + 1, barX + 7 + filled, barY + 5, GREEN);
-                    chartSmall(g, Long.toString(matching), barX + barWidth + 10, barY, 14, MUTED);
+                    if (filled > 0) g.fill(barX + 7, barY + 1, barX + 7 + filled, barY + 5, Ui.ACCENT);
+                    chartSmall(g, Long.toString(matching), barX + barWidth + 10, barY, 14, Ui.TEXT_PLACEHOLDER);
                 }
                 line += 43;
                 AntazonClientState.ensureReviews(product);
                 List<AntazonClientState.ReviewRow> playerReviews = AntazonClientState.playerReviews(product);
                 for (int index = 0; index < product.reviews().size() + playerReviews.size(); index++) {
                     var review = index < product.reviews().size() ? product.reviews().get(index) : playerReviews.get(index - product.reviews().size());
-                    g.fill(detailX, line, detailX + detailWidth, line + 1, DIVIDER);
+                    g.fill(detailX, line, detailX + detailWidth, line + 1, Ui.LINE);
                     line += 4;
-                    small(g, review.author().toUpperCase(Locale.ROOT) + (review.badge().isBlank() ? "" : " · " + review.badge()), detailX, line, detailWidth, MUTED);
+                    small(g, review.author().toUpperCase(Locale.ROOT) + (review.badge().isBlank() ? "" : " · " + review.badge()), detailX, line, detailWidth, Ui.TEXT_PLACEHOLDER);
                     line += 9;
                     int starsEnd = drawStars(g, review.rating(), detailX, line);
-                    g.drawString(font, screen.trimToWidth(Component.translatable(review.title()).getString(), detailX + detailWidth - starsEnd - 4), starsEnd + 4, line, GREEN, false);
+                    g.drawString(font, screen.trimToWidth(Component.translatable(review.title()).getString(), detailX + detailWidth - starsEnd - 4), starsEnd + 4, line, Ui.TEXT_STRONG, false);
                     line += 11;
-                    line = screen.wrap(g, Component.translatable(review.body()).getString(), detailX, line, detailWidth, PALE_GREEN) + 3;
+                    line = screen.wrap(g, Component.translatable(review.body()).getString(), detailX, line, detailWidth, Ui.TEXT) + 3;
                 }
                 if (AntazonClientState.moreReviewsAvailable(product)) {
                     if (line < bodyBottom + 120) AntazonClientState.loadMoreReviews(product);
-                    g.fill(detailX, line, detailX + detailWidth, line + 1, DIVIDER);
-                    small(g, "LOADING MORE REVIEWS" + ".".repeat((int) (System.currentTimeMillis() / 400L % 4L)), detailX, line + 4, detailWidth, MUTED);
+                    g.fill(detailX, line, detailX + detailWidth, line + 1, Ui.LINE);
+                    small(g, "LOADING MORE REVIEWS" + ".".repeat((int) (System.currentTimeMillis() / 400L % 4L)), detailX, line + 4, detailWidth, Ui.TEXT_PLACEHOLDER);
                     line += 14;
                 }
             }
@@ -963,7 +955,7 @@ final class AntazonApp extends ComputerApp {
                 button(g, detailX, line + 2, 104, 18, "WRITE A REVIEW", line + 20 <= bodyBottom && line + 2 >= bodyTop, false, () -> startReview(product.id()));
                 line += 24;
             } else if (!product.purchased()) {
-                small(g, "BUY THIS PRODUCT TO LEAVE A REVIEW", detailX, line + 2, detailWidth, DIM);
+                small(g, "BUY THIS PRODUCT TO LEAVE A REVIEW", detailX, line + 2, detailWidth, Ui.TEXT_DIM);
                 line += 12;
             }
         } finally {
@@ -984,13 +976,13 @@ final class AntazonApp extends ComputerApp {
     }
 
     private void renderBuyBox(GuiGraphics g, AntazonClientState.ProductRow product, int x, int y, int w, int h) {
-        g.fill(x, y, x + w, y + h, PANEL);
-        screen.box(g, x, y, x + w, y + h, DIVIDER);
+        g.fill(x, y, x + w, y + h, Ui.PANEL);
+        screen.box(g, x, y, x + w, y + h, Ui.LINE);
         int innerX = x + 6;
         int innerWidth = w - 12;
         int bottom = y + h - 6;
         if (product.payments().isEmpty()) {
-            g.drawString(font, "NOT FOR SALE", innerX, y + 8, MUTED, false);
+            g.drawString(font, "NOT FOR SALE", innerX, y + 8, Ui.TEXT_PLACEHOLDER, false);
             return;
         }
         state.paymentOption = Math.max(0, Math.min(product.payments().size() - 1, state.paymentOption));
@@ -1004,33 +996,33 @@ final class AntazonApp extends ComputerApp {
         try {
             g.pose().translate(innerX, line, 0.0F);
             g.pose().scale(1.5F, 1.5F, 1.0F);
-            drawAmount(g, payment, payment.price(), 0, 0, blocker.isEmpty() ? GREEN : MUTED);
+            drawAmount(g, payment, payment.price(), 0, 0, blocker.isEmpty() ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER);
         } finally {
             g.pose().popPose();
         }
         line += 15;
         if (product.dealActive() && payment.amount() != payment.price()) {
             String was = "WAS " + amountText(payment, payment.amount());
-            small(g, was, innerX, line, innerWidth - 32, MUTED);
+            small(g, was, innerX, line, innerWidth - 32, Ui.TEXT_PLACEHOLDER);
             int strikeStart = innerX + smallWidth("WAS ");
-            g.fill(strikeStart - 1, line + 3, innerX + Math.min(innerWidth - 32, smallWidth(was)) + 1, line + 4, MUTED);
+            g.fill(strikeStart - 1, line + 3, innerX + Math.min(innerWidth - 32, smallWidth(was)) + 1, line + 4, Ui.TEXT_PLACEHOLDER);
             String off = "-" + product.dealDiscount() + "%";
             int offWidth = smallWidth(off) + 6;
-            g.fill(x + w - 6 - offWidth, line - 2, x + w - 6, line + 8, GREEN);
-            small(g, off, x + w - 3 - offWidth, line, offWidth, BLACK);
+            g.fill(x + w - 6 - offWidth, line - 2, x + w - 6, line + 8, Ui.ACCENT);
+            small(g, off, x + w - 3 - offWidth, line, offWidth, Ui.BACKGROUND);
             line += 10;
         }
         int stepperY = bottom - 76;
         boolean blocked = !blocker.isEmpty();
         String availability = blocked ? blocker : stockLabel(product);
-        g.drawString(font, screen.trimToWidth(availability, innerWidth), innerX, line + 2, blocked ? (product.locked() ? MUTED : RED) : GREEN, false);
+        g.drawString(font, screen.trimToWidth(availability, innerWidth), innerX, line + 2, blocked ? (product.locked() ? Ui.TEXT_PLACEHOLDER : Ui.ERROR) : Ui.ACCENT, false);
         line += 12;
         if (product.remaining() >= 0 && product.restockAt() > 0L && line + 9 < stepperY) {
-            small(g, "RESTOCKS IN " + countdown(product.restockAt(), product.restockReal()), innerX, line, innerWidth, MUTED);
+            small(g, "RESTOCKS IN " + countdown(product.restockAt(), product.restockReal()), innerX, line, innerWidth, Ui.TEXT_PLACEHOLDER);
             line += 9;
         }
         if (product.rotatesAt() > 0L && line + 9 < stepperY) {
-            small(g, "CHANGES IN " + countdown(product.rotatesAt(), product.rotatesReal()), innerX, line, innerWidth, MUTED);
+            small(g, "CHANGES IN " + countdown(product.rotatesAt(), product.rotatesReal()), innerX, line, innerWidth, Ui.TEXT_PLACEHOLDER);
             line += 9;
         }
         if (product.limit() > 0 && line + 9 < stepperY) {
@@ -1040,15 +1032,15 @@ final class AntazonApp extends ComputerApp {
                 case "minecraft_week" -> " THIS WEEK";
                 default -> "";
             };
-            small(g, "BOUGHT " + product.limitUsed() / perPurchase + " OF " + product.limit() / perPurchase + reset, innerX, line, innerWidth, MUTED);
+            small(g, "BOUGHT " + product.limitUsed() / perPurchase + " OF " + product.limit() / perPurchase + reset, innerX, line, innerWidth, Ui.TEXT_PLACEHOLDER);
             line += 9;
         }
         if (product.payments().size() > 1 && line + 15 <= stepperY) {
             line += 1;
             int count = product.payments().size();
             boolean affordable = affordable(product, state.paymentOption, units);
-            g.fill(innerX - 2, line, innerX + innerWidth + 2, line + 13, DARK_GREEN);
-            screen.box(g, innerX - 2, line, innerX + innerWidth + 2, line + 13, DIVIDER);
+            g.fill(innerX - 2, line, innerX + innerWidth + 2, line + 13, Ui.SURFACE);
+            screen.box(g, innerX - 2, line, innerX + innerWidth + 2, line + 13, Ui.LINE);
             button(g, innerX - 2, line, 13, 13, "<", true, false, () -> {
                 state.paymentOption = (state.paymentOption + count - 1) % count;
                 state.buyConfirmUntil = 0L;
@@ -1060,39 +1052,39 @@ final class AntazonApp extends ComputerApp {
             String optionLabel = "PAY " + (state.paymentOption + 1) + "/" + count + ": "
                     + (payment.type().equals("antcoins") ? AntOSPlayerText.currencyName().toUpperCase(Locale.ROOT) : itemName(payment.resource()).toUpperCase(Locale.ROOT));
             int labelWidth = Math.min(innerWidth - 28, smallWidth(optionLabel));
-            small(g, optionLabel, innerX + innerWidth / 2 - labelWidth / 2, line + 3, innerWidth - 28, affordable ? PALE_GREEN : DIM);
+            small(g, optionLabel, innerX + innerWidth / 2 - labelWidth / 2, line + 3, innerWidth - 28, affordable ? Ui.TEXT : Ui.TEXT_DIM);
             line += 15;
         }
         if (blocked) {
             String reason = product.locked() ? "FINISH THE UNLOCK TASKS TO BUY THIS" : blocker.startsWith("COOLDOWN") ? "YOU CAN BUY THIS AGAIN SOON"
                     : blocker.equals("SOLD OUT") ? product.restockAt() > 0L ? "CHECK BACK AFTER THE RESTOCK" : "OUT OF STOCK" : "YOU HAVE HIT THE PURCHASE LIMIT";
-            screen.wrapLimited(g, reason, innerX, bottom - 62, innerWidth, bottom - 40, MUTED);
+            screen.wrapLimited(g, reason, innerX, bottom - 62, innerWidth, bottom - 40, Ui.TEXT_PLACEHOLDER);
             button(g, innerX, bottom - 38, innerWidth, 18, "ADD TO CART", false, false, () -> { });
             button(g, innerX, bottom - 18, innerWidth, 18, blocker, false, true, () -> { });
             return;
         }
-        small(g, "QTY", innerX, stepperY + 5, 20, MUTED);
+        small(g, "QTY", innerX, stepperY + 5, 20, Ui.TEXT_PLACEHOLDER);
         int stepperX = x + w - 6 - 58;
         button(g, stepperX, stepperY, 16, 16, "-", units > 1, false, () -> {
             state.quantity = Math.max(1, state.quantity - 1);
             state.buyConfirmUntil = 0L;
         });
-        g.drawCenteredString(font, Integer.toString(units), stepperX + 29, stepperY + 4, GREEN);
+        g.drawCenteredString(font, Integer.toString(units), stepperX + 29, stepperY + 4, Ui.TEXT_STRONG);
         button(g, stepperX + 42, stepperY, 16, 16, "+", units < purchasesLeft, false, () -> {
             state.quantity = Math.min(Math.max(1, purchasesLeft(product)), state.quantity + 1);
             state.buyConfirmUntil = 0L;
         });
-        if (purchasesLeft < 64) small(g, "MAX " + purchasesLeft, innerX + 20, stepperY + 5, 30, DIM);
+        if (purchasesLeft < 64) small(g, "MAX " + purchasesLeft, innerX + 20, stepperY + 5, 30, Ui.TEXT_DIM);
         long total = total(product, payment, units);
         long owned = owned(payment);
         boolean affordable = owned >= total;
         int totalY = bottom - 56;
-        small(g, "TOTAL", innerX, totalY + 1, 30, MUTED);
+        small(g, "TOTAL", innerX, totalY + 1, 30, Ui.TEXT_PLACEHOLDER);
         int totalWidth = amountWidth(payment, total);
-        if (totalWidth <= innerWidth - 30) drawAmount(g, payment, total, x + w - 6 - totalWidth, totalY, affordable ? GREEN : RED);
-        else small(g, amountText(payment, total), innerX + 30, totalY + 1, innerWidth - 30, affordable ? GREEN : RED);
+        if (totalWidth <= innerWidth - 30) drawAmount(g, payment, total, x + w - 6 - totalWidth, totalY, affordable ? Ui.ACCENT : Ui.ERROR);
+        else small(g, amountText(payment, total), innerX + 30, totalY + 1, innerWidth - 30, affordable ? Ui.ACCENT : Ui.ERROR);
         String have = affordable ? "AFTER: " + amountText(payment, owned - total) : "YOU HAVE " + amountText(payment, owned);
-        small(g, have, innerX, totalY + 9, innerWidth, affordable ? MUTED : RED);
+        small(g, have, innerX, totalY + 9, innerWidth, affordable ? Ui.TEXT_PLACEHOLDER : Ui.ERROR);
         int option = state.paymentOption;
         button(g, innerX, bottom - 38, innerWidth, 18, "ADD TO CART", true, false, () -> addToCart(product, option, state.quantity));
         boolean confirming = System.currentTimeMillis() < state.buyConfirmUntil;
@@ -1137,37 +1129,37 @@ final class AntazonApp extends ComputerApp {
             state.mode = "product";
             state.focus = 0;
         });
-        g.drawString(font, screen.trimToWidth("REVIEW // " + name(product), w - 140), x + 46, top + 5, GREEN, false);
-        g.fill(x, top + 21, x + w, top + 22, DIVIDER);
+        g.drawString(font, screen.trimToWidth("REVIEW // " + name(product), w - 140), x + 46, top + 5, Ui.TEXT_STRONG, false);
+        g.fill(x, top + 21, x + w, top + 22, Ui.LINE);
         int line = top + 28;
-        small(g, "YOUR RATING", x, line + 2, 60, MUTED);
+        small(g, "YOUR RATING", x, line + 2, 60, Ui.TEXT_PLACEHOLDER);
         int step = font.width("★") + 4;
         for (int star = 1; star <= 5; star++) {
             int starX = x + 62 + (star - 1) * step;
             boolean lit = star <= state.reviewRating || screen.hovered(x + 62, line - 2, step * 5, 12) && screen.mouseX() >= starX;
-            g.drawString(font, "★", starX, line, lit ? GREEN : DIVIDER, false);
+            g.drawString(font, "★", starX, line, lit ? Ui.ACCENT : Ui.LINE, false);
             int rating = star;
             hit(starX - 1, line - 2, step, 12, () -> state.reviewRating = rating);
         }
         line += 16;
-        small(g, "TITLE", x, line, 40, MUTED);
+        small(g, "TITLE", x, line, 40, Ui.TEXT_PLACEHOLDER);
         line += 9;
         searchField(g, x, line, w, state.reviewTitle, "SUM IT UP IN A FEW WORDS", 3, () -> state.reviewTitle = "");
         line += 22;
-        small(g, "REVIEW", x, line, 40, MUTED);
+        small(g, "REVIEW", x, line, 40, Ui.TEXT_PLACEHOLDER);
         String counter = state.reviewBody.length() + "/512";
-        small(g, counter, x + w - smallWidth(counter), line, 40, DIM);
+        small(g, counter, x + w - smallWidth(counter), line, 40, Ui.TEXT_DIM);
         line += 9;
         int areaBottom = y + h - 14;
         boolean focused = state.focus == 4;
-        g.fill(x, line, x + w, areaBottom, focused ? HOVER_FILL : DARK_GREEN);
-        screen.box(g, x, line, x + w, areaBottom, focused ? PALE_GREEN : DIVIDER);
+        g.fill(x, line, x + w, areaBottom, focused ? Ui.HOVER : Ui.SURFACE);
+        screen.box(g, x, line, x + w, areaBottom, focused ? Ui.FOCUS : Ui.LINE);
         String body = state.reviewBody.isEmpty() && !focused ? "What did you like? What could be better?" : state.reviewBody + (focused && screen.caretVisible() ? "|" : "");
         List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(body), w - 10);
         int visible = Math.max(1, (areaBottom - line - 8) / 11);
         int start = Math.max(0, lines.size() - visible);
         for (int index = start; index < lines.size(); index++) {
-            g.drawString(font, lines.get(index), x + 5, line + 5 + (index - start) * 11, state.reviewBody.isEmpty() && !focused ? MUTED : PALE_GREEN, false);
+            g.drawString(font, lines.get(index), x + 5, line + 5 + (index - start) * 11, state.reviewBody.isEmpty() && !focused ? Ui.TEXT_PLACEHOLDER : Ui.TEXT, false);
         }
         hit(x, line, w, areaBottom - line, () -> state.focus = 4);
     }
@@ -1184,7 +1176,7 @@ final class AntazonApp extends ComputerApp {
         }
         List<AntazonClientState.CartLine> lines = AntazonClientState.cart();
         int top = y + 24;
-        g.drawString(font, "YOUR CART", x, top + 5, GREEN, false);
+        g.drawString(font, "YOUR CART", x, top + 5, Ui.TEXT_STRONG, false);
         if (!AntazonClientState.hasCartSnapshot() && lines.isEmpty()) {
             renderLoading(g, x, y + h / 2, w, "LOADING CART");
             return;
@@ -1213,15 +1205,15 @@ final class AntazonApp extends ComputerApp {
                 setCart(updated);
             });
             if (product == null) {
-                g.drawString(font, screen.trimToWidth(line.product(), rowWidth - 60), x + 26, rowY + 5, MUTED, false);
-                small(g, "NO LONGER AVAILABLE", x + 26, rowY + 17, rowWidth - 60, RED);
-                g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, DIVIDER);
+                g.drawString(font, screen.trimToWidth(line.product(), rowWidth - 60), x + 26, rowY + 5, Ui.TEXT_PLACEHOLDER, false);
+                small(g, "NO LONGER AVAILABLE", x + 26, rowY + 17, rowWidth - 60, Ui.ERROR);
+                g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, Ui.LINE);
                 continue;
             }
             int stepperX = removeX - 62;
             int maxUnits = Math.max(1, Math.min(64, purchasesLeft(product)));
             button(g, stepperX, rowY + 6, 16, 16, "-", line.units() > 1, false, () -> updateCartLine(lineIndex, line.option(), line.units() - 1));
-            g.drawCenteredString(font, Integer.toString(line.units()), stepperX + 29, rowY + 10, GREEN);
+            g.drawCenteredString(font, Integer.toString(line.units()), stepperX + 29, rowY + 10, Ui.TEXT_STRONG);
             button(g, stepperX + 42, rowY + 6, 16, 16, "+", line.units() < maxUnits, false, () -> updateCartLine(lineIndex, line.option(), line.units() + 1));
             renderAsset(g, variantPreview(product, line.variant()), x + 11, rowY + 14, 20, product.greenTint(), product.renderMobFromSpawnEgg());
             String blocker = blocker(product);
@@ -1230,9 +1222,9 @@ final class AntazonApp extends ComputerApp {
             int amountRight = stepperX - 8;
             int amountWidth = payment == null ? 0 : amountWidth(payment, total);
             boolean affordable = affordable(product, line.option(), line.units());
-            if (payment != null) drawAmount(g, payment, total, amountRight - amountWidth, rowY + 5, blocker.isEmpty() ? affordable ? GREEN : RED : DIM);
-            g.drawString(font, screen.trimToWidth(variantName(product, line.variant()), Math.max(1, amountRight - amountWidth - 8 - (x + 26))), x + 26, rowY + 5, blocker.isEmpty() ? GREEN : MUTED, false);
-            if (!blocker.isEmpty()) small(g, blocker, x + 26, rowY + 17, amountRight - x - 26, product.locked() ? MUTED : RED);
+            if (payment != null) drawAmount(g, payment, total, amountRight - amountWidth, rowY + 5, blocker.isEmpty() ? affordable ? Ui.ACCENT : Ui.ERROR : Ui.TEXT_DIM);
+            g.drawString(font, screen.trimToWidth(variantName(product, line.variant()), Math.max(1, amountRight - amountWidth - 8 - (x + 26))), x + 26, rowY + 5, blocker.isEmpty() ? Ui.ACCENT : Ui.TEXT_PLACEHOLDER, false);
+            if (!blocker.isEmpty()) small(g, blocker, x + 26, rowY + 17, amountRight - x - 26, product.locked() ? Ui.TEXT_PLACEHOLDER : Ui.ERROR);
             else if (payment != null) {
                 String payLabel = (affordable ? "" : "NOT ENOUGH · ") + "PAY WITH " + (payment.type().equals("antcoins") ? AntOSPlayerText.currencyName().toUpperCase(Locale.ROOT) : itemName(payment.resource()).toUpperCase(Locale.ROOT))
                         + (product.payments().size() > 1 ? "  >" : "");
@@ -1240,13 +1232,13 @@ final class AntazonApp extends ComputerApp {
                 boolean switchable = product.payments().size() > 1;
                 if (switchable) {
                     boolean hover = screen.hovered(x + 24, rowY + 15, payWidth, 10);
-                    g.fill(x + 24, rowY + 15, x + 24 + payWidth, rowY + 25, hover ? HOVER_FILL : DARK_GREEN);
+                    g.fill(x + 24, rowY + 15, x + 24 + payWidth, rowY + 25, hover ? Ui.HOVER : Ui.SURFACE);
                     hit(x + 24, rowY + 15, payWidth, 10, () -> updateCartLine(lineIndex, (line.option() + 1) % product.payments().size(), line.units()));
                 }
-                small(g, payLabel, x + 27, rowY + 17, payWidth - 4, !affordable ? RED : switchable ? PALE_GREEN : MUTED);
+                small(g, payLabel, x + 27, rowY + 17, payWidth - 4, !affordable ? Ui.ERROR : switchable ? Ui.TEXT : Ui.TEXT_PLACEHOLDER);
             }
             hit(x, rowY, Math.max(1, amountRight - amountWidth - 8 - x), 14, () -> openProduct(product.id(), "cart"));
-            g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, DIVIDER);
+            g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, Ui.LINE);
         }
         scrollbar(g, x + w - 3, listTop, footerTop - listTop - 2, visible, lines.size(), state.cartScroll, maximum, value -> state.cartScroll = value);
         scrollArea(x, listTop, w, footerTop - listTop, delta -> state.cartScroll = Math.max(0, Math.min(maximum, state.cartScroll + delta)));
@@ -1265,29 +1257,29 @@ final class AntazonApp extends ComputerApp {
             currencies.putIfAbsent(key, payment);
         }
         for (Map.Entry<String, Long> entry : totals.entrySet()) if (owned(currencies.get(entry.getKey())) < entry.getValue()) allAffordable = false;
-        g.fill(x, footerTop, x + w, footerTop + 1, GREEN);
-        small(g, "SUBTOTAL", x, footerTop + 5, 50, MUTED);
+        g.fill(x, footerTop, x + w, footerTop + 1, Ui.BORDER_STRONG);
+        small(g, "SUBTOTAL", x, footerTop + 5, 50, Ui.TEXT_PLACEHOLDER);
         int amountX = x;
         int amountY = footerTop + 14;
         for (Map.Entry<String, Long> entry : totals.entrySet()) {
             var payment = currencies.get(entry.getKey());
             boolean enough = owned(payment) >= entry.getValue();
             if (amountX > x) {
-                g.drawString(font, "+", amountX + 2, amountY, MUTED, false);
+                g.drawString(font, "+", amountX + 2, amountY, Ui.TEXT_PLACEHOLDER, false);
                 amountX += 10;
             }
             if (amountX + amountWidth(payment, entry.getValue()) > x + w - 100) {
-                g.drawString(font, "...", amountX, amountY, MUTED, false);
+                g.drawString(font, "...", amountX, amountY, Ui.TEXT_PLACEHOLDER, false);
                 break;
             }
-            amountX = drawAmount(g, payment, entry.getValue(), amountX, amountY, enough ? GREEN : RED) + 2;
+            amountX = drawAmount(g, payment, entry.getValue(), amountX, amountY, enough ? Ui.ACCENT : Ui.ERROR) + 2;
         }
         Long coins = totals.get("antcoins:antcoins");
         if (coins == null) coins = totals.entrySet().stream().filter(entry -> entry.getKey().startsWith("antcoins:")).map(Map.Entry::getValue).findFirst().orElse(null);
         if (coins != null) {
             long after = AntazonClientState.wallet() - coins;
             String afterLabel = after >= 0 ? "BALANCE AFTER: " + number(after) + " " + AntOSPlayerText.currencySymbol() : "NEED " + number(-after) + " MORE " + AntOSPlayerText.currencySymbol();
-            small(g, afterLabel, x + 52, footerTop + 5, w - 160, after >= 0 ? MUTED : RED);
+            small(g, afterLabel, x + 52, footerTop + 5, w - 160, after >= 0 ? Ui.TEXT_PLACEHOLDER : Ui.ERROR);
         }
         boolean confirming = System.currentTimeMillis() < state.checkoutConfirmUntil;
         boolean canCheckout = anyBuyable && allAffordable;
@@ -1316,26 +1308,26 @@ final class AntazonApp extends ComputerApp {
         long ordered = results.stream().filter(result -> result.status().equals("accepted")).count();
         long failed = results.size() - ordered;
         int top = y + 24;
-        g.drawString(font, failed == 0 ? "ORDER CONFIRMED" : ordered == 0 ? "CHECKOUT FAILED" : "PARTIALLY ORDERED", x, top + 2, failed == 0 ? GREEN : ordered == 0 ? RED : PALE_GREEN, false);
+        g.drawString(font, failed == 0 ? "ORDER CONFIRMED" : ordered == 0 ? "CHECKOUT FAILED" : "PARTIALLY ORDERED", x, top + 2, failed == 0 ? Ui.ACCENT : ordered == 0 ? Ui.ERROR : Ui.TEXT, false);
         String summary = ordered + " ORDERED" + (failed > 0 ? " · " + failed + " LEFT IN YOUR CART" : "") + (ordered > 0 ? " · WATCH THE SKY FOR DELIVERIES" : "");
-        small(g, summary, x, top + 13, w, MUTED);
-        g.fill(x, top + 23, x + w, top + 24, DIVIDER);
+        small(g, summary, x, top + 13, w, Ui.TEXT_PLACEHOLDER);
+        g.fill(x, top + 23, x + w, top + 24, Ui.LINE);
         int rowY = top + 28;
         int buttonsY = y + h - 34;
         for (var result : results) {
             if (rowY + 20 > buttonsY - 2) {
-                small(g, "+" + (results.size() - results.indexOf(result)) + " MORE", x, rowY + 2, w, MUTED);
+                small(g, "+" + (results.size() - results.indexOf(result)) + " MORE", x, rowY + 2, w, Ui.TEXT_PLACEHOLDER);
                 break;
             }
             boolean success = result.status().equals("accepted");
             var product = AntazonClientState.product(result.product());
-            g.drawString(font, "●", x + 1, rowY + 5, success ? GREEN : RED, false);
+            g.drawString(font, "●", x + 1, rowY + 5, success ? Ui.ACCENT : Ui.ERROR, false);
             if (product != null) renderAsset(g, product.thumbnail(), x + 19, rowY + 9, 16, product.greenTint(), product.renderMobFromSpawnEgg());
             String right = success ? receiptText(result.receipt()) : failure(result.status());
             int rightWidth = Math.min(w / 2, font.width(right));
-            g.drawString(font, screen.trimToWidth((product == null ? result.product() : variantName(product, result.variant())) + " X" + result.units(), w - rightWidth - 40), x + 30, rowY + 5, success ? PALE_GREEN : MUTED, false);
-            g.drawString(font, screen.trimToWidth(right, rightWidth), x + w - rightWidth, rowY + 5, success ? GREEN : RED, false);
-            g.fill(x, rowY + 19, x + w, rowY + 20, DIVIDER);
+            g.drawString(font, screen.trimToWidth((product == null ? result.product() : variantName(product, result.variant())) + " X" + result.units(), w - rightWidth - 40), x + 30, rowY + 5, success ? Ui.TEXT : Ui.TEXT_PLACEHOLDER, false);
+            g.drawString(font, screen.trimToWidth(right, rightWidth), x + w - rightWidth, rowY + 5, success ? Ui.ACCENT : Ui.ERROR, false);
+            g.fill(x, rowY + 19, x + w, rowY + 20, Ui.LINE);
             rowY += 20;
         }
         button(g, x, buttonsY, 96, 20, "VIEW ORDERS", ordered > 0, false, () -> {
@@ -1372,7 +1364,7 @@ final class AntazonApp extends ComputerApp {
         }
         state.orderSelection = -1;
         int top = y + 24;
-        g.drawString(font, "ORDER HISTORY", x, top + 5, GREEN, false);
+        g.drawString(font, "ORDER HISTORY", x, top + 5, Ui.TEXT_STRONG, false);
         if (orders.isEmpty()) {
             renderEmpty(g, x, y + h / 2 - 24, w, "NO ORDERS YET", "EVERYTHING YOU BUY SHOWS UP HERE", "BROWSE SUPPLIES", () -> switchTab(0));
             return;
@@ -1387,16 +1379,16 @@ final class AntazonApp extends ComputerApp {
             var order = orders.get(index);
             var product = AntazonClientState.product(order.product());
             int rowY = listTop + (index - state.ordersScroll) * ROW;
-            if (screen.hovered(x, rowY, rowWidth, ROW - 1)) g.fill(x, rowY, x + rowWidth, rowY + ROW - 1, HOVER_FILL);
+            if (screen.hovered(x, rowY, rowWidth, ROW - 1)) g.fill(x, rowY, x + rowWidth, rowY + ROW - 1, Ui.HOVER);
             if (product != null) renderAsset(g, product.thumbnail(), x + 11, rowY + 13, 20, product.greenTint(), product.renderMobFromSpawnEgg());
             String age = age(order.gameTime());
             int ageWidth = smallWidth(age);
-            small(g, age, x + rowWidth - ageWidth - 4, rowY + 5, ageWidth + 2, MUTED);
+            small(g, age, x + rowWidth - ageWidth - 4, rowY + 5, ageWidth + 2, Ui.TEXT_PLACEHOLDER);
             int purchases = product == null ? order.units() : Math.max(1, order.units() / Math.max(1, product.quantity()));
             String name = (product == null ? prettyItem(order.product()) : name(product)) + " X" + purchases;
-            g.drawString(font, screen.trimToWidth(name, rowWidth - ageWidth - 36), x + 26, rowY + 4, GREEN, false);
-            small(g, "PAID " + receiptText(order.option()) + " · " + order.status(), x + 26, rowY + 15, rowWidth - 30, MUTED);
-            g.fill(x, rowY + ROW - 1, x + rowWidth, rowY + ROW, DIVIDER);
+            g.drawString(font, screen.trimToWidth(name, rowWidth - ageWidth - 36), x + 26, rowY + 4, Ui.TEXT_STRONG, false);
+            small(g, "PAID " + receiptText(order.option()) + " · " + order.status(), x + 26, rowY + 15, rowWidth - 30, Ui.TEXT_PLACEHOLDER);
+            g.fill(x, rowY + ROW - 1, x + rowWidth, rowY + ROW, Ui.LINE);
             int selection = index;
             hit(x, rowY, rowWidth, ROW - 1, () -> {
                 state.orderSelection = selection;
@@ -1429,28 +1421,28 @@ final class AntazonApp extends ComputerApp {
             button(g, x + 120, top, 84, "VIEW PRODUCT", true, () -> openProduct(product.id(), "orders"));
             if (product.purchased() && !product.reviewed()) button(g, x + 208, top, 92, "WRITE A REVIEW", true, () -> startReview(product.id()));
         }
-        g.fill(x, top + 21, x + w, top + 22, DIVIDER);
+        g.fill(x, top + 21, x + w, top + 22, Ui.LINE);
         int line = top + 27;
         if (product != null) renderAsset(g, product.thumbnail(), x + 16, line + 16, 32, product.greenTint(), product.renderMobFromSpawnEgg());
-        g.drawString(font, screen.trimToWidth(product == null ? prettyItem(order.product()) : name(product), w - 44), x + 40, line + 4, GREEN, false);
-        small(g, "ORDERED DAY " + (order.gameTime() / 24000L + 1) + " · " + age(order.gameTime()), x + 40, line + 17, w - 44, MUTED);
+        g.drawString(font, screen.trimToWidth(product == null ? prettyItem(order.product()) : name(product), w - 44), x + 40, line + 4, Ui.TEXT_STRONG, false);
+        small(g, "ORDERED DAY " + (order.gameTime() / 24000L + 1) + " · " + age(order.gameTime()), x + 40, line + 17, w - 44, Ui.TEXT_PLACEHOLDER);
         line += 38;
         line = screen.renderTaskSectionLabel(g, "ORDER", x, line, w) + 2;
         String[][] rows = {{"QUANTITY", Integer.toString(purchases)}, {"PAID", receiptText(order.option())}, {"STATUS", order.status()}};
         for (String[] row : rows) {
-            small(g, row[0], x, line + 1, 80, MUTED);
-            g.drawString(font, screen.trimToWidth(row[1], w - 90), x + w - Math.min(w - 90, font.width(row[1])), line, PALE_GREEN, false);
+            small(g, row[0], x, line + 1, 80, Ui.TEXT_PLACEHOLDER);
+            g.drawString(font, screen.trimToWidth(row[1], w - 90), x + w - Math.min(w - 90, font.width(row[1])), line, Ui.TEXT, false);
             line += 11;
         }
         if (product != null && !product.rewards().isEmpty()) {
             line = screen.renderTaskSectionLabel(g, "DELIVERED", x, line + 4, w) + 2;
             for (var reward : product.rewards()) {
                 if (line + 11 > y + h - 12) {
-                    small(g, "...", x, line, 20, MUTED);
+                    small(g, "...", x, line, 20, Ui.TEXT_PLACEHOLDER);
                     break;
                 }
                 screen.renderArchiveAsset(g, reward.item(), "", "", "", x + 6, line + 4, 10, 0.0F, 0.7F, product.renderMobFromSpawnEgg());
-                g.drawString(font, screen.trimToWidth(number((long) reward.count() * order.units()) + "x " + itemName(reward.item()), w - 20), x + 16, line, PALE_GREEN, false);
+                g.drawString(font, screen.trimToWidth(number((long) reward.count() * order.units()) + "x " + itemName(reward.item()), w - 20), x + 16, line, Ui.TEXT, false);
                 line += 11;
             }
         }
@@ -1459,7 +1451,7 @@ final class AntazonApp extends ComputerApp {
     private void renderSaved(GuiGraphics g, int x, int y, int w, int h) {
         List<String> saved = AntazonClientState.wishlist();
         int top = y + 24;
-        g.drawString(font, "SAVED FOR LATER", x, top + 5, GREEN, false);
+        g.drawString(font, "SAVED FOR LATER", x, top + 5, Ui.TEXT_STRONG, false);
         if (saved.isEmpty()) {
             renderEmpty(g, x, y + h / 2 - 24, w, "NOTHING SAVED YET", "TAP SAVE ON ANY PRODUCT TO WATCH IT FOR DEALS", "BROWSE SUPPLIES", () -> switchTab(0));
             return;
@@ -1478,14 +1470,14 @@ final class AntazonApp extends ComputerApp {
             int rowY = listTop + (index - state.savedScroll) * ROW;
             int rowContentWidth = rowWidth - buttonWidth - 6;
             if (product == null) {
-                g.drawString(font, screen.trimToWidth(prettyItem(productId), rowContentWidth - 30), x + 26, rowY + 4, MUTED, false);
-                small(g, "NO LONGER AVAILABLE", x + 26, rowY + 15, rowContentWidth - 30, RED);
+                g.drawString(font, screen.trimToWidth(prettyItem(productId), rowContentWidth - 30), x + 26, rowY + 4, Ui.TEXT_PLACEHOLDER, false);
+                small(g, "NO LONGER AVAILABLE", x + 26, rowY + 15, rowContentWidth - 30, Ui.ERROR);
                 button(g, x + rowWidth - buttonWidth, rowY + 4, buttonWidth, 18, "REMOVE", true, false, () -> toggleSaved(productId));
-                g.fill(x, rowY + ROW - 1, x + rowWidth, rowY + ROW, DIVIDER);
+                g.fill(x, rowY + ROW - 1, x + rowWidth, rowY + ROW, Ui.LINE);
                 continue;
             }
             renderProductRow(g, product, x, rowY, rowContentWidth, screen.hovered(x, rowY, rowContentWidth, ROW - 1));
-            g.fill(x + rowContentWidth, rowY + ROW - 1, x + rowWidth, rowY + ROW, DIVIDER);
+            g.fill(x + rowContentWidth, rowY + ROW - 1, x + rowWidth, rowY + ROW, Ui.LINE);
             hit(x, rowY, rowContentWidth, ROW - 1, () -> openProduct(product.id(), "saved"));
             boolean buyable = blocker(product).isEmpty();
             button(g, x + rowWidth - buttonWidth, rowY + 4, buttonWidth, 18, "+ CART", buyable, true, () -> addToCart(product, bestOption(product, 1), 1));
@@ -1552,22 +1544,22 @@ final class AntazonApp extends ComputerApp {
         for (int index = 0; index < steps.length; index++) {
             boolean current = index + 1 == step;
             boolean done = index + 1 < step;
-            g.drawString(font, steps[index], stepX, y + 1, current ? GREEN : done ? PALE_GREEN : DIM, false);
-            if (current) g.fill(stepX, y + 10, stepX + font.width(steps[index]), y + 11, GREEN);
+            g.drawString(font, steps[index], stepX, y + 1, current ? Ui.ACCENT : done ? Ui.TEXT : Ui.TEXT_DIM, false);
+            if (current) g.fill(stepX, y + 10, stepX + font.width(steps[index]), y + 11, Ui.ACCENT);
             stepX += font.width(steps[index]) + 6;
             if (index < steps.length - 1) {
-                g.drawString(font, ">", stepX, y + 1, DIM, false);
+                g.drawString(font, ">", stepX, y + 1, Ui.TEXT_DIM, false);
                 stepX += font.width(">") + 6;
             }
         }
         String message;
-        int messageColor = PALE_GREEN;
+        int messageColor = Ui.TEXT;
         if (feedback.equals("SHIPMENT_LAUNCHED")) {
             message = "FREIGHT LAUNCHED // " + number(AntazonClientState.sellAmount()) + " " + AntOSPlayerText.currencySymbol() + " ARRIVES WHEN IT LANDS";
-            messageColor = (System.currentTimeMillis() / 250L) % 2L == 0L ? GREEN : PALE_GREEN;
+            messageColor = (System.currentTimeMillis() / 250L) % 2L == 0L ? Ui.ACCENT : Ui.TEXT;
         } else if (!feedback.isBlank()) {
             message = sellMessage(feedback);
-            messageColor = feedback.contains("FAILED") || feedback.equals("CRATE_CHANGED") || feedback.equals("UNAUTHORIZED") ? RED : GREEN;
+            messageColor = feedback.contains("FAILED") || feedback.equals("CRATE_CHANGED") || feedback.equals("UNAUTHORIZED") ? Ui.ERROR : Ui.ACCENT;
         } else if (status.equals("CHEST_REQUIRED") || status.equals("CRATE_REQUIRED")) {
             message = "PLACE A SHIPPING CONTAINER NEAR THIS COMPUTER, THEN FILL IT WITH ITEMS TO SELL";
         } else if (status.equals("CRATE_UNAVAILABLE")) {
@@ -1576,23 +1568,23 @@ final class AntazonApp extends ComputerApp {
             message = "THE CONTAINER IS EMPTY // ADD ITEMS OR USE THE PRICE GUIDE";
         } else if (status.equals("UNSUPPORTED_ITEMS")) {
             message = "REMOVE THE ITEMS ANTAZON DOES NOT BUY BEFORE SHIPPING";
-            messageColor = RED;
+            messageColor = Ui.ERROR;
         } else if (status.equals("SELL_LIMIT_REACHED") || status.equals("SELL_LIMIT_EXCEEDED")) {
             message = "SELL LIMIT REACHED // WAIT FOR THE RESET BEFORE SHIPPING THESE ITEMS";
-            messageColor = RED;
+            messageColor = Ui.ERROR;
         } else if (partialShipment) {
             message = state.sellConfirm ? "CONFIRM PARTIAL SALE // ALLOWED ITEMS SHIP; EXTRA ITEMS DROP HERE"
                     : "PARTIAL SALE // ALLOWED ITEMS SHIP; EXTRA ITEMS DROP HERE";
-            messageColor = state.sellConfirm ? GREEN : PALE_GREEN;
+            messageColor = state.sellConfirm ? Ui.ACCENT : Ui.TEXT;
         } else if (status.equals("TASK_LOCKED")) {
             message = "LOCKED // FINISH THE REQUIRED TASKS TO SELL THESE ITEMS";
-            messageColor = RED;
+            messageColor = Ui.ERROR;
         } else if (status.equals("UNAUTHORIZED")) {
             message = failure("unauthorized");
-            messageColor = RED;
+            messageColor = Ui.ERROR;
         } else if (state.sellConfirm) {
             message = "THE CONTAINER AND EVERYTHING IN IT WILL BE SHIPPED. CONFIRM TO LAUNCH";
-            messageColor = GREEN;
+            messageColor = Ui.ACCENT;
         } else if (ready) {
             message = "READY TO SHIP // CHECK THE MANIFEST BELOW";
         } else {
@@ -1615,31 +1607,31 @@ final class AntazonApp extends ComputerApp {
             for (int index = state.sellScroll; index < rows.size() && index < state.sellScroll + visible; index++) {
                 var row = rows.get(index);
                 int rowY = listTop + (index - state.sellScroll) * rowHeight;
-                if (!row.sellable() || row.overLimit() || row.locked()) g.fill(x, rowY, x + rowWidth, rowY + rowHeight - 1, 0xFF1E1010);
+                if (!row.sellable() || row.overLimit() || row.locked()) g.fill(x, rowY, x + rowWidth, rowY + rowHeight - 1, Ui.LOCKED_ROW);
                 renderAsset(g, new AntazonClientState.PreviewAsset(row.item(), ""), x + 9, rowY + 9, 16, row.greenTint(), row.renderMobFromSpawnEgg());
                 String value = !row.sellable() ? "NOT ACCEPTED" : row.locked() ? "LOCKED"
                         : row.acceptedCount() == 0 && row.overLimit() ? "LIMIT REACHED" : "+" + number(row.value());
                 boolean accepted = row.sellable() && !row.locked() && row.acceptedCount() > 0;
                 int valueWidth = font.width(value) + (accepted ? 9 : 0);
-                g.drawString(font, value, x + rowWidth - valueWidth - 2, rowY + 4, accepted ? GREEN : RED, false);
+                g.drawString(font, value, x + rowWidth - valueWidth - 2, rowY + 4, accepted ? Ui.ACCENT : Ui.ERROR, false);
                 if (accepted) coin(g, x + rowWidth - 9, rowY + 4);
                 String itemCount = itemName(row.item()) + " x" + row.count()
                         + (row.returnedCount() > 0 && row.acceptedCount() > 0 ? " // SELL " + row.acceptedCount() : "");
-                g.drawString(font, screen.trimToWidth(itemCount, rowWidth - valueWidth - 32), x + 22, rowY + 4, row.sellable() ? PALE_GREEN : MUTED, false);
-                if (row.locked()) small(g, "LOCKED // " + requirementTitles(row.unlockTasks(), row.unlockDisks(), row.unlockCommands()), x + 22, rowY + 15, rowWidth - 28, RED);
-                else if (row.returnedCount() > 0) small(g, "DROP " + number(row.returnedCount()) + " HERE // " + number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, MUTED);
-                else if (row.limit() > 0) small(g, number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, row.overLimit() ? RED : MUTED);
-                g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, DIVIDER);
+                g.drawString(font, screen.trimToWidth(itemCount, rowWidth - valueWidth - 32), x + 22, rowY + 4, row.sellable() ? Ui.TEXT : Ui.TEXT_PLACEHOLDER, false);
+                if (row.locked()) small(g, "LOCKED // " + requirementTitles(row.unlockTasks(), row.unlockDisks(), row.unlockCommands()), x + 22, rowY + 15, rowWidth - 28, Ui.ERROR);
+                else if (row.returnedCount() > 0) small(g, "DROP " + number(row.returnedCount()) + " HERE // " + number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, Ui.TEXT_PLACEHOLDER);
+                else if (row.limit() > 0) small(g, number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, row.overLimit() ? Ui.ERROR : Ui.TEXT_PLACEHOLDER);
+                g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, Ui.LINE);
             }
             scrollbar(g, x + w - 3, listTop, footerTop - listTop - 2, visible, rows.size(), state.sellScroll, maximum, value -> state.sellScroll = value);
             scrollArea(x, listTop, w, footerTop - listTop, delta -> state.sellScroll = Math.max(0, Math.min(maximum, state.sellScroll + delta)));
         }
         long total = rows.stream().filter(AntazonClientState.SellRow::sellable)
                 .mapToLong(AntazonClientState.SellRow::value).sum();
-        g.fill(x, footerTop, x + w, footerTop + 1, GREEN);
-        small(g, status.equals("UNSUPPORTED_ITEMS") || partialShipment ? "PAYOUT FOR ACCEPTED ITEMS" : "PAYOUT", x, footerTop + 4, 140, MUTED);
+        g.fill(x, footerTop, x + w, footerTop + 1, Ui.BORDER_STRONG);
+        small(g, status.equals("UNSUPPORTED_ITEMS") || partialShipment ? "PAYOUT FOR ACCEPTED ITEMS" : "PAYOUT", x, footerTop + 4, 140, Ui.TEXT_PLACEHOLDER);
         String payout = number(total);
-        g.drawString(font, payout, x, footerTop + 13, total > 0 ? GREEN : DIM, false);
+        g.drawString(font, payout, x, footerTop + 13, total > 0 ? Ui.ACCENT : Ui.TEXT_DIM, false);
         coin(g, x + font.width(payout) + 2, footerTop + 13);
         String ship = launched ? "IN TRANSIT" : state.sellConfirm ? "CONFIRM SHIPMENT" : "SHIP CRATE";
         button(g, x + w - 112, footerTop + 4, 112, 18, ship, ready && !launched, true, () -> {
@@ -1681,24 +1673,24 @@ final class AntazonApp extends ComputerApp {
                 var price = prices.get(index);
                 int rowY = listTop + (index - state.priceScroll) * rowHeight;
                 boolean isSelected = price.item().equals(state.priceItem);
-                if (isSelected || screen.hovered(x, rowY, rowWidth, rowHeight - 1)) g.fill(x, rowY, x + rowWidth, rowY + rowHeight - 1, HOVER_FILL);
-                if (isSelected) g.fill(x, rowY, x + 2, rowY + rowHeight - 1, GREEN);
+                if (isSelected || screen.hovered(x, rowY, rowWidth, rowHeight - 1)) g.fill(x, rowY, x + rowWidth, rowY + rowHeight - 1, Ui.HOVER);
+                if (isSelected) g.fill(x, rowY, x + 2, rowY + rowHeight - 1, Ui.ACCENT);
                 renderAsset(g, new AntazonClientState.PreviewAsset(price.item(), ""), x + 11, rowY + 8, 14, price.greenTint(), price.renderMobFromSpawnEgg());
                 String each = price.locked() ? "LOCKED" : number(price.value());
                 int eachWidth = font.width(each) + (price.locked() ? 0 : 9 + smallWidth(" / EA"));
-                g.drawString(font, each, x + rowWidth - eachWidth - 2, rowY + 5, price.locked() ? RED : GREEN, false);
+                g.drawString(font, each, x + rowWidth - eachWidth - 2, rowY + 5, price.locked() ? Ui.ERROR : Ui.ACCENT, false);
                 if (!price.locked()) {
                     coin(g, x + rowWidth - eachWidth + font.width(each), rowY + 5);
-                    small(g, " / EA", x + rowWidth - smallWidth(" / EA") - 2, rowY + 6, 30, MUTED);
+                    small(g, " / EA", x + rowWidth - smallWidth(" / EA") - 2, rowY + 6, 30, Ui.TEXT_PLACEHOLDER);
                 }
                 int owned = inventoryCount(price.item());
                 String have = owned > 0 ? "YOU HAVE " + owned : "";
                 int haveWidth = have.isEmpty() ? 0 : smallWidth(have) + 8;
-                g.drawString(font, screen.trimToWidth(itemName(price.item()), rowWidth - eachWidth - haveWidth - 30), x + 22, rowY + 3, PALE_GREEN, false);
-                if (price.locked()) small(g, "LOCKED // " + requirementTitles(price.unlockTasks(), price.unlockDisks(), price.unlockCommands()), x + 22, rowY + 14, rowWidth - 28, RED);
+                g.drawString(font, screen.trimToWidth(itemName(price.item()), rowWidth - eachWidth - haveWidth - 30), x + 22, rowY + 3, Ui.TEXT, false);
+                if (price.locked()) small(g, "LOCKED // " + requirementTitles(price.unlockTasks(), price.unlockDisks(), price.unlockCommands()), x + 22, rowY + 14, rowWidth - 28, Ui.ERROR);
                 else if (price.limit() > 0) small(g, number(price.remaining()) + " / " + number(price.limit()) + " LEFT " + resetLabel(price.limitReset()), x + 22, rowY + 14,
-                        rowWidth - eachWidth - haveWidth - 30, MUTED);
-                if (!have.isEmpty()) small(g, have, x + rowWidth - eachWidth - haveWidth - 2, rowY + 6, haveWidth, MUTED);
+                        rowWidth - eachWidth - haveWidth - 30, Ui.TEXT_PLACEHOLDER);
+                if (!have.isEmpty()) small(g, have, x + rowWidth - eachWidth - haveWidth - 2, rowY + 6, haveWidth, Ui.TEXT_PLACEHOLDER);
                 hit(x, rowY, rowWidth, rowHeight - 1, () -> {
                     state.priceItem = price.item();
                     state.priceRequirementsScroll = 0;
@@ -1708,14 +1700,14 @@ final class AntazonApp extends ComputerApp {
             scrollbar(g, x + w - 3, listTop, panelTop - listTop - 2, visible, prices.size(), state.priceScroll, maximum, value -> state.priceScroll = value);
             scrollArea(x, listTop, w, panelTop - listTop, delta -> state.priceScroll = Math.max(0, Math.min(maximum, state.priceScroll + delta)));
         }
-        g.fill(x, panelTop, x + w, panelTop + 1, GREEN);
+        g.fill(x, panelTop, x + w, panelTop + 1, Ui.BORDER_STRONG);
         if (selected == null) {
-            small(g, "PICK AN ITEM TO MOVE IT FROM YOUR INVENTORY INTO THE SHIPPING CONTAINER", x, panelTop + 9, w, MUTED);
+            small(g, "PICK AN ITEM TO MOVE IT FROM YOUR INVENTORY INTO THE SHIPPING CONTAINER", x, panelTop + 9, w, Ui.TEXT_PLACEHOLDER);
             return;
         }
         if (selected.locked()) {
             small(g, "LOCKED // " + number(selected.value()) + " " + AntOSPlayerText.currencyName().toUpperCase(Locale.ROOT) + " EACH // "
-                    + (selected.unlockMode().equals("any") ? "MEET ANY REQUIREMENT:" : "MEET ALL REQUIREMENTS:"), x, panelTop + 5, w, RED);
+                    + (selected.unlockMode().equals("any") ? "MEET ANY REQUIREMENT:" : "MEET ALL REQUIREMENTS:"), x, panelTop + 5, w, Ui.ERROR);
             List<net.minecraft.util.FormattedCharSequence> requirements = new ArrayList<>();
             for (String taskId : selected.unlockTasks()) {
                 var task = ComputerTasksClientState.get().stream().filter(row -> row.id().equals(taskId)).findFirst().orElse(null);
@@ -1731,7 +1723,7 @@ final class AntazonApp extends ComputerApp {
             int maximum = Math.max(0, requirements.size() * 11 - bodyH);
             state.priceRequirementsScroll = Math.max(0, Math.min(maximum, state.priceRequirementsScroll));
             screen.enableComputerScissor(g, x, bodyTop, x + w - 5, bodyTop + bodyH);
-            for (int i = 0; i < requirements.size(); i++) g.drawString(font, requirements.get(i), x + 2, bodyTop + i * 11 - state.priceRequirementsScroll, PALE_GREEN, false);
+            for (int i = 0; i < requirements.size(); i++) g.drawString(font, requirements.get(i), x + 2, bodyTop + i * 11 - state.priceRequirementsScroll, Ui.TEXT, false);
             g.disableScissor();
             scrollbar(g, x + w - 3, bodyTop, bodyH, bodyH, requirements.size() * 11, state.priceRequirementsScroll, maximum,
                     value -> state.priceRequirementsScroll = value);
@@ -1743,12 +1735,12 @@ final class AntazonApp extends ComputerApp {
         int quantity = state.priceQuantity;
         int buttonWidth = 96;
         int stepperX = x + w - buttonWidth - 4 - 98;
-        g.drawString(font, screen.trimToWidth(itemName(selected.item()), stepperX - x - 6), x, panelTop + 5, PALE_GREEN, false);
+        g.drawString(font, screen.trimToWidth(itemName(selected.item()), stepperX - x - 6), x, panelTop + 5, Ui.TEXT, false);
         String value = "= " + number((long) selected.value() * quantity);
-        small(g, value, x, panelTop + 15, stepperX - x - 12, GREEN);
+        small(g, value, x, panelTop + 15, stepperX - x - 12, Ui.TEXT_STRONG);
         coin(g, x + smallWidth(value) + 2, panelTop + 15);
         button(g, stepperX, panelTop + 5, 16, 16, "-", quantity > 1, false, () -> state.priceQuantity = Math.max(1, state.priceQuantity - 1));
-        g.drawCenteredString(font, Integer.toString(quantity), stepperX + 28, panelTop + 9, GREEN);
+        g.drawCenteredString(font, Integer.toString(quantity), stepperX + 28, panelTop + 9, Ui.TEXT_STRONG);
         button(g, stepperX + 40, panelTop + 5, 16, 16, "+", quantity < 64, false, () -> state.priceQuantity = Math.min(64, state.priceQuantity + 1));
         button(g, stepperX + 60, panelTop + 5, 34, 16, "MAX", owned > 0, false, () -> state.priceQuantity = Math.max(1, Math.min(64, inventoryCount(selected.item()))));
         button(g, x + w - buttonWidth, panelTop + 4, buttonWidth, 18, owned >= quantity ? "ADD TO CHEST" : "NOT ENOUGH", owned >= quantity, true, () -> {
@@ -1771,21 +1763,21 @@ final class AntazonApp extends ComputerApp {
         int cardY = y + 12;
         int cardWidth = w - 32;
         int cardBottom = y + h - 8;
-        g.fill(cardX, cardY, cardX + cardWidth, cardBottom, PANEL);
-        screen.box(g, cardX, cardY, cardX + cardWidth, cardBottom, GREEN);
-        small(g, "STEP " + (page + 1) + " OF " + pages.length, cardX + 14, cardY + 12, 80, MUTED);
+        g.fill(cardX, cardY, cardX + cardWidth, cardBottom, Ui.PANEL);
+        screen.box(g, cardX, cardY, cardX + cardWidth, cardBottom, Ui.BORDER_STRONG);
+        small(g, "STEP " + (page + 1) + " OF " + pages.length, cardX + 14, cardY + 12, 80, Ui.TEXT_PLACEHOLDER);
         g.pose().pushPose();
         try {
             g.pose().translate(cardX + 14, cardY + 24, 0.0F);
             g.pose().scale(1.5F, 1.5F, 1.0F);
-            g.drawString(font, pages[page][0], 0, 0, GREEN, false);
+            g.drawString(font, pages[page][0], 0, 0, Ui.TEXT_STRONG, false);
         } finally {
             g.pose().popPose();
         }
-        int line = screen.wrap(g, pages[page][1], cardX + 14, cardY + 46, cardWidth - 28, PALE_GREEN) + 4;
-        screen.wrap(g, pages[page][2], cardX + 14, line, cardWidth - 28, MUTED);
+        int line = screen.wrap(g, pages[page][1], cardX + 14, cardY + 46, cardWidth - 28, Ui.TEXT) + 4;
+        screen.wrap(g, pages[page][2], cardX + 14, line, cardWidth - 28, Ui.TEXT_PLACEHOLDER);
         int dotsX = cardX + cardWidth / 2 - pages.length * 5;
-        for (int index = 0; index < pages.length; index++) g.fill(dotsX + index * 10, cardBottom - 34, dotsX + index * 10 + 6, cardBottom - 31, index == page ? GREEN : DIVIDER);
+        for (int index = 0; index < pages.length; index++) g.fill(dotsX + index * 10, cardBottom - 34, dotsX + index * 10 + 6, cardBottom - 31, index == page ? Ui.ACCENT : Ui.LINE);
         int buttonY = cardBottom - 26;
         button(g, cardX + 12, buttonY, 56, 18, "SKIP", true, false, ComputerNetworking::completeAntazonOnboarding);
         if (page > 0) button(g, cardX + cardWidth - 150, buttonY, 56, 18, "BACK", true, false, () -> state.onboardingPage--);
@@ -1952,6 +1944,19 @@ final class AntazonApp extends ComputerApp {
         ComputerNetworking.requestAntazonBootstrap(ComputerAccessPayload.BOOTSTRAP_STATE | ComputerAccessPayload.BOOTSTRAP_PRICES);
     }
 
+    void openSellPrice(String itemId) {
+        state.mode = "sell";
+        state.sellConfirm = false;
+        state.focus = 0;
+        AntazonClientState.clearSellFeedback();
+        ComputerNetworking.requestAntazonSellState();
+        showPrices();
+        state.priceSearch = itemId;
+        state.priceItem = itemId;
+    }
+
+    boolean typing() { return state.focus != 0; }
+
     void showPrices() {
         state.mode = "sell";
         state.priceGuide = true;
@@ -2003,4 +2008,32 @@ final class AntazonApp extends ComputerApp {
         final Set<String> seenDeals = new HashSet<>();
         int walletRefreshTicks;
     }
+
+    JsonObject saveResume() {
+        JsonObject json = new JsonObject();
+        json.addProperty("mode", state.mode);
+        json.addProperty("return_mode", state.returnMode);
+        json.addProperty("category", state.category);
+        json.addProperty("product", state.productId);
+        return json;
+    }
+
+    void loadResume(JsonObject json) {
+        String category = ComputerResume.string(json, "category");
+        if (!category.isEmpty()) state.category = category;
+        String mode = ComputerResume.string(json, "mode");
+        String returnMode = ComputerResume.string(json, "return_mode");
+        String product = ComputerResume.string(json, "product");
+        switch (mode) {
+            case "sell" -> switchTab(1);
+            case "orders" -> switchTab(2);
+            case "saved" -> switchTab(3);
+            case "cart" -> switchTab(-1);
+            case "product" -> {
+                if (!product.isEmpty()) openProduct(product, returnMode.isEmpty() || returnMode.equals("product") ? "catalog" : returnMode);
+            }
+            default -> { }
+        }
+    }
+
 }

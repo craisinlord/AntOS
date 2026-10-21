@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "title": "Crystal washer",
+  "width": 320,
+  "height": 100,
+  "elements": [
+    {"type": "slot", "x": 15, "y": 30, "choices": ["minecraft:amethyst_shard", "minecraft:quartz"], "count": 2},
+    {"type": "fluid", "x": 50, "y": 12, "width": 18, "height": 62, "fluid": "minecraft:water", "name": "Water", "amount": 500, "capacity": 1000, "color": "#387DDB"},
+    {"type": "arrow", "x": 85, "y": 40, "x2": 139, "y2": 40},
+    {"type": "slot", "x": 158, "y": 29, "item": "minecraft:amethyst_cluster", "size": 24},
+    {"type": "text", "x": 203, "y": 24, "width": 108, "text": "Energy: 800 FE"},
+    {"type": "text", "x": 203, "y": 41, "width": 108, "text": "Duration: 10 seconds"},
+    {"type": "bar", "x": 15, "y": 84, "width": 168, "height": 5, "value": 0.5},
+    {"type": "text", "x": 203, "y": 63, "width": 108, "text": "Example display data", "color": "muted"}
+  ]
+}

@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import it.unimi.dsi.fastutil.ints.IntList;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -52,7 +53,7 @@ public final class ThemedGraphics {
     private static final AtomicBoolean ITEM_TINT_WARNING_LOGGED = new AtomicBoolean();
     private final GuiGraphicsExtractor source;
     private final LegacyPose pose;
-    private int colorMultiplier = 0xFFFFFFFF;
+    private int colorMultiplier = Ui.TEXT_BRIGHT;
 
     public ThemedGraphics(GuiGraphicsExtractor source) {
         this.source = source;
@@ -81,15 +82,15 @@ public final class ThemedGraphics {
     }
 
     public void fill(int minX, int minY, int maxX, int maxY, int color) {
-        source.fill(minX, minY, maxX, maxY, applyColor(ComputerTheme.remap(color)));
+        source.fill(minX, minY, maxX, maxY, applyColor(color));
     }
 
     public void fillGradient(int minX, int minY, int maxX, int maxY, int colorFrom, int colorTo) {
-        source.fillGradient(minX, minY, maxX, maxY, applyColor(ComputerTheme.remap(colorFrom)), applyColor(ComputerTheme.remap(colorTo)));
+        source.fillGradient(minX, minY, maxX, maxY, applyColor(colorFrom), applyColor(colorTo));
     }
 
     public int drawString(Font font, String text, int x, int y, int color, boolean dropShadow) {
-        source.text(font, text, x, y, applyColor(ComputerTheme.remap(color)), dropShadow);
+        source.text(font, text, x, y, applyColor(color), dropShadow);
         return font.width(text);
     }
 
@@ -98,7 +99,7 @@ public final class ThemedGraphics {
     }
 
     public int drawString(Font font, FormattedCharSequence text, int x, int y, int color, boolean dropShadow) {
-        source.text(font, text, x, y, applyColor(ComputerTheme.remap(color)), dropShadow);
+        source.text(font, text, x, y, applyColor(color), dropShadow);
         return font.width(text);
     }
 
@@ -107,7 +108,7 @@ public final class ThemedGraphics {
     }
 
     public int drawString(Font font, Component text, int x, int y, int color, boolean dropShadow) {
-        source.text(font, text, x, y, applyColor(ComputerTheme.remap(color)), dropShadow);
+        source.text(font, text, x, y, applyColor(color), dropShadow);
         return font.width(text);
     }
 
@@ -116,23 +117,23 @@ public final class ThemedGraphics {
     }
 
     public void drawCenteredString(Font font, String text, int x, int y, int color) {
-        source.centeredText(font, text, x, y, applyColor(ComputerTheme.remap(color)));
+        source.centeredText(font, text, x, y, applyColor(color));
     }
 
     public void drawCenteredString(Font font, Component text, int x, int y, int color) {
-        source.centeredText(font, text, x, y, applyColor(ComputerTheme.remap(color)));
+        source.centeredText(font, text, x, y, applyColor(color));
     }
 
     public void drawCenteredString(Font font, FormattedCharSequence text, int x, int y, int color) {
-        source.centeredText(font, text, x, y, applyColor(ComputerTheme.remap(color)));
+        source.centeredText(font, text, x, y, applyColor(color));
     }
 
     public void renderOutline(int x, int y, int width, int height, int color) {
-        source.outline(x, y, width, height, applyColor(ComputerTheme.remap(color)));
+        source.outline(x, y, width, height, applyColor(color));
     }
 
     public void renderItem(ItemStack stack, int x, int y) {
-        if (colorMultiplier == 0xFFFFFFFF) {
+        if (colorMultiplier == Ui.TEXT_BRIGHT) {
             source.item(stack, x, y);
             return;
         }

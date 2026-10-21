@@ -40,9 +40,43 @@ dependencies {
     modCompileOnly("dev.ftb.mods:ftb-library-fabric:${ftb_library_version_1_21_1}") { transitive = false }
     modCompileOnly("dev.ftb.mods:ftb-teams-fabric:${ftb_teams_version_1_21_1}") { transitive = false }
     modCompileOnly "dev.architectury:architectury-fabric:${architectury_version_1_21_1}"
+    modCompileOnly "mezz.jei:jei-1.21.1-fabric-api:${jei_version_1_21_1}"
+    modLocalRuntime "mezz.jei:jei-1.21.1-fabric:${jei_version_1_21_1}"
 }
 
 def accountTestClasses = layout.buildDirectory.dir('classes/java/accountTest')
+
+tasks.register('displayFeaturesTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies display materials, steps, layouts, variants, indexing, presets, and adapter registration.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.guide.DisplayFeaturesTest'
+    workingDir = layout.buildDirectory.dir('custom-display-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
+tasks.register('displayRecipesTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies vanilla recipe extraction, reload behavior, and all custom display examples.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.guide.DisplayRecipesTest'
+    args rootProject.projectDir.absolutePath
+    workingDir = layout.buildDirectory.dir('custom-display-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
+tasks.register('customDisplaysTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies custom display validation, templates, structures, and synchronization.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.guide.CustomDisplaysTest'
+    args rootProject.projectDir.absolutePath
+    workingDir = layout.buildDirectory.dir('custom-display-tests').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
 
 tasks.register('compileAccountTests', JavaCompile) {
     dependsOn tasks.named('compileJava')
@@ -119,6 +153,17 @@ tasks.register('diskDefinitionTest', JavaExec) {
     doFirst { workingDir.mkdirs() }
 }
 
+['configMigrationTest': 'com.craisinlord.antos.config.ConfigMigrationTest',
+ 'desktopPreferencesTest': 'com.craisinlord.antos.config.DesktopPreferencesTest'].each { name, testClass ->
+    tasks.register(name, JavaExec) {
+        group = 'verification'
+        description = 'Verifies AntOS pack config and player settings storage.'
+        dependsOn tasks.named('compileAccountTests')
+        classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+        mainClass = testClass
+    }
+}
+
 tasks.register('antazonDiskUnlockTest', JavaExec) {
     group = 'verification'
     description = 'Verifies mixed task and disk requirements and unlock notification transitions.'
@@ -184,7 +229,51 @@ tasks.register('compileTextFeedbackTests', JavaCompile) {
     }
 }
 
+def accessibilityTestClasses = layout.buildDirectory.dir('classes/java/accessibilityTest')
+
+tasks.register('compileAccessibilityTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files(
+            '../common-1.21.1/src/test/java/com/craisinlord/antos/content/client/palette/PaletteTest.java',
+            '../common-1.21.1/src/test/java/com/craisinlord/antos/content/computer/AccountRecoveryTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = accessibilityTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+['paletteTest': 'com.craisinlord.antos.content.client.palette.PaletteTest',
+ 'accountRecoveryTest': 'com.craisinlord.antos.content.computer.AccountRecoveryTest'].each { name, testClass ->
+    tasks.register(name, JavaExec) {
+        group = 'verification'
+        dependsOn tasks.named('compileAccessibilityTests')
+        classpath = files(accessibilityTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+        mainClass = testClass
+        workingDir = layout.buildDirectory.dir('accessibility-tests').get().asFile
+        doFirst { workingDir.mkdirs() }
+    }
+}
+
 processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') { expand 'version': project.version }
+}
+
+
+def merchantTestClasses = layout.buildDirectory.dir('classes/java/merchantTest')
+
+tasks.register('compileMerchantTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source fileTree('../common-1.21.1/src/test/java/com/craisinlord/antos/content/merchant') { include '**/*.java' }
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = merchantTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.register('merchantTest', JavaExec) {
+    group = 'verification'
+    dependsOn tasks.named('compileMerchantTests')
+    classpath = files(merchantTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.merchant.MerchantStoreTest'
 }

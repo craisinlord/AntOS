@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
+import com.google.gson.JsonObject;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.antmail.AntmailAddress;
@@ -33,11 +35,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
 import static com.craisinlord.antos.content.client.screen.ComputerScreen.WIDTH;
 import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 
@@ -165,13 +162,13 @@ final class AntmailApp extends ComputerApp {
             state.selfDeletingId = null;
         }
         if (result == null) {
-            g.drawString(font, Component.literal("CONTACTING ANTMAIL NETWORK"), x, y + 5, GREEN, false);
+            g.drawString(font, Component.literal("CONTACTING ANTMAIL NETWORK"), x, y + 5, Ui.TEXT_STRONG, false);
             String waitStatus = lastResponse != null && !lastResponse.detail().isBlank()
                     ? "SERVER // " + lastResponse.detail().toUpperCase()
                     : state.stateWaitTicks >= 100 ? "NO RESPONSE // CHECK CLIENT + SERVER LOGS" : "PLEASE WAIT // RETRYING STATE SYNC";
-            g.drawString(font, Component.literal(screen.trimToWidth(waitStatus, 208)), x, y + 25, PALE_GREEN, false);
-            screen.box(g, x, y + 41, x + 150, y + 64, GREEN);
-            g.drawString(font, Component.literal("[ RETRY STATE LINK ]"), x + 6, y + 48, GREEN, false);
+            g.drawString(font, Component.literal(screen.trimToWidth(waitStatus, 208)), x, y + 25, Ui.TEXT, false);
+            screen.box(g, x, y + 41, x + 150, y + 64, Ui.BORDER_STRONG);
+            g.drawString(font, Component.literal("[ RETRY STATE LINK ]"), x + 6, y + 48, Ui.TEXT_STRONG, false);
         } else {
             String activeFolder = state.mode.equals("message") ? state.originMode : state.mode;
             boolean inboxSelected = activeFolder.equals("inbox");
@@ -186,38 +183,38 @@ final class AntmailApp extends ComputerApp {
             boolean draftsHover = screen.hovered(draftsX, y, folderSlotWidth, 20);
             int moreX = draftsX + folderSlotWidth;
             boolean moreHover = screen.hovered(moreX, y, folderSlotWidth, 20);
-            g.fill(x, y, x + folderGroupWidth, y + 20, DARK_GREEN);
-            g.fill(inboxX, y, inboxX + folderSlotWidth, y + 20, inboxSelected ? PALE_GREEN : inboxHover ? HOVER_FILL : DARK_GREEN);
-            g.fill(sentX, y, sentX + folderSlotWidth, y + 20, sentSelected ? PALE_GREEN : sentHover ? HOVER_FILL : DARK_GREEN);
-            g.fill(draftsX, y, draftsX + folderSlotWidth, y + 20, draftsSelected ? PALE_GREEN : draftsHover ? HOVER_FILL : DARK_GREEN);
-            g.fill(moreX, y, x + folderGroupWidth, y + 20, moreSelected ? PALE_GREEN : moreHover ? HOVER_FILL : DARK_GREEN);
-            screen.box(g, x, y, x + folderGroupWidth, y + 20, GREEN);
-            g.fill(sentX, y + 2, sentX + 1, y + 18, 0xFF315531);
-            g.fill(draftsX, y + 2, draftsX + 1, y + 18, 0xFF315531);
-            g.fill(moreX, y + 2, moreX + 1, y + 18, 0xFF315531);
-            int composeColor = screen.hovered(composeX, y, composeWidth, 20) ? PALE_GREEN : GREEN;
-            g.fill(composeX, y, composeX + composeWidth, y + 20, composeColor == PALE_GREEN ? HOVER_FILL : DARK_GREEN);
+            g.fill(x, y, x + folderGroupWidth, y + 20, Ui.SURFACE);
+            g.fill(inboxX, y, inboxX + folderSlotWidth, y + 20, inboxSelected ? Ui.TEXT : inboxHover ? Ui.HOVER : Ui.SURFACE);
+            g.fill(sentX, y, sentX + folderSlotWidth, y + 20, sentSelected ? Ui.TEXT : sentHover ? Ui.HOVER : Ui.SURFACE);
+            g.fill(draftsX, y, draftsX + folderSlotWidth, y + 20, draftsSelected ? Ui.TEXT : draftsHover ? Ui.HOVER : Ui.SURFACE);
+            g.fill(moreX, y, x + folderGroupWidth, y + 20, moreSelected ? Ui.TEXT : moreHover ? Ui.HOVER : Ui.SURFACE);
+            screen.box(g, x, y, x + folderGroupWidth, y + 20, Ui.BORDER_STRONG);
+            g.fill(sentX, y + 2, sentX + 1, y + 18, Ui.LINE);
+            g.fill(draftsX, y + 2, draftsX + 1, y + 18, Ui.LINE);
+            g.fill(moreX, y + 2, moreX + 1, y + 18, Ui.LINE);
+            int composeColor = screen.hovered(composeX, y, composeWidth, 20) ? Ui.TEXT : Ui.ACCENT;
+            g.fill(composeX, y, composeX + composeWidth, y + 20, composeColor == Ui.TEXT ? Ui.HOVER : Ui.SURFACE);
             screen.box(g, composeX, y, composeX + composeWidth, y + 20, composeColor);
             AntmailMailbox currentMailbox = mailbox(result);
             int unread = currentMailbox == null ? 0 : currentMailbox.unreadCount();
             float tabScale = screen.tabLabelScale("DRAFTS", folderSlotWidth);
-            screen.drawTabLabel(g, unread > 0 ? "INBOX " + unread : "INBOX", inboxX, y, folderSlotWidth, inboxSelected ? BLACK : GREEN, tabScale);
-            screen.drawTabLabel(g, "SENT", sentX, y, folderSlotWidth, sentSelected ? BLACK : GREEN, tabScale);
-            screen.drawTabLabel(g, "DRAFTS", draftsX, y, folderSlotWidth, draftsSelected ? BLACK : GREEN, tabScale);
-            screen.drawTabLabel(g, "MORE", moreX, y, folderSlotWidth, moreSelected ? BLACK : GREEN, tabScale);
+            screen.drawTabLabel(g, unread > 0 ? "INBOX " + unread : "INBOX", inboxX, y, folderSlotWidth, inboxSelected ? Ui.BACKGROUND : Ui.ACCENT, tabScale);
+            screen.drawTabLabel(g, "SENT", sentX, y, folderSlotWidth, sentSelected ? Ui.BACKGROUND : Ui.ACCENT, tabScale);
+            screen.drawTabLabel(g, "DRAFTS", draftsX, y, folderSlotWidth, draftsSelected ? Ui.BACKGROUND : Ui.ACCENT, tabScale);
+            screen.drawTabLabel(g, "MORE", moreX, y, folderSlotWidth, moreSelected ? Ui.BACKGROUND : Ui.ACCENT, tabScale);
             screen.drawTabLabel(g, state.mode.equals("compose") ? "SAVE" : "COMPOSE", composeX, y, composeWidth, composeColor, tabScale);
             if (state.mode.equals("profile")) {
-                g.fill(x, y + 22, x + navWidth, y + 23, GREEN);
-                g.drawString(font, Component.literal("MY PROFILE"), x, y + 29, GREEN, false);
+                g.fill(x, y + 22, x + navWidth, y + 23, Ui.BORDER_STRONG);
+                g.drawString(font, Component.literal("MY PROFILE"), x, y + 29, Ui.TEXT_STRONG, false);
                 renderAvatar(g, state.profileDisplayName.isBlank() ? result.address().split("@", 2)[0]
                                 : state.profileDisplayName,
                         state.profileAvatarItem, "", x, y + 45, 32);
-                g.drawString(font, Component.literal("DISPLAY NAME // OPTIONAL"), x + 40, y + 44, GREEN, false);
+                g.drawString(font, Component.literal("DISPLAY NAME // OPTIONAL"), x + 40, y + 44, Ui.TEXT_STRONG, false);
                 int fieldX = x + 40;
                 int fieldWidth = Math.max(1, navWidth - 40);
-                g.fill(fieldX, y + 55, fieldX + fieldWidth, y + 73, DARK_GREEN);
+                g.fill(fieldX, y + 55, fieldX + fieldWidth, y + 73, Ui.SURFACE);
                 screen.box(g, fieldX, y + 55, fieldX + fieldWidth, y + 73,
-                        state.focused && state.field == 5 ? PALE_GREEN : 0xFF315531);
+                        state.focused && state.field == 5 ? Ui.FOCUS : Ui.LINE);
                 String profileName = state.profileDisplayName.isBlank()
                         ? state.focused && state.field == 5 ? "" : "ACCOUNT NAME"
                         : state.profileDisplayName;
@@ -225,11 +222,11 @@ final class AntmailApp extends ComputerApp {
                     profileName = screen.insertCaret(profileName, state.cursor);
                 }
                 g.drawString(font, Component.literal(screen.trimToWidth(profileName, fieldWidth - 8)), fieldX + 4, y + 60,
-                        state.profileDisplayName.isBlank() ? 0xFF7EA77E : PALE_GREEN, false);
-                g.drawString(font, Component.literal("ICON ITEM ID // OPTIONAL"), x, y + 80, GREEN, false);
-                g.fill(x, y + 91, x + navWidth, y + 109, DARK_GREEN);
+                        state.profileDisplayName.isBlank() ? Ui.TEXT_PLACEHOLDER : Ui.TEXT, false);
+                g.drawString(font, Component.literal("ICON ITEM ID // OPTIONAL"), x, y + 80, Ui.TEXT_STRONG, false);
+                g.fill(x, y + 91, x + navWidth, y + 109, Ui.SURFACE);
                 screen.box(g, x, y + 91, x + navWidth, y + 109,
-                        state.focused && state.field == 6 ? PALE_GREEN : 0xFF315531);
+                        state.focused && state.field == 6 ? Ui.FOCUS : Ui.LINE);
                 String profileItem = state.profileAvatarItem.isBlank()
                         ? state.focused && state.field == 6 ? "" : "minecraft:diamond"
                         : state.profileAvatarItem;
@@ -237,32 +234,32 @@ final class AntmailApp extends ComputerApp {
                     profileItem = screen.insertCaret(profileItem, state.cursor);
                 }
                 g.drawString(font, Component.literal(screen.trimToWidth(profileItem, navWidth - 8)), x + 4, y + 96,
-                        state.profileAvatarItem.isBlank() ? 0xFF7EA77E : PALE_GREEN, false);
-                g.drawString(font, Component.literal("EXAMPLE: minecraft:diamond"), x, y + 114, PALE_GREEN, false);
+                        state.profileAvatarItem.isBlank() ? Ui.TEXT_PLACEHOLDER : Ui.TEXT, false);
+                g.drawString(font, Component.literal("EXAMPLE: minecraft:diamond"), x, y + 114, Ui.TEXT, false);
                 if (!state.profileStatus.isBlank()) {
                     g.drawString(font, Component.literal(screen.trimToWidth(state.profileStatus, navWidth)), x, y + 140,
-                            PALE_GREEN, false);
+                            Ui.TEXT, false);
                 }
                 int actionY = y + 151;
                 int actionGap = Math.max(0, (navWidth - 150) / 2);
-                drawAction(g, x, actionY, 36, "BACK", GREEN);
-                drawAction(g, x + 36 + actionGap, actionY, 70, "CLEAR ICON", GREEN);
-                drawAction(g, x + navWidth - 44, actionY, 44, "SAVE", GREEN);
+                drawAction(g, x, actionY, 36, "BACK", Ui.ACCENT);
+                drawAction(g, x + 36 + actionGap, actionY, 70, "CLEAR ICON", Ui.ACCENT);
+                drawAction(g, x + navWidth - 44, actionY, 44, "SAVE", Ui.ACCENT);
             } else if (state.mode.equals("compose")) {
-                g.fill(x, y + 22, x + navWidth, y + 23, GREEN);
+                g.fill(x, y + 22, x + navWidth, y + 23, Ui.BORDER_STRONG);
                 AntmailComposeLayout composeLayout = composeLayout(y, h, navWidth);
-                g.drawString(font, Component.literal("TO"), x, y + 27, GREEN, false);
+                g.drawString(font, Component.literal("TO"), x, y + 27, Ui.TEXT_STRONG, false);
                 boolean invalidRecipient = !state.recipient.isBlank()
                         && !AntmailAddress.isValidAddress(state.recipient.trim());
                 g.drawString(font, Component.literal(screen.trimToWidth(state.focused && state.field == 1 && screen.caretVisible()
                         ? screen.insertCaret(state.recipient, state.cursor) : state.recipient, navWidth - 30)), x + 27, y + 27,
-                        invalidRecipient ? AntmailGlitchText.CORRUPT_RED : PALE_GREEN, false);
-                g.fill(x, y + 38, x + navWidth, y + 39, 0xFF315531);
-                g.drawString(font, Component.literal("SUBJECT"), x, y + 44, GREEN, false);
+                        invalidRecipient ? Ui.CORRUPT : Ui.TEXT, false);
+                g.fill(x, y + 38, x + navWidth, y + 39, Ui.LINE);
+                g.drawString(font, Component.literal("SUBJECT"), x, y + 44, Ui.TEXT_STRONG, false);
                 g.drawString(font, Component.literal(screen.trimToWidth(state.focused && state.field == 2 && screen.caretVisible()
-                        ? screen.insertCaret(state.subject, state.cursor) : state.subject, navWidth - 48)), x + 44, y + 44, PALE_GREEN, false);
-                g.fill(x, y + 55, x + navWidth, y + 56, 0xFF315531);
-                g.drawString(font, Component.literal("MESSAGE // SCROLL"), x, y + 60, GREEN, false);
+                        ? screen.insertCaret(state.subject, state.cursor) : state.subject, navWidth - 48)), x + 44, y + 44, Ui.TEXT, false);
+                g.fill(x, y + 55, x + navWidth, y + 56, Ui.LINE);
+                g.drawString(font, Component.literal("MESSAGE // SCROLL"), x, y + 60, Ui.TEXT_STRONG, false);
                 boolean bodyFocused = state.focused && state.field == 3;
                 String body = state.body.isEmpty() && !bodyFocused ? "Write your message..." : state.body;
                 List<AntmailBodyLine> bodyLines = wrapBody(body, navWidth - 10);
@@ -286,7 +283,7 @@ final class AntmailApp extends ComputerApp {
                 for (int line = state.bodyScroll; line < bodyEnd; line++) {
                     AntmailBodyLine bodyLine = bodyLines.get(line);
                     g.drawString(font, Component.literal(body.substring(bodyLine.start(), bodyLine.end()) + (bodyLine.hyphen() ? "-" : "")), x,
-                            composeLayout.bodyTop() + (line - state.bodyScroll) * 11, PALE_GREEN, false);
+                            composeLayout.bodyTop() + (line - state.bodyScroll) * 11, Ui.TEXT, false);
                 }
                 if (bodyFocused && screen.caretVisible()) {
                     AntmailBodyLine caretLine = cursorLine();
@@ -295,7 +292,7 @@ final class AntmailApp extends ComputerApp {
                         int cursorIndex = Math.max(caretLine.start(), Math.min(state.cursor, caretLine.end()));
                         int caretX = x + font.width(state.body.substring(caretLine.start(), cursorIndex));
                         int caretY = composeLayout.bodyTop() + (caretLineIndex - state.bodyScroll) * 11;
-                        g.fill(caretX, caretY - 1, caretX + 1, caretY + 9, PALE_GREEN);
+                        g.fill(caretX, caretY - 1, caretX + 1, caretY + 9, Ui.TEXT);
                     }
                 }
                 screen.drawScrollbar(g, x + navWidth - 4, composeLayout.bodyTop(), Math.max(1, composeLayout.bodyBottom() - composeLayout.bodyTop()),
@@ -307,57 +304,57 @@ final class AntmailApp extends ComputerApp {
                 if (state.attachCoins && antazonEnabled) attachmentLabels.add("COINS " + state.coinAmount);
                 String attachmentSummary = attachmentLabels.isEmpty() ? "NO ATTACHMENTS" : String.join(" + ", attachmentLabels);
                 if (state.attachCoins && antazonEnabled) {
-                    screen.box(g, x, composeLayout.summaryY() - 3, x + navWidth, composeLayout.summaryY() + 10, state.focused && state.field == 4 ? GREEN : PALE_GREEN);
-                    g.drawString(font, Component.literal(AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + " AMOUNT"), x + 5, composeLayout.summaryY(), GREEN, false);
+                    screen.box(g, x, composeLayout.summaryY() - 3, x + navWidth, composeLayout.summaryY() + 10, state.focused && state.field == 4 ? Ui.ACCENT : Ui.FOCUS);
+                    g.drawString(font, Component.literal(AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + " AMOUNT"), x + 5, composeLayout.summaryY(), Ui.TEXT_STRONG, false);
                     String amount = state.coinAmount.isEmpty() ? "CLICK, THEN TYPE" : state.coinAmount;
                     if (!state.coinAmount.isEmpty() && state.focused && state.field == 4 && screen.caretVisible()) {
                         amount = screen.insertCaret(amount, state.cursor);
                     }
-                    g.drawString(font, Component.literal(screen.trimToWidth(amount, Math.max(32, navWidth - 100))), x + 94, composeLayout.summaryY(), GREEN, false);
+                    g.drawString(font, Component.literal(screen.trimToWidth(amount, Math.max(32, navWidth - 100))), x + 94, composeLayout.summaryY(), Ui.TEXT_STRONG, false);
                 } else {
                     String composeSummary = state.status.isBlank() ? attachmentSummary : state.status;
-                    g.drawString(font, Component.literal(screen.trimToWidth(composeSummary, navWidth)), x, composeLayout.summaryY(), PALE_GREEN, false);
+                    g.drawString(font, Component.literal(screen.trimToWidth(composeSummary, navWidth)), x, composeLayout.summaryY(), Ui.TEXT, false);
                 }
-                screen.box(g, x, composeLayout.footerTop(), x + 112, composeLayout.footerTop() + 20, state.attachmentMenu ? GREEN : PALE_GREEN);
-                g.drawString(font, Component.literal("+ ATTACH"), x + 5, composeLayout.footerTop() + 6, GREEN, false);
+                screen.box(g, x, composeLayout.footerTop(), x + 112, composeLayout.footerTop() + 20, state.attachmentMenu ? Ui.ACCENT : Ui.FOCUS);
+                g.drawString(font, Component.literal("+ ATTACH"), x + 5, composeLayout.footerTop() + 6, Ui.TEXT_STRONG, false);
                 if (state.attachmentMenu) {
-                    g.fill(x, composeLayout.menuTop(), x + 112, composeLayout.footerTop() - 4, BLACK);
-                    screen.box(g, x, composeLayout.menuTop(), x + 112, composeLayout.footerTop() - 4, GREEN);
-                    g.drawString(font, Component.literal(state.attachText ? "REMOVE TEXT FILE" : "TEXT FILE..."), x + 6, composeLayout.menuTop() + 5, PALE_GREEN, false);
-                    g.drawString(font, Component.literal(state.attachPaint ? "REMOVE PAINTING" : "PAINTING..."), x + 6, composeLayout.menuTop() + 21, PALE_GREEN, false);
-                    if (antazonEnabled) g.drawString(font, Component.literal(state.attachCoins ? "REMOVE " + AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) : AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + "..."), x + 6, composeLayout.menuTop() + 37, PALE_GREEN, false);
+                    g.fill(x, composeLayout.menuTop(), x + 112, composeLayout.footerTop() - 4, Ui.BACKGROUND);
+                    screen.box(g, x, composeLayout.menuTop(), x + 112, composeLayout.footerTop() - 4, Ui.BORDER_STRONG);
+                    g.drawString(font, Component.literal(state.attachText ? "REMOVE TEXT FILE" : "TEXT FILE..."), x + 6, composeLayout.menuTop() + 5, Ui.TEXT, false);
+                    g.drawString(font, Component.literal(state.attachPaint ? "REMOVE PAINTING" : "PAINTING..."), x + 6, composeLayout.menuTop() + 21, Ui.TEXT, false);
+                    if (antazonEnabled) g.drawString(font, Component.literal(state.attachCoins ? "REMOVE " + AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) : AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + "..."), x + 6, composeLayout.menuTop() + 37, Ui.TEXT, false);
                 }
                 if (state.pickingAttachment) {
                     int pickerWidth = Math.max(80, Math.min(navWidth - 8, 380));
-                    g.fill(x + 4, composeLayout.pickerTop(), x + pickerWidth, composeLayout.pickerBottom(), BLACK);
-                    screen.box(g, x + 4, composeLayout.pickerTop(), x + pickerWidth, composeLayout.pickerBottom(), GREEN);
-                    g.drawString(font, Component.literal("SELECT A FILE"), x + 10, composeLayout.pickerTop() + 6, GREEN, false);
-                    screen.box(g, x + pickerWidth - 20, composeLayout.pickerTop() + 1, x + pickerWidth - 5, composeLayout.pickerTop() + 16, GREEN);
-                    g.drawCenteredString(font, Component.literal("X"), x + pickerWidth - 13, composeLayout.pickerTop() + 4, GREEN);
+                    g.fill(x + 4, composeLayout.pickerTop(), x + pickerWidth, composeLayout.pickerBottom(), Ui.BACKGROUND);
+                    screen.box(g, x + 4, composeLayout.pickerTop(), x + pickerWidth, composeLayout.pickerBottom(), Ui.BORDER_STRONG);
+                    g.drawString(font, Component.literal("SELECT A FILE"), x + 10, composeLayout.pickerTop() + 6, Ui.TEXT_STRONG, false);
+                    screen.box(g, x + pickerWidth - 20, composeLayout.pickerTop() + 1, x + pickerWidth - 5, composeLayout.pickerTop() + 16, Ui.BORDER_STRONG);
+                    g.drawCenteredString(font, Component.literal("X"), x + pickerWidth - 13, composeLayout.pickerTop() + 4, Ui.TEXT_STRONG);
                     int line = composeLayout.pickerTop() + 22;
                     for (String file : ComputerFileSystemClientState.get().files()) {
                         String[] fields = file.split("\\t", 3);
                         if (fields.length < 2 || (state.pickingPaint ? !fields[0].equals("IMAGE") : !fields[0].equals("TEXT")) || line > composeLayout.pickerBottom() - 16) continue;
-                        g.drawString(font, Component.literal(screen.trimToWidth(fields[1], pickerWidth - 20)), x + 10, line, PALE_GREEN, false);
+                        g.drawString(font, Component.literal(screen.trimToWidth(fields[1], pickerWidth - 20)), x + 10, line, Ui.TEXT, false);
                         line += 14;
                     }
                 }
-                g.fill(x, composeLayout.footerTop() - 1, x + navWidth, composeLayout.footerTop(), GREEN);
-                screen.box(g, x + navWidth - 60, composeLayout.footerTop(), x + navWidth, composeLayout.footerTop() + 20, GREEN);
-                g.drawCenteredString(font, Component.literal("SEND"), x + navWidth - 30, composeLayout.footerTop() + 6, GREEN);
+                g.fill(x, composeLayout.footerTop() - 1, x + navWidth, composeLayout.footerTop(), Ui.BORDER_STRONG);
+                screen.box(g, x + navWidth - 60, composeLayout.footerTop(), x + navWidth, composeLayout.footerTop() + 20, Ui.BORDER_STRONG);
+                g.drawCenteredString(font, Component.literal("SEND"), x + navWidth - 30, composeLayout.footerTop() + 6, Ui.TEXT_STRONG);
             } else if (state.mode.equals("message")) {
                 AntmailMessage message = selectedMessage(result);
                 if (message != null) {
                     boolean showRetry = state.sent && !message.deliveryStatus().equals("DELIVERED");
                     boolean corrupted = message.corrupted() && !state.sent;
-                    int headerColor = corrupted ? AntmailGlitchText.CORRUPT_RED : GREEN;
-                    int detailColor = corrupted ? AntmailGlitchText.CORRUPT_DIM : PALE_GREEN;
+                    int headerColor = corrupted ? Ui.CORRUPT : Ui.ACCENT;
+                    int detailColor = corrupted ? Ui.CORRUPT_DIM : Ui.TEXT;
                     boolean replyAvailable = canReply(message);
                     String localizedSubject = AntOSPlayerText.apply(AntmailRenderMarkers.stripStyleMarkers(localizedMailText(message.subject())));
                     String localizedBody = AntOSPlayerText.apply(localizedMailText(message.body()));
                     String sharedProduct = antazonProductLink(localizedBody);
                     AntmailDetailLayout detail = detailLayout(y, h, !sharedProduct.isBlank(), showRetry);
-                    if (corrupted) g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), AntmailGlitchText.CORRUPT_BACKGROUND);
+                    if (corrupted) g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), Ui.CORRUPT_BACKGROUND);
                     String moveLabel = switch (state.originMode) {
                         case "archive" -> "INBOX";
                         case "trash" -> "RESTORE";
@@ -367,7 +364,7 @@ final class AntmailApp extends ComputerApp {
                     drawAction(g, actionX, detail.actionY(), 36, "BACK", headerColor);
                     actionX += 38;
                     if (replyAvailable) {
-                        drawAction(g, actionX, detail.actionY(), 42, "REPLY", GREEN);
+                        drawAction(g, actionX, detail.actionY(), 42, "REPLY", Ui.ACCENT);
                         actionX += 44;
                     }
                     int moveWidth = state.originMode.equals("trash") ? 52 : 48;
@@ -395,7 +392,7 @@ final class AntmailApp extends ComputerApp {
                     g.drawString(font, Component.literal("TO    " + screen.trimToWidth(message.recipient().fullAddress(), navWidth - 39 - font.width("TO    "))), x + 31, detail.senderY() + 14, detailColor, false);
                     if (corrupted) localizedSubject = AntmailGlitchText.flicker(localizedSubject, 10, message.id().hashCode());
                     g.drawString(font, Component.literal(screen.trimToWidth(localizedSubject, navWidth - 6)), x, detail.subjectY(), headerColor, false);
-                    if (!sharedProduct.isBlank()) g.drawString(font, Component.literal("[ OPEN ANTAZON PRODUCT ]"), x, detail.productY(), GREEN, false);
+                    if (!sharedProduct.isBlank()) g.drawString(font, Component.literal(sharedProduct.equals("merchant://deliveries") ? Component.translatable("computer.antos.merchant.open_mail_link").getString() : "[ OPEN ANTAZON PRODUCT ]"), x, detail.productY(), Ui.TEXT_STRONG, false);
                     float bodyTextScale = 0.85F;
                     int bodyLineAdvance = 9;
                     int bodyWrapWidth = Math.max(1, (int) ((navWidth - 16) / bodyTextScale));
@@ -424,7 +421,7 @@ final class AntmailApp extends ComputerApp {
                             try {
                                 g.pose().translate(x + jitter, lineY, 0.0F);
                                 g.pose().scale(bodyTextScale, bodyTextScale, 1.0F);
-                                g.drawString(font, AntmailGlitchText.animate(bodyLines.get(bodyIndex), bodyIndex, state.openedAt), 0, 0, PALE_GREEN, false);
+                                g.drawString(font, AntmailGlitchText.animate(bodyLines.get(bodyIndex), bodyIndex, state.openedAt), 0, 0, Ui.TEXT, false);
                             } finally {
                                 g.pose().popPose();
                             }
@@ -437,7 +434,7 @@ final class AntmailApp extends ComputerApp {
                                     int previewSize = render.kind().equals("entity") ? 56 : 42;
                                     int boxWidth = Math.min(previewSize, 72);
                                     if (messageLine + previewSize > detail.bodyTop() && messageLine < detail.bodyBottom()) {
-                                        g.fill(x, messageLine, x + boxWidth, messageLine + previewSize, DARK_GREEN);
+                                        g.fill(x, messageLine, x + boxWidth, messageLine + previewSize, Ui.SURFACE);
                                         boolean previousTint = screen.archiveGreenTint;
                                         screen.archiveGreenTint = false;
                                         try {
@@ -454,7 +451,7 @@ final class AntmailApp extends ComputerApp {
                                             screen.archiveGreenTint = previousTint;
                                         }
                                         String label = render.kind().toUpperCase(Locale.ROOT) + " // " + render.resourceId();
-                                        g.drawString(font, Component.literal(screen.trimToWidth(label, navWidth - boxWidth - 14)), x + boxWidth + 6, messageLine + previewSize / 2 - 4, PALE_GREEN, false);
+                                        g.drawString(font, Component.literal(screen.trimToWidth(label, navWidth - boxWidth - 14)), x + boxWidth + 6, messageLine + previewSize / 2 - 4, Ui.TEXT, false);
                                     }
                                     messageLine += previewSize + 8;
                                 } else {
@@ -462,8 +459,8 @@ final class AntmailApp extends ComputerApp {
                                         String attachmentLabel = attachment instanceof AntmailAttachment.Antcoins coins ? "[ " + AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) + " TRANSFER ] " + coins.amount() + " " + AntOSPlayerText.currencyName().toUpperCase(java.util.Locale.ROOT) : "[ SAVE ATTACHMENT ] " + attachment.fileName();
                                         if (screen.inside(x, Math.max(messageLine, detail.bodyTop()), navWidth - 8,
                                                 Math.min(messageLine + 10, detail.bodyBottom()) - Math.max(messageLine, detail.bodyTop()),
-                                                screen.session.mouseX, screen.session.mouseY)) g.fill(x, messageLine, x + navWidth - 8, messageLine + 10, HOVER_FILL);
-                                        g.drawString(font, Component.literal(screen.trimToWidth(attachmentLabel, navWidth - 8)), x, messageLine, GREEN, false);
+                                                screen.session.mouseX, screen.session.mouseY)) g.fill(x, messageLine, x + navWidth - 8, messageLine + 10, Ui.HOVER);
+                                        g.drawString(font, Component.literal(screen.trimToWidth(attachmentLabel, navWidth - 8)), x, messageLine, Ui.TEXT_STRONG, false);
                                         state.attachmentHits.add(new AntmailAttachmentHit(attachmentIndex, messageLine));
                                     }
                                     messageLine += 14;
@@ -475,7 +472,7 @@ final class AntmailApp extends ComputerApp {
                     }
                     if (showRetry) {
                         String retryLabel = state.retryMessageId.equals(message.id().toString()) ? "[ RETRYING... ]" : "[ RETRY DELIVERY ]";
-                        g.drawString(font, Component.literal(retryLabel), x, y + h - 20, GREEN, false);
+                        g.drawString(font, Component.literal(retryLabel), x, y + h - 20, Ui.TEXT_STRONG, false);
                     }
                 }
             } else if (state.mode.equals("drafts")) {
@@ -495,14 +492,14 @@ final class AntmailApp extends ComputerApp {
                     int rowY = listTop + row * 21;
                     int deleteX = x + navWidth - 20;
                     if (screen.inside(x, rowY - 1, navWidth - 7, 20, screen.session.mouseX, screen.session.mouseY)) screen.drawHover(g, x, rowY - 1, navWidth - 7, 20);
-                    g.drawString(font, Component.literal(screen.trimToWidth(draft.subject().isBlank() ? "Untitled draft" : draft.subject(), navWidth - 40)), x + 2, rowY, GREEN, false);
-                    g.drawString(font, Component.literal(screen.trimToWidth(draft.recipient() == null ? "No recipient" : draft.recipient().fullAddress(), navWidth - 40)), x + 2, rowY + 9, PALE_GREEN, false);
-                    drawAction(g, deleteX, rowY - 1, 18, "X", GREEN);
-                    g.fill(x, rowY + 19, x + navWidth - 9, rowY + 20, 0xFF315531);
+                    g.drawString(font, Component.literal(screen.trimToWidth(draft.subject().isBlank() ? "Untitled draft" : draft.subject(), navWidth - 40)), x + 2, rowY, Ui.TEXT_STRONG, false);
+                    g.drawString(font, Component.literal(screen.trimToWidth(draft.recipient() == null ? "No recipient" : draft.recipient().fullAddress(), navWidth - 40)), x + 2, rowY + 9, Ui.TEXT, false);
+                    drawAction(g, deleteX, rowY - 1, 18, "X", Ui.ACCENT);
+                    g.fill(x, rowY + 19, x + navWidth - 9, rowY + 20, Ui.LINE);
                 }
                 String draftState = filteredDrafts.isEmpty() ? (drafts.isEmpty() ? "NO SAVED DRAFTS" : "NO MATCHING DRAFTS")
                         : "SHOWING " + (state.listScroll + 1) + "-" + Math.min(filteredDrafts.size(), state.listScroll + visible) + " / " + filteredDrafts.size();
-                g.drawString(font, Component.literal(draftState), x + 2, y + h - 14, PALE_GREEN, false);
+                g.drawString(font, Component.literal(draftState), x + 2, y + h - 14, Ui.TEXT, false);
             } else {
                 drawSearchControls(g, x, y + 24, navWidth);
                 List<AntmailMessage> messages = visibleMessages(result);
@@ -513,7 +510,7 @@ final class AntmailApp extends ComputerApp {
                     case "trash" -> "TRASH";
                     default -> "INBOX";
                 };
-                g.drawString(font, Component.literal(folderTitle + " // " + messages.size() + (messages.size() == total ? "" : " OF " + total)), x, y + 45, GREEN, false);
+                g.drawString(font, Component.literal(folderTitle + " // " + messages.size() + (messages.size() == total ? "" : " OF " + total)), x, y + 45, Ui.TEXT_STRONG, false);
                 int listTop = y + 60;
                 int rowHeight = 27;
                 int visible = Math.max(1, (h - 82) / rowHeight);
@@ -536,11 +533,11 @@ final class AntmailApp extends ComputerApp {
                     String rowSubject = AntOSPlayerText.apply(AntmailRenderMarkers.stripStyleMarkers(localizedMailText(message.subject())));
                     String rowPreview = AntOSPlayerText.apply(AntmailRenderMarkers.stripStyleMarkers(localizedMailText(message.body())))
                             .replaceAll("\\s+", " ").trim();
-                    int rowColor = message.read() ? PALE_GREEN : GREEN;
+                    int rowColor = message.read() ? Ui.TEXT : Ui.ACCENT;
                     if (corruptedRow) {
                         rowSender = AntmailGlitchText.garbledSender(rowSender, message.id().hashCode());
                         rowSubject = AntmailGlitchText.flicker(rowSubject, 12, message.id().hashCode() + 7);
-                        rowColor = message.read() ? AntmailGlitchText.CORRUPT_DIM : AntmailGlitchText.CORRUPT_RED;
+                        rowColor = message.read() ? Ui.CORRUPT_DIM : Ui.CORRUPT;
                     }
                 String avatarItem = state.sent ? rowProfile.avatarItem()
                         : message.fromPlayer() ? rowProfile.avatarItem() : message.senderAvatarItem();
@@ -560,13 +557,13 @@ final class AntmailApp extends ComputerApp {
                     int dateWidth = Math.round(font.width(gameDate) * dateScale);
                     int dateX = x + navWidth - 10 - dateWidth;
                     g.drawString(font, Component.literal(screen.trimToWidth(rowSender, Math.max(1, dateX - textX - 5))), textX, rowY,
-                            !message.read() && !state.sent ? GREEN : PALE_GREEN, false);
+                            !message.read() && !state.sent ? Ui.ACCENT : Ui.TEXT, false);
                     if (navWidth >= 120) {
                         g.pose().pushPose();
                         try {
                             g.pose().translate(dateX, rowY + 2, 0.0F);
                             g.pose().scale(dateScale, dateScale, 1.0F);
-                            g.drawString(font, Component.literal(gameDate), 0, 0, 0xFF7EA77E, false);
+                            g.drawString(font, Component.literal(gameDate), 0, 0, Ui.TEXT_PLACEHOLDER, false);
                         } finally {
                             g.pose().popPose();
                         }
@@ -577,23 +574,23 @@ final class AntmailApp extends ComputerApp {
                     g.pose().translate(x + 31, rowY + 9, 0);
                     g.pose().scale(rowTextScale, rowTextScale, 1.0F);
                     g.drawString(font, Component.literal(screen.trimToWidth(rowSubject + status, Math.max(1, (int) ((navWidth - 40) / rowTextScale)))),
-                            0, 0, message.read() ? PALE_GREEN : rowColor, false);
+                            0, 0, message.read() ? Ui.TEXT : rowColor, false);
                     g.pose().popPose();
                     String attachmentFlag = message.hasAttachments() ? "[FILE]" : "";
                     int previewWidth = navWidth - 40 - font.width(attachmentFlag) - 4;
                     g.pose().pushPose();
                     g.pose().translate(x + 31, rowY + 17, 0);
                     g.pose().scale(rowTextScale, rowTextScale, 1.0F);
-                    g.drawString(font, Component.literal(screen.trimToWidth(rowPreview, Math.max(1, (int) (previewWidth / rowTextScale)))), 0, 0, 0xFF7EA77E, false);
+                    g.drawString(font, Component.literal(screen.trimToWidth(rowPreview, Math.max(1, (int) (previewWidth / rowTextScale)))), 0, 0, Ui.TEXT_PLACEHOLDER, false);
                     g.pose().popPose();
                     if (!attachmentFlag.isEmpty()) {
                         g.pose().pushPose();
                         g.pose().translate(x + navWidth - 9 - (int) (font.width(attachmentFlag) * rowTextScale), rowY + 17, 0);
                         g.pose().scale(rowTextScale, rowTextScale, 1.0F);
-                        g.drawString(font, Component.literal(attachmentFlag), 0, 0, GREEN, false);
+                        g.drawString(font, Component.literal(attachmentFlag), 0, 0, Ui.TEXT_STRONG, false);
                         g.pose().popPose();
                     }
-                    g.fill(x, rowY + rowHeight - 1, x + navWidth - 9, rowY + rowHeight, 0xFF315531);
+                    g.fill(x, rowY + rowHeight - 1, x + navWidth - 9, rowY + rowHeight, Ui.LINE);
                 }
                 if (state.mode.equals("inbox")) {
                     int ghostRow = Math.max(0, messages.size() - state.listScroll);
@@ -601,15 +598,15 @@ final class AntmailApp extends ComputerApp {
                         if (ghostRow >= visible) break;
                         if (messages.stream().anyMatch(candidate -> candidate.id().equals(ghost))) continue;
                         int rowY = listTop + ghostRow++ * rowHeight;
-                        g.drawString(font, Component.literal("message not found"), x + 31, rowY + 9, AntmailGlitchText.CORRUPT_DIM, false);
-                        g.fill(x, rowY + rowHeight - 1, x + navWidth - 9, rowY + rowHeight, 0xFF315531);
+                        g.drawString(font, Component.literal("message not found"), x + 31, rowY + 9, Ui.CORRUPT_DIM, false);
+                        g.fill(x, rowY + rowHeight - 1, x + navWidth - 9, rowY + rowHeight, Ui.LINE);
                     }
                 }
                 int rangeStart = messages.isEmpty() ? 0 : state.listScroll + 1;
                 int rangeEnd = Math.min(messages.size(), state.listScroll + visible);
                 String rangeLabel = messages.isEmpty() ? (total == 0 ? "" : "NO MATCHING MESSAGES")
                         : "SHOWING " + rangeStart + "-" + rangeEnd + " / " + messages.size();
-                g.drawString(font, Component.literal(rangeLabel), x + 2, y + h - 14, PALE_GREEN, false);
+                g.drawString(font, Component.literal(rangeLabel), x + 2, y + h - 14, Ui.TEXT, false);
                 if (messages.isEmpty()) {
                     String emptyLabel = state.search.isBlank() && !state.unreadOnly && !state.attachmentsOnly
                             ? switch (state.mode) {
@@ -618,23 +615,23 @@ final class AntmailApp extends ComputerApp {
                                 case "trash" -> "TRASH IS EMPTY";
                                 default -> "NO MESSAGES IN YOUR INBOX";
                             } : "NO MESSAGES MATCH THIS FILTER";
-                    g.drawString(font, Component.literal(emptyLabel), x + 2, listTop + 6, PALE_GREEN, false);
+                    g.drawString(font, Component.literal(emptyLabel), x + 2, listTop + 6, Ui.TEXT, false);
                 }
             }
             if (state.moreOpen) {
                 screen.beginLayer(g);
                 int menuWidth = Math.max(88, font.width("MY PROFILE") + 14);
                 int menuX = Math.max(x, Math.min(moreX, x + navWidth - menuWidth));
-                g.fill(menuX, y + 20, menuX + menuWidth, y + 76, BLACK);
-                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 76, GREEN);
-                g.drawString(font, Component.literal("ARCHIVE"), menuX + 6, y + 25, PALE_GREEN, false);
-                g.drawString(font, Component.literal("TRASH"), menuX + 6, y + 43, PALE_GREEN, false);
-                g.drawString(font, Component.literal("MY PROFILE"), menuX + 6, y + 61, PALE_GREEN, false);
+                g.fill(menuX, y + 20, menuX + menuWidth, y + 76, Ui.BACKGROUND);
+                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 76, Ui.BORDER_STRONG);
+                g.drawString(font, Component.literal("ARCHIVE"), menuX + 6, y + 25, Ui.TEXT, false);
+                g.drawString(font, Component.literal("TRASH"), menuX + 6, y + 43, Ui.TEXT, false);
+                g.drawString(font, Component.literal("MY PROFILE"), menuX + 6, y + 61, Ui.TEXT, false);
             }
             if (state.undoId != null && System.currentTimeMillis() < state.undoUntil
                     && !state.mode.equals("compose") && !state.mode.equals("message")) {
                 screen.beginLayer(g);
-                drawAction(g, x, y + h - 34, 48, "UNDO", GREEN);
+                drawAction(g, x, y + h - 34, 48, "UNDO", Ui.ACCENT);
             }
         }
         AntmailAnternetResultPayload operation = AntmailClientState.get();
@@ -663,8 +660,8 @@ final class AntmailApp extends ComputerApp {
             int statusWidth = x + w - statusX;
             if (statusWidth > 8) {
                 screen.beginLayer(g);
-                g.fill(statusX, statusY - 2, statusX + statusWidth, statusY + 10, BLACK);
-                g.drawString(font, Component.literal(screen.trimToWidth(state.status, statusWidth - 2)), statusX, statusY, PALE_GREEN, false);
+                g.fill(statusX, statusY - 2, statusX + statusWidth, statusY + 10, Ui.BACKGROUND);
+                g.drawString(font, Component.literal(screen.trimToWidth(state.status, statusWidth - 2)), statusX, statusY, Ui.TEXT, false);
             }
         }
     }
@@ -675,7 +672,7 @@ final class AntmailApp extends ComputerApp {
 
     private List<net.minecraft.util.FormattedCharSequence> wrapBody(String text, boolean corrupted, int width) {
         if (width != wrappedBodyWidth || corrupted != wrappedBodyCorrupted || font != wrappedBodyFont || net.minecraft.locale.Language.getInstance() != wrappedBodyLanguage || !text.equals(wrappedBodyText)) {
-            wrappedBodyLines = font.split(AntmailGlitchText.body(text, corrupted, PALE_GREEN), width);
+            wrappedBodyLines = font.split(AntmailGlitchText.body(text, corrupted, Ui.TEXT), width);
             wrappedBodyText = text;
             wrappedBodyCorrupted = corrupted;
             wrappedBodyWidth = width;
@@ -747,8 +744,8 @@ final class AntmailApp extends ComputerApp {
 
     private void drawAction(ThemedGraphics g, int x, int y, int width, String label, int color) {
         boolean hover = screen.hovered(x, y, width, 18);
-        int border = hover ? PALE_GREEN : 0xFF315531;
-        g.fill(x, y, x + width, y + 18, hover ? HOVER_FILL : DARK_GREEN);
+        int border = hover ? Ui.TEXT : Ui.LINE;
+        g.fill(x, y, x + width, y + 18, hover ? Ui.HOVER : Ui.SURFACE);
         screen.box(g, x, y, x + width, y + 18, border);
         float scale = Math.min(1.0F, Math.max(0.1F, (width - 6.0F) / Math.max(1, font.width(label))));
         g.pose().pushPose();
@@ -765,19 +762,19 @@ final class AntmailApp extends ComputerApp {
         if (state.mode.equals("drafts")) {
             int searchWidth = Math.max(1, width);
             boolean searchHover = screen.hovered(x, y, searchWidth, 17);
-            g.fill(x, y, x + searchWidth, y + 17, searchHover || state.searchFocused ? HOVER_FILL : DARK_GREEN);
-            screen.box(g, x, y, x + searchWidth, y + 17, state.searchFocused ? PALE_GREEN : 0xFF315531);
+            g.fill(x, y, x + searchWidth, y + 17, searchHover || state.searchFocused ? Ui.HOVER : Ui.SURFACE);
+            screen.box(g, x, y, x + searchWidth, y + 17, state.searchFocused ? Ui.FOCUS : Ui.LINE);
             String search = state.search.isEmpty() && !state.searchFocused ? "SEARCH DRAFTS" : state.search;
             if (state.searchFocused && screen.caretVisible()) search = screen.insertCaret(search, state.searchCursor);
             g.drawString(font, Component.literal(screen.trimToWidth(search, searchWidth - 8)), x + 4, y + 5,
-                    state.search.isEmpty() && !state.searchFocused ? 0xFF7EA77E : PALE_GREEN, false);
+                    state.search.isEmpty() && !state.searchFocused ? Ui.TEXT_PLACEHOLDER : Ui.TEXT, false);
             return;
         }
         int filterGroupWidth = Math.min(124, Math.max(96, width - 64));
         int searchWidth = Math.max(1, width - filterGroupWidth - 8);
         boolean searchHover = screen.hovered(x, y, searchWidth, 17);
-        g.fill(x, y, x + searchWidth, y + 17, searchHover || state.searchFocused ? HOVER_FILL : DARK_GREEN);
-        screen.box(g, x, y, x + searchWidth, y + 17, state.searchFocused ? PALE_GREEN : 0xFF315531);
+        g.fill(x, y, x + searchWidth, y + 17, searchHover || state.searchFocused ? Ui.HOVER : Ui.SURFACE);
+        screen.box(g, x, y, x + searchWidth, y + 17, state.searchFocused ? Ui.FOCUS : Ui.LINE);
         String search = state.search;
         if (search.isEmpty() && !state.searchFocused) {
             search = switch (state.mode) {
@@ -788,7 +785,7 @@ final class AntmailApp extends ComputerApp {
             };
         }
         else if (state.searchFocused && screen.caretVisible()) search = screen.insertCaret(search, state.searchCursor);
-        int searchColor = state.search.isEmpty() && !state.searchFocused ? 0xFF7EA77E : PALE_GREEN;
+        int searchColor = state.search.isEmpty() && !state.searchFocused ? Ui.TEXT_PLACEHOLDER : Ui.TEXT;
         if (state.search.isEmpty() && !state.searchFocused && font.width(search) > searchWidth - 8) {
             float scale = Math.max(0.6F, (searchWidth - 8.0F) / font.width(search));
             g.pose().pushPose();
@@ -844,31 +841,7 @@ final class AntmailApp extends ComputerApp {
     private record AntmailAttachmentHit(int index, int y) { }
 
     private void renderAvatar(ThemedGraphics g, String identity, String itemId, String entityId, int x, int y, int size) {
-        g.fill(x, y, x + size, y + size, DARK_GREEN);
-        boolean previousTint = screen.archiveGreenTint;
-        screen.archiveGreenTint = false;
-        boolean rendered = false;
-        try {
-            rendered = screen.renderArchiveAsset(g, itemId, entityId, "", "", x + size / 2, y + size / 2, size, 0.0F, 0.9F);
-        } finally {
-            screen.archiveGreenTint = previousTint;
-        }
-        if (rendered) {
-            screen.box(g, x, y, x + size, y + size, 0xFF315531);
-            return;
-        }
-        int background = switch (Math.floorMod(identity.hashCode(), 4)) {
-            case 0 -> 0xFF173817;
-            case 1 -> 0xFF203B18;
-            case 2 -> 0xFF183B2D;
-            default -> 0xFF26351D;
-        };
-        g.fill(x, y, x + size, y + size, background);
-        String[] parts = identity.replaceAll("[^A-Za-z0-9]+", " ").trim().split("\\s+");
-        String initials = parts.length == 0 || parts[0].isBlank() ? "?" : parts[0].substring(0, Math.min(2, parts[0].length()));
-        if (parts.length > 1 && !parts[1].isBlank()) initials = parts[0].substring(0, 1) + parts[1].substring(0, 1);
-        g.drawCenteredString(font, Component.literal(initials.toUpperCase(Locale.ROOT)), x + size / 2, y + size / 2 - 4, PALE_GREEN);
-        screen.box(g, x, y, x + size, y + size, 0xFF315531);
+        ProfileAvatar.draw(this, g, identity, itemId, entityId, x, y, size);
     }
 
     String statusMessage(AntmailAnternetResultPayload result) {
@@ -1705,6 +1678,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     private String antazonProductLink(String body) {
+        if (body.contains("merchant://deliveries")) return "merchant://deliveries";
         int start = body.indexOf("antazon://product/");
         if (start < 0) return "";
         int end = start + "antazon://product/".length();
@@ -1713,6 +1687,11 @@ final class AntmailApp extends ComputerApp {
     }
 
     private void openAntazonProduct(String productId) {
+        if (productId.equals("merchant://deliveries")) {
+            screen.open("MERCHANT");
+            screen.session.merchant.openDeliveries();
+            return;
+        }
         try {
             Identifier.parse(productId);
             screen.open("ANTAZON");
@@ -1986,4 +1965,21 @@ final class AntmailApp extends ComputerApp {
         boolean pickingAttachment;
         boolean pickingPaint;
     }
+
+    JsonObject saveResume() {
+        JsonObject json = new JsonObject();
+        if (java.util.List.of("inbox", "sent", "drafts", "archive", "trash").contains(state.mode)) json.addProperty("mode", state.mode);
+        return json;
+    }
+
+    void loadResume(JsonObject json) {
+        String mode = ComputerResume.string(json, "mode");
+        if (!java.util.List.of("inbox", "sent", "drafts", "archive", "trash").contains(mode)) return;
+        state.mode = mode;
+        state.sent = mode.equals("sent");
+        state.page = 0;
+        state.listScroll = 0;
+        state.messageIndex = -1;
+    }
+
 }

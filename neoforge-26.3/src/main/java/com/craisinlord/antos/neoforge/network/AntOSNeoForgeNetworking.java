@@ -36,6 +36,8 @@ public final class AntOSNeoForgeNetworking {
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.AntmailClientState.update(payload)));
         registrar.playToClient(FloppyTextureSyncPayload.TYPE, FloppyTextureSyncPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.FloppyTextureClientState.update(payload)));
+        registrar.playToClient(JeiSyncPayload.TYPE, JeiSyncPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.JeiClientState.update(payload)));
         registrar.playToClient(ArchiveRecipeResultPayload.TYPE, ArchiveRecipeResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.ArchiveRecipeClientState.update(payload)));
 
@@ -43,6 +45,7 @@ public final class AntOSNeoForgeNetworking {
         AnternetAccountHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         AntmailServerHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         FloppyTextureSync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
+        JeiSync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         ArchiveRecipeNetworking.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
     }
 

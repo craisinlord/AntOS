@@ -54,9 +54,9 @@ public final class TaskShapeRenderer {
         boolean smooth = pipelineAvailable();
         Outline outline = new Outline(points(shape, left, top, size));
         List<Vertex> vertices = new ArrayList<>();
-        if (hovered) layer(vertices, outline, -pixel, hoverWidth, ComputerTheme.remap(hover), pixel, smooth);
-        layer(vertices, outline, -borderWidth - pixel, 0.0F, ComputerTheme.remap(border), pixel, smooth);
-        layer(vertices, outline, -outline.inradius, -borderWidth, ComputerTheme.remap(fill), pixel, smooth);
+        if (hovered) layer(vertices, outline, -pixel, hoverWidth, hover, pixel, smooth);
+        layer(vertices, outline, -borderWidth - pixel, 0.0F, border, pixel, smooth);
+        layer(vertices, outline, -outline.inradius, -borderWidth, fill, pixel, smooth);
         if (vertices.isEmpty()) return;
         float padding = hoverWidth + pixel * 2.0F + 1.0F;
         int x = (int) Math.floor(left - padding);

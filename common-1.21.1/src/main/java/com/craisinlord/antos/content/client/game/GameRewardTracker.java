@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.game;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
 import com.craisinlord.antos.content.network.ComputerNetworking;
@@ -50,9 +51,9 @@ final class GameRewardTracker {
         int popupWidth = Math.min(width - 8, font.width(popup) + 20);
         int popupX = x + (width - popupWidth) / 2;
         int popupY = y + (height - 24) / 2;
-        graphics.fill(popupX, popupY, popupX + popupWidth, popupY + 24, 0xEE17351C);
-        graphics.renderOutline(popupX, popupY, popupWidth, 24, 0xFF65FF65);
-        graphics.drawCenteredString(font, popup, x + width / 2, popupY + 8, 0xFFFFFFFF);
+        graphics.fill(popupX, popupY, popupX + popupWidth, popupY + 24, Ui.alpha(Ui.REWARD_POPUP, 0xEE));
+        graphics.renderOutline(popupX, popupY, popupWidth, 24, Ui.BORDER_STRONG);
+        graphics.drawCenteredString(font, popup, x + width / 2, popupY + 8, Ui.TEXT_BRIGHT);
     }
 
     static Component dailyBonus(String mode) {

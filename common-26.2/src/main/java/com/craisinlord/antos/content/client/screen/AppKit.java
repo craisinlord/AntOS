@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntConsumer;
@@ -7,20 +8,8 @@ import com.craisinlord.antos.content.client.ThemedGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
 
 final class AppKit {
-    static final int PANEL = 0xFF071007;
-    static final int MUTED = 0xFF6E926E;
-    static final int SOFT = 0xFF315531;
-    static final int PLACEHOLDER = 0xFF7EA77E;
-    static final int DISABLED = 0xFF587458;
-    static final int ERROR = 0xFFFF7777;
-    static final int SELECTION = 0xFF2A5E2A;
 
     private final ComputerApp app;
     private final List<Hit> hits = new ArrayList<>();
@@ -102,8 +91,8 @@ final class AppKit {
         g.pose().pushPose();
         try {
             g.pose().translate(0.0F, 0.0F, 180.0F);
-            outline(g, hit.x() - 2, hit.y() - 2, hit.w() + 4, hit.h() + 4, BLACK);
-            outline(g, hit.x() - 1, hit.y() - 1, hit.w() + 2, hit.h() + 2, PALE_GREEN);
+            outline(g, hit.x() - 2, hit.y() - 2, hit.w() + 4, hit.h() + 4, Ui.BACKGROUND);
+            outline(g, hit.x() - 1, hit.y() - 1, hit.w() + 2, hit.h() + 2, Ui.FOCUS);
         } finally {
             g.pose().popPose();
         }
@@ -183,9 +172,9 @@ final class AppKit {
     void button(ThemedGraphics g, int x, int y, int w, int h, String label, boolean active, boolean enabled, String tip, Runnable action) {
         if (w <= 0) return;
         boolean hover = enabled && hovered(x, y, w, h);
-        g.fill(x, y, x + w, y + h, active || hover ? HOVER_FILL : PANEL);
-        app.screen.box(g, x, y, x + w, y + h, active || hover ? GREEN : DARK_GREEN);
-        int color = enabled ? active || hover ? GREEN : PALE_GREEN : DISABLED;
+        g.fill(x, y, x + w, y + h, active || hover ? Ui.HOVER : Ui.PANEL);
+        app.screen.box(g, x, y, x + w, y + h, active || hover ? Ui.ACCENT : Ui.BORDER);
+        int color = enabled ? active || hover ? Ui.ACCENT : Ui.TEXT : Ui.TEXT_DISABLED;
         float scale = Math.min(1.0F, (w - 6.0F) / Math.max(1, app.font.width(label)));
         g.pose().pushPose();
         try {
@@ -201,8 +190,8 @@ final class AppKit {
 
     void iconButton(ThemedGraphics g, int x, int y, int size, Identifier icon, boolean active, boolean enabled, String tip, Runnable action) {
         boolean hover = enabled && hovered(x, y, size, size);
-        g.fill(x, y, x + size, y + size, active || hover ? HOVER_FILL : PANEL);
-        outline(g, x, y, size, size, active ? PALE_GREEN : hover ? GREEN : DARK_GREEN);
+        g.fill(x, y, x + size, y + size, active || hover ? Ui.HOVER : Ui.PANEL);
+        outline(g, x, y, size, size, active ? Ui.FOCUS : hover ? Ui.ACCENT : Ui.BORDER);
         icon(g, icon, x + (size - 16) / 2, y + (size - 16) / 2, 16, enabled);
         if (!suppressHover && app.screen.hovered(x, y, size, size) && !tip.isEmpty()) tooltip = tip;
         if (enabled) hit(x, y, size, size, action);
@@ -213,7 +202,8 @@ final class AppKit {
             PixelIcons.draw(g, texture, x, y, size);
             return;
         }
-        g.setColor(0.42F, 0.42F, 0.42F, 1.0F);
+        float[] disabledTint = Ui.tint(Ui.ICON_DISABLED_TINT);
+        g.setColor(disabledTint[0], disabledTint[1], disabledTint[2], 1.0F);
         PixelIcons.draw(g, texture, x, y, size);
         g.setColor(1.0F, 1.0F, 1.0F, 1.0F);
     }
@@ -241,37 +231,37 @@ final class AppKit {
         g.pose().pushPose();
         try {
             g.pose().translate(0.0F, 0.0F, 200.0F);
-            g.fill(x, y, x + width, y + height, BLACK);
-            outline(g, x, y, width, height, GREEN);
-            for (int index = 0; index < count; index++) g.drawString(app.font, lines.get(index), x + 5, y + 4 + index * 11, PALE_GREEN, false);
+            g.fill(x, y, x + width, y + height, Ui.BACKGROUND);
+            outline(g, x, y, width, height, Ui.BORDER_STRONG);
+            for (int index = 0; index < count; index++) g.drawString(app.font, lines.get(index), x + 5, y + 4 + index * 11, Ui.TEXT, false);
         } finally {
             g.pose().popPose();
         }
     }
 
     void field(ThemedGraphics g, int x, int y, int w, int h, String value, int cursor, boolean focused, String placeholder) {
-        g.fill(x, y, x + w, y + h, DARK_GREEN);
-        app.screen.box(g, x, y, x + w, y + h, focused ? PALE_GREEN : SOFT);
+        g.fill(x, y, x + w, y + h, Ui.SURFACE);
+        app.screen.box(g, x, y, x + w, y + h, focused ? Ui.FOCUS : Ui.LINE);
         int inner = Math.max(1, w - 10);
         int textY = y + (h - 8) / 2;
         if (value.isEmpty()) {
-            if (!placeholder.isEmpty()) g.drawString(app.font, Component.literal(app.screen.trimToWidth(placeholder, inner)), x + 5, textY, PLACEHOLDER, false);
-            if (focused && app.screen.caretVisible()) g.fill(x + 5, textY - 1, x + 6, textY + 9, PALE_GREEN);
+            if (!placeholder.isEmpty()) g.drawString(app.font, Component.literal(app.screen.trimToWidth(placeholder, inner)), x + 5, textY, Ui.TEXT_PLACEHOLDER, false);
+            if (focused && app.screen.caretVisible()) g.fill(x + 5, textY - 1, x + 6, textY + 9, Ui.TEXT);
             return;
         }
         int caret = Math.max(0, Math.min(cursor, value.length()));
         int start = 0;
         while (start < caret && app.font.width(value.substring(start, caret)) > inner - 2) start++;
         String visible = app.font.plainSubstrByWidth(value.substring(start), inner);
-        g.drawString(app.font, Component.literal(visible), x + 5, textY, PALE_GREEN, false);
+        g.drawString(app.font, Component.literal(visible), x + 5, textY, Ui.TEXT, false);
         if (focused && app.screen.caretVisible()) {
             int caretX = x + 5 + app.font.width(value.substring(start, caret));
-            g.fill(caretX, textY - 1, caretX + 1, textY + 9, PALE_GREEN);
+            g.fill(caretX, textY - 1, caretX + 1, textY + 9, Ui.TEXT);
         }
     }
 
     void divider(ThemedGraphics g, int x, int y, int h) {
-        g.fill(x, y + 3, x + 1, y + h - 3, SOFT);
+        g.fill(x, y + 3, x + 1, y + h - 3, Ui.LINE);
     }
 
     private record Hit(int x, int y, int w, int h, Runnable action) { }

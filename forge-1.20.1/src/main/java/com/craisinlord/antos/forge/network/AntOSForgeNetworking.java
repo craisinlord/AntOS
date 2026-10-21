@@ -24,8 +24,8 @@ public final class AntOSForgeNetworking {
         registerServer(id++, AnternetComputerPayload.class, (message, buffer) -> { buffer.writeVarInt(message.action()); buffer.writeUtf(message.value(), 65536); },
                 buffer -> new AnternetComputerPayload(buffer.readVarInt(), buffer.readUtf(65536)),
                 (message, context) -> withPlayer(context, player -> ComputerAccessHandler.handleAnternet(player, message)));
-        registerServer(id++, AnternetAccountPayload.class, (message, buffer) -> { buffer.writeVarInt(message.action()); buffer.writeUtf(message.username(), 256); buffer.writeUtf(message.password(), 256); },
-                buffer -> new AnternetAccountPayload(buffer.readVarInt(), buffer.readUtf(256), buffer.readUtf(256)),
+        registerServer(id++, AnternetAccountPayload.class, (message, buffer) -> { buffer.writeVarInt(message.action()); buffer.writeUtf(message.username(), 256); buffer.writeUtf(message.password(), 256); buffer.writeUtf(message.extra(), 256); },
+                buffer -> new AnternetAccountPayload(buffer.readVarInt(), buffer.readUtf(256), buffer.readUtf(256), buffer.readUtf(256)),
                 (message, context) -> withPlayer(context, player -> AnternetAccountHandler.handle(player, message)));
         registerServer(id++, AntmailAnternetPayload.class, (message, buffer) -> {
             buffer.writeVarInt(message.action()); buffer.writeUtf(message.first(), 65536); buffer.writeUtf(message.second(), 65536);
@@ -51,10 +51,20 @@ public final class AntOSForgeNetworking {
                 buffer.readUtf(4096), buffer.readUtf(65536), buffer.readLong()));
         registerClient(id++, FloppyTextureSyncPayload.class, (message, buffer) -> buffer.writeUtf(message.mappings(), 65536),
                 buffer -> new FloppyTextureSyncPayload(buffer.readUtf(65536)));
+        registerClient(id++, JeiSyncPayload.class, (message, buffer) -> {
+            buffer.writeVarInt(message.kind()); buffer.writeVarLong(message.version()); buffer.writeVarInt(message.part());
+            buffer.writeVarInt(message.parts()); buffer.writeByteArray(message.data());
+        }, buffer -> new JeiSyncPayload(buffer.readVarInt(), buffer.readVarLong(), buffer.readVarInt(), buffer.readVarInt(),
+                buffer.readByteArray(JeiSyncPayload.MAX_CHUNK)));
+        registerClient(id++, DisplaySyncPayload.class, (message, buffer) -> {
+            buffer.writeVarLong(message.version()); buffer.writeVarInt(message.part()); buffer.writeVarInt(message.parts()); buffer.writeByteArray(message.data());
+        }, buffer -> new DisplaySyncPayload(buffer.readVarLong(), buffer.readVarInt(), buffer.readVarInt(), buffer.readByteArray(DisplaySyncPayload.MAX_CHUNK)));
         ComputerAccessHandler.setAnternetResultSender((player, payload) -> send(player, payload));
         AnternetAccountHandler.setResultSender((player, payload) -> send(player, payload));
         AntmailServerHandler.setResultSender((player, payload) -> send(player, payload));
         FloppyTextureSync.setSender((player, payload) -> send(player, payload));
+        JeiSync.setSender((player, payload) -> send(player, payload));
+        DisplaySync.setSender((player, payload) -> send(player, payload));
     }
 
     private static <T> void registerServer(int id, Class<T> type, java.util.function.BiConsumer<T, net.minecraft.network.FriendlyByteBuf> encoder,

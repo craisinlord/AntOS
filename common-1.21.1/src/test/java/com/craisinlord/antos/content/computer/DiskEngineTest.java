@@ -157,7 +157,7 @@ public final class DiskEngineTest {
         var wrong = new ComputerProgramRun(quiz, new Random(1));
         while (!wrong.finished()) { var answers = wrong.snapshot().getAsJsonArray("choices"); int index = answers.get(0).getAsString().equals("right") ? 1 : 0; wrong.choose(index, wrong.sequence()); }
         check(!wrong.quizRewardEligible(), "imperfect runs cannot claim perfect rewards");
-        var complete = new ComputerProgramData.Program(quiz.id(), quiz.type(), quiz.title(), quiz.questionsPerRun(), quiz.questions(), "complete", quiz.rewards(), "", Map.of());
+        var complete = new ComputerProgramData.Program(quiz.id(), quiz.type(), quiz.title(), quiz.questionsPerRun(), quiz.questions(), "complete", quiz.rewards(), "", Map.of(), quiz.rewardOnce());
         var any = new ComputerProgramRun(complete, new Random(1));
         while (!any.finished()) any.choose(0, any.sequence());
         check(any.quizRewardEligible(), "complete mode rewards a finished run regardless of score");

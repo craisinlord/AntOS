@@ -38,9 +38,18 @@ public final class ComputerNetworking {
                 ComputerAccessResultPayload.INVALID, true, true, action + "\0file_limit\0" + target));
     }
 
+    public static void merchant(String json) {
+        if (json.length() > ComputerAccessPayload.MAX_VALUE_CHARS) {
+            com.craisinlord.antos.content.client.MerchantClientState.update(new ComputerAccessResultPayload(
+                    ComputerAccessResultPayload.INVALID, true, true, ComputerAccessPayload.MERCHANT + "\0\0" + com.craisinlord.antos.content.merchant.MerchantProtocol.failure(json, "request_too_large")));
+            return;
+        }
+        send(ComputerAccessPayload.MERCHANT, json);
+    }
+
     private static boolean profileActionAllowed(int action) {
         return switch (action) {
-            case ComputerAccessPayload.DECRYPT_DISK, ComputerAccessPayload.PROGRAM_START, ComputerAccessPayload.PROGRAM_ACTION, ComputerAccessPayload.PROGRAM_STATE,
+            case ComputerAccessPayload.MERCHANT, ComputerAccessPayload.DECRYPT_DISK, ComputerAccessPayload.PROGRAM_START, ComputerAccessPayload.PROGRAM_ACTION, ComputerAccessPayload.PROGRAM_STATE,
                     ComputerAccessPayload.OPEN, ComputerAccessPayload.CLOSE, ComputerAccessPayload.LOGOUT, ComputerAccessPayload.EJECT,
                     ComputerAccessPayload.FILE_LIST, ComputerAccessPayload.FILE_OPEN, ComputerAccessPayload.FILE_CREATE,
                     ComputerAccessPayload.FILE_SAVE, ComputerAccessPayload.FILE_DELETE, ComputerAccessPayload.FILE_MOVE,
@@ -49,7 +58,7 @@ public final class ComputerNetworking {
                     ComputerAccessPayload.DESKTOP_WALLPAPER, ComputerAccessPayload.TASK_STATE,
                     ComputerAccessPayload.ARCHIVE_VIEWED, ComputerAccessPayload.LOCATE_STRUCTURE,
                     ComputerAccessPayload.BLOCKLE_STATE,
-                    ComputerAccessPayload.BLOCKLE_GUESS, ComputerAccessPayload.ANTAZON_STATE,
+                    ComputerAccessPayload.BLOCKLE_GUESS, ComputerAccessPayload.GAME_REWARD, ComputerAccessPayload.ANTAZON_STATE,
                     ComputerAccessPayload.ANTAZON_PURCHASE, ComputerAccessPayload.ANTAZON_WISHLIST,
                     ComputerAccessPayload.ANTAZON_ORDERS, ComputerAccessPayload.ANTAZON_REVIEW,
                     ComputerAccessPayload.ANTAZON_WALLET, ComputerAccessPayload.ANTAZON_SELL,
@@ -183,6 +192,10 @@ public final class ComputerNetworking {
 
     public static void submitBlockleGuess(String guess) {
         send(ComputerAccessPayload.BLOCKLE_GUESS, guess);
+    }
+
+    public static void claimGameReward(String mode) {
+        send(ComputerAccessPayload.GAME_REWARD, mode);
     }
 
     public static void requestAntazon() {

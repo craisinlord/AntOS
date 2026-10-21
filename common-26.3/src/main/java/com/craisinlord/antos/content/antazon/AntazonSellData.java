@@ -32,6 +32,8 @@ public final class AntazonSellData extends SimplePreparableReloadListener<List<A
         return resolved().values().stream().filter(rule -> rule.limitKey().equals(key)).findFirst().orElse(null);
     }
 
+    public static Map<Identifier, Rule> snapshot() { return resolved(); }
+
     public static List<Rule> rules() { return resolved().values().stream().sorted(Comparator.comparing(value -> value.item().toString())).toList(); }
 
     private static Map<Identifier, Rule> resolved() {

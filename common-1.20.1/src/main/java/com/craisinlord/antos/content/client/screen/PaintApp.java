@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
+import com.google.gson.JsonObject;
 import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
@@ -24,11 +26,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.glfw.GLFW;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HOVER_FILL;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
 
 final class PaintApp extends ComputerApp {
     private static final int TOOLBAR = 18;
@@ -59,7 +56,7 @@ final class PaintApp extends ComputerApp {
     private String confirmAction = "";
     private long confirmUntil;
     private String notice = "";
-    private int noticeColor = GREEN;
+    private int noticeColor = Ui.ACCENT;
     private long noticeUntil;
     private boolean listed;
 
@@ -75,7 +72,7 @@ final class PaintApp extends ComputerApp {
                     load(opened, file);
                     screen.session.antmail.state.paintPath = opened;
                 } catch (RuntimeException exception) {
-                    if (requested) notice(tr("notice.unreadable"), AppKit.ERROR);
+                    if (requested) notice(tr("notice.unreadable"), Ui.ERROR);
                 }
             }
             if (requested) state.pendingOpenPath = "";
@@ -111,7 +108,7 @@ final class PaintApp extends ComputerApp {
         state.pendingPath = "";
         if (!success) {
             AntOSUiSounds.play(Cue.ERROR);
-            notice(tr("notice.failed", AppKit.fileError(error)), AppKit.ERROR);
+            notice(tr("notice.failed", AppKit.fileError(error)), Ui.ERROR);
             return;
         }
         if (kind.equals("save_as")) {
@@ -121,11 +118,16 @@ final class PaintApp extends ComputerApp {
         state.savedPixels = state.pendingPixels;
         markChanged();
         AntOSUiSounds.play(Cue.SAVE);
-        notice(tr("notice.saved"), PALE_GREEN);
+        notice(tr("notice.saved"), Ui.TEXT);
         ComputerNetworking.listFiles();
     }
 
     void render(GuiGraphics g, int x, int y, int w, int h) {
+        if (!resumePath.isEmpty() && screen.session.text.state.pendingOpenPath.isEmpty()) {
+            state.pendingOpenPath = resumePath;
+            ComputerNetworking.openFile(resumePath);
+            resumePath = "";
+        }
         if (!listed) {
             listed = true;
             ComputerNetworking.listFiles();
@@ -163,7 +165,7 @@ final class PaintApp extends ComputerApp {
         int dot = state.brushSize * 2;
         int dotX = buttonX + (BUTTON - dot) / 2;
         int dotY = y + (TOOLBAR - dot) / 2;
-        g.fill(dotX, dotY, dotX + dot, dotY + dot, PALE_GREEN);
+        g.fill(dotX, dotY, dotX + dot, dotY + dot, Ui.TEXT);
     }
 
     private static ResourceLocation icon(String name) {
@@ -171,15 +173,15 @@ final class PaintApp extends ComputerApp {
     }
 
     private void renderCanvas(GuiGraphics g, int x, int top, int w, int bottom) {
-        g.fill(x, top, x + w, bottom, AppKit.PANEL);
+        g.fill(x, top, x + w, bottom, Ui.PANEL);
         int height = Math.max(1, bottom - top);
         pixelSize = Math.max(1, Math.min(w / AntPaintCanvas.WIDTH, height / AntPaintCanvas.HEIGHT));
         int canvasWidth = pixelSize * AntPaintCanvas.WIDTH;
         int canvasHeight = pixelSize * AntPaintCanvas.HEIGHT;
         canvasX = x + (w - canvasWidth) / 2;
         canvasY = top + Math.max(0, (height - canvasHeight) / 2);
-        kit.outline(g, canvasX - 1, canvasY - 1, canvasWidth + 2, canvasHeight + 2, AppKit.SOFT);
-        g.fill(canvasX, canvasY, canvasX + canvasWidth, canvasY + canvasHeight, BLACK);
+        kit.outline(g, canvasX - 1, canvasY - 1, canvasWidth + 2, canvasHeight + 2, Ui.LINE);
+        g.fill(canvasX, canvasY, canvasX + canvasWidth, canvasY + canvasHeight, Ui.BACKGROUND);
         for (int py = 0; py < AntPaintCanvas.HEIGHT; py++) {
             int px = 0;
             while (px < AntPaintCanvas.WIDTH) {
@@ -189,12 +191,12 @@ final class PaintApp extends ComputerApp {
                 }
                 int start = px;
                 while (px < AntPaintCanvas.WIDTH && state.canvas.get(px, py)) px++;
-                g.fill(canvasX + start * pixelSize, canvasY + py * pixelSize, canvasX + px * pixelSize, canvasY + (py + 1) * pixelSize, GREEN);
+                g.fill(canvasX + start * pixelSize, canvasY + py * pixelSize, canvasX + px * pixelSize, canvasY + (py + 1) * pixelSize, Ui.ACCENT);
             }
         }
         if (state.grid && pixelSize >= 3) {
-            for (int column = 1; column < AntPaintCanvas.WIDTH; column++) g.fill(canvasX + column * pixelSize, canvasY, canvasX + column * pixelSize + 1, canvasY + canvasHeight, 0x80173817);
-            for (int row = 1; row < AntPaintCanvas.HEIGHT; row++) g.fill(canvasX, canvasY + row * pixelSize, canvasX + canvasWidth, canvasY + row * pixelSize + 1, 0x80173817);
+            for (int column = 1; column < AntPaintCanvas.WIDTH; column++) g.fill(canvasX + column * pixelSize, canvasY, canvasX + column * pixelSize + 1, canvasY + canvasHeight, Ui.alpha(Ui.HOVER, 0x80));
+            for (int row = 1; row < AntPaintCanvas.HEIGHT; row++) g.fill(canvasX, canvasY + row * pixelSize, canvasX + canvasWidth, canvasY + row * pixelSize + 1, Ui.alpha(Ui.HOVER, 0x80));
         }
         int[] hover = hoverPixel();
         if (hover != null && !strokeActive && !dialog.active() && !state.menuOpen) {
@@ -204,13 +206,13 @@ final class PaintApp extends ComputerApp {
             int right = Math.min(AntPaintCanvas.WIDTH - 1, hover[0] + high);
             int upper = Math.max(0, hover[1] + low);
             int lower = Math.min(AntPaintCanvas.HEIGHT - 1, hover[1] + high);
-            kit.outline(g, canvasX + left * pixelSize, canvasY + upper * pixelSize, (right - left + 1) * pixelSize, (lower - upper + 1) * pixelSize, PALE_GREEN);
+            kit.outline(g, canvasX + left * pixelSize, canvasY + upper * pixelSize, (right - left + 1) * pixelSize, (lower - upper + 1) * pixelSize, Ui.FOCUS);
         }
         kit.hit(canvasX, canvasY, canvasWidth, canvasHeight, this::pressCanvas);
     }
 
     private void renderFooter(GuiGraphics g, int x, int y, int w) {
-        g.fill(x, y, x + w, y + 1, DARK_GREEN);
+        g.fill(x, y, x + w, y + 1, Ui.SURFACE);
         int textY = y + 2;
         int[] hover = hoverPixel();
         String toolName = tr("tool." + state.tool.name().toLowerCase(Locale.ROOT));
@@ -227,10 +229,10 @@ final class PaintApp extends ComputerApp {
             rightColor = noticeColor;
         } else {
             right = state.name + (state.dirty ? " *" : "");
-            rightColor = state.dirty ? PALE_GREEN : GREEN;
+            rightColor = state.dirty ? Ui.TEXT : Ui.ACCENT;
         }
         int leftWidth = Math.min(font.width(left), w / 2 + 10);
-        g.drawString(font, Component.literal(screen.trimToWidth(left, leftWidth)), x, textY, AppKit.MUTED, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(left, leftWidth)), x, textY, Ui.TEXT_MUTED, false);
         String shown = screen.trimToWidth(right, Math.max(10, w - leftWidth - 8));
         g.drawString(font, Component.literal(shown), x + w - font.width(shown), textY, rightColor, false);
     }
@@ -249,20 +251,20 @@ final class PaintApp extends ComputerApp {
         g.pose().pushPose();
         try {
             g.pose().translate(0.0F, 0.0F, 100.0F);
-            g.fill(menuX, menuY, menuX + width, menuY + height, BLACK);
-            screen.box(g, menuX, menuY, menuX + width, menuY + height, GREEN);
+            g.fill(menuX, menuY, menuX + width, menuY + height, Ui.BACKGROUND);
+            screen.box(g, menuX, menuY, menuX + width, menuY + height, Ui.BORDER_STRONG);
             int rowY = menuY + 3;
             for (MenuItem item : items) {
                 if (item == null) {
-                    g.fill(menuX + 6, rowY + 2, menuX + width - 6, rowY + 3, DARK_GREEN);
+                    g.fill(menuX + 6, rowY + 2, menuX + width - 6, rowY + 3, Ui.SURFACE);
                     rowY += 5;
                     continue;
                 }
                 boolean hover = kit.hovered(menuX + 2, rowY, width - 4, MENU_ROW);
-                if (hover) g.fill(menuX + 2, rowY, menuX + width - 2, rowY + MENU_ROW, HOVER_FILL);
-                g.drawString(font, Component.literal(item.label()), menuX + 7, rowY + 3, item.warning() ? AppKit.ERROR : hover ? GREEN : PALE_GREEN, false);
+                if (hover) g.fill(menuX + 2, rowY, menuX + width - 2, rowY + MENU_ROW, Ui.HOVER);
+                g.drawString(font, Component.literal(item.label()), menuX + 7, rowY + 3, item.warning() ? Ui.ERROR : hover ? Ui.ACCENT : Ui.TEXT, false);
                 if (!item.shortcut().isEmpty()) {
-                    g.drawString(font, Component.literal(item.shortcut()), menuX + width - 7 - font.width(item.shortcut()), rowY + 3, AppKit.MUTED, false);
+                    g.drawString(font, Component.literal(item.shortcut()), menuX + width - 7 - font.width(item.shortcut()), rowY + 3, Ui.TEXT_MUTED, false);
                 }
                 Runnable action = item.action();
                 kit.hit(menuX + 2, rowY, width - 4, MENU_ROW, action);
@@ -695,6 +697,8 @@ final class PaintApp extends ComputerApp {
 
     private record MenuItem(String label, String shortcut, boolean warning, Runnable action) { }
 
+    private String resumePath = "";
+
     static final class State {
         static final String UNTITLED = "UNTITLED.ANTPAINT";
         AntPaintCanvas canvas = new AntPaintCanvas();
@@ -716,4 +720,16 @@ final class PaintApp extends ComputerApp {
         boolean[] pendingPixels = new boolean[AntPaintCanvas.PIXEL_COUNT];
         int pendingSerial;
     }
+
+    JsonObject saveResume() {
+        JsonObject json = new JsonObject();
+        if (!state.path.isEmpty()) json.addProperty("path", state.path);
+        return json;
+    }
+
+    void loadResume(JsonObject json) {
+        String path = ComputerResume.string(json, "path");
+        if (path.startsWith("/")) resumePath = path;
+    }
+
 }

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "title": "Altar structure",
+  "width": 320,
+  "height": 170,
+  "elements": [
+    {
+      "type": "scene", "x": 4, "y": 3, "width": 204, "height": 162,
+      "yaw": 45, "pitch": 25,
+      "pattern": [
+        ["SSSSS", "SSSSS", "SSSSS", "SSSSS", "SSSSS"],
+        ["A   A", "     ", "  A  ", "     ", "A   A"],
+        ["C   C", "     ", "  C  ", "     ", "C   C"]
+      ],
+      "mapping": {
+        "S": "minecraft:stone_bricks",
+        "A": "minecraft:polished_andesite",
+        "C": "minecraft:amethyst_cluster[facing=up]"
+      }
+    },
+    {"type": "text", "x": 218, "y": 10, "width": 96, "text": "MATERIALS"},
+    {"type": "line", "x": 216, "y": 24, "x2": 315, "y2": 24, "color": "line"},
+    {"type": "item", "x": 218, "y": 33, "item": "minecraft:stone_bricks"},
+    {"type": "text", "x": 240, "y": 37, "width": 74, "text": "Stone bricks x25", "color": "text"},
+    {"type": "item", "x": 218, "y": 62, "item": "minecraft:polished_andesite"},
+    {"type": "text", "x": 240, "y": 66, "width": 74, "text": "Andesite x5", "color": "text"},
+    {"type": "item", "x": 218, "y": 91, "item": "minecraft:amethyst_cluster"},
+    {"type": "text", "x": 240, "y": 95, "width": 74, "text": "Amethyst x5", "color": "text"},
+    {"type": "text", "x": 218, "y": 128, "width": 96, "text": "Select the scene to zoom.", "color": "muted"}
+  ]
+}

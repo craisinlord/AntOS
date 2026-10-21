@@ -10,6 +10,9 @@ public final class AnternetAccountClientState {
     private static volatile java.util.UUID faceIdAccountId;
     private static volatile long passwordChangeRevision;
     private static volatile int passwordChangeResult = -1;
+    private static volatile long hintRevision;
+    private static volatile int hintResult = -1;
+    private static volatile boolean mustChangePassword;
 
     private AnternetAccountClientState() { }
 
@@ -37,8 +40,18 @@ public final class AnternetAccountClientState {
             faceIdStatusRevision++;
             return;
         }
+        if (result.result() == AnternetAccountResultPayload.PASSWORD_CHANGE_REQUIRED) {
+            mustChangePassword = true;
+            return;
+        }
+        if (result.result() >= AnternetAccountResultPayload.HINT_SAVED && result.result() <= AnternetAccountResultPayload.HINT_RATE_LIMITED) {
+            hintResult = result.result();
+            hintRevision++;
+            return;
+        }
         if (result.result() >= AnternetAccountResultPayload.PASSWORD_CHANGED
                 && result.result() <= AnternetAccountResultPayload.PASSWORD_CHANGE_RATE_LIMITED) {
+            if (result.result() == AnternetAccountResultPayload.PASSWORD_CHANGED) mustChangePassword = false;
             passwordChangeResult = result.result();
             passwordChangeRevision++;
             return;
@@ -48,6 +61,18 @@ public final class AnternetAccountClientState {
             return;
         }
         latest = result;
+    }
+
+    public static long hintRevision() {
+        return hintRevision;
+    }
+
+    public static int hintResult() {
+        return hintResult;
+    }
+
+    public static boolean mustChangePassword() {
+        return mustChangePassword;
     }
 
     public static long passwordChangeRevision() {
@@ -84,6 +109,7 @@ public final class AnternetAccountClientState {
 
     public static void clear() {
         latest = null;
+        mustChangePassword = false;
         faceIdUsername = "";
         faceIdAccountId = null;
         faceIdError = "";

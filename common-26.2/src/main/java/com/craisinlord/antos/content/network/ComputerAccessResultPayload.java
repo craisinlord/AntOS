@@ -17,6 +17,7 @@ public record ComputerAccessResultPayload(int result, boolean hasPassword, boole
     public static final int BUSY = 4;
     public static final int INVALID = 5;
     public static final int RECOVERY_AVAILABLE = 6;
+    public static final int ACCOUNT_MISMATCH = 7;
     public static final Type<ComputerAccessResultPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath(AntOS.MODID, "computer_access_result"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ComputerAccessResultPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, ComputerAccessResultPayload::result,

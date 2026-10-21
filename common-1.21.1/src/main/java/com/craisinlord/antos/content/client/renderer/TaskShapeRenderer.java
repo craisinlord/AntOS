@@ -86,7 +86,7 @@ public final class TaskShapeRenderer {
     }
 
     private static void setColor(AbstractUniform uniform, int themed) {
-        int color = com.craisinlord.antos.content.client.ComputerTheme.remap(themed);
+        int color = themed;
         if (uniform != null) uniform.set((color >> 16 & 255) / 255.0F, (color >> 8 & 255) / 255.0F,
                 (color & 255) / 255.0F, (color >>> 24) / 255.0F);
     }

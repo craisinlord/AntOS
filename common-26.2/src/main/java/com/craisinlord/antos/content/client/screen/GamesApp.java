@@ -1,11 +1,14 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.api.client.game.ComputerGameRegistry;
+import com.craisinlord.antos.api.client.game.GameIcon;
 import com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState;
 import com.craisinlord.antos.content.client.ComputerProgramClientState;
 import com.craisinlord.antos.content.client.ComputerWorkspaceClientKey;
+import com.craisinlord.antos.content.client.game.GameIcons;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 import com.google.gson.JsonObject;
@@ -18,12 +21,19 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
 
 final class GamesApp extends ComputerApp {
     private final Map<Identifier, ComputerGame.Session> gameSessions = new HashMap<>();
     private final List<Hit> hits = new ArrayList<>();
+    private final AppKit kit = new AppKit(this);
+    private List<Entry> entries = List.of();
+    private ArchiveLayout layout;
+    private boolean layoutGallery;
+    private int layoutGames = -1;
+    private int libraryScroll;
+    private int focus = -1;
+    private boolean keyboardFocus;
+    private boolean revealFocus;
     private Identifier programId;
     private int scroll;
     private int maximumScroll;
@@ -31,41 +41,143 @@ final class GamesApp extends ComputerApp {
     private String programKey = "";
     private String pendingRun = "";
     private int pendingSequence = -1;
+    private int gameX;
+    private int gameY;
+    private int gameWidth;
+    private int gameHeight;
 
     void render(ThemedGraphics g, Window window, int x, int y, int w, int h, int mouseX, int mouseY) {
         hits.clear();
         if (window.gameOpen) {
-            g.drawString(font, Component.literal("INSTALLED GAMES / ESC TO RETURN"), x, y, GREEN, false);
-            gameSession(window).ifPresent(game -> game.render(g, font, x, y + 16, 214, 155));
+            button(g, x, y, 48, 18, "< BACK", mouseX, mouseY, () -> closeGame(window));
+            Identifier id = Identifier.tryParse(window.gameId);
+            ComputerGame game = id == null ? null : ComputerGameRegistry.get(id);
+            if (game != null) {
+                GameIconRenderer.render(screen, g, game.icon(), x + 55, y + 3, 12, (int) (System.currentTimeMillis() / 50L), false);
+                g.drawString(font, Component.literal(screen.trimToWidth(game.title(), w - 76)), x + 71, y + 5, Ui.TEXT_STRONG, false);
+            }
+            gameX = x;
+            gameY = y + 26;
+            gameWidth = w;
+            gameHeight = Math.max(1, h - 26);
+            screen.enableComputerScissor(g, gameX, gameY, gameX + gameWidth, gameY + gameHeight);
+            try {
+                gameSession(window).ifPresent(session -> session.render(g, font, gameX, gameY, gameWidth, gameHeight, mouseX - gameX, mouseY - gameY));
+            } finally {
+                g.disableScissor();
+            }
             return;
         }
         if (window.programOpen) { renderProgram(g, x, y, w, h, mouseX, mouseY); return; }
-        g.drawString(font, Component.translatable("computer.antos.programs.library"), x, y, GREEN, false);
-        g.drawString(font, Component.translatable("computer.antos.programs.library_hint"), x, y + 14, PALE_GREEN, false);
-        List<Entry> entries = new ArrayList<>();
-        installedGames().forEach(game -> entries.add(new Entry(game.id(), game.title(), "GAME", false)));
-        installedPrograms().forEach(program -> entries.add(new Entry(program.id(), Component.translatable(program.title()).getString(), program.type().toUpperCase(java.util.Locale.ROOT), true)));
-        int visible = Math.max(1, (h - 36) / 36);
-        maximumScroll = Math.max(0, entries.size() - visible);
-        scroll = Math.max(0, Math.min(scroll, maximumScroll));
-        for (int i = scroll; i < Math.min(entries.size(), scroll + visible); i++) {
-            Entry entry = entries.get(i);
-            int top = y + 32 + (i - scroll) * 36;
-            panel(g, x, top, w - 8, 32, screen.inside(x, top, w - 8, 32, mouseX, mouseY));
-            g.drawString(font, Component.literal(screen.trimToWidth(entry.title(), w - 78)), x + 8, top + 6, GREEN, false);
-            g.drawString(font, Component.literal(entry.kind()), x + 8, top + 19, PALE_GREEN, false);
-            g.drawString(font, Component.literal("[ > ]"), x + w - 44, top + 11, GREEN, false);
-            hits.add(new Hit(x, top, w - 8, 32, () -> {
-                scroll = 0;
-                if (entry.program()) openProgram(entry.id());
-                else { window.gameId = entry.id().toString(); window.gameOpen = true; }
-            }));
+        renderLibrary(g, window, x, y, w, h);
+    }
+
+    private void renderLibrary(ThemedGraphics g, Window window, int x, int y, int w, int h) {
+        boolean gallery = screen.session.gamesGallery;
+        List<Entry> games = new ArrayList<>();
+        installedGames().forEach(game -> games.add(new Entry(game.id(), game.title(), tr("kind.game"), game.icon(), false)));
+        List<Entry> programs = new ArrayList<>();
+        installedPrograms().forEach(program -> programs.add(new Entry(program.id(), Component.translatable(program.title()).getString(),
+                program.type().toUpperCase(java.util.Locale.ROOT), GameIcons.program(program.type()), true)));
+        List<Entry> all = new ArrayList<>(games);
+        all.addAll(programs);
+        entries = List.copyOf(all);
+        if (layout == null || layout.width() != w || layout.height() != h || layoutGallery != gallery || layoutGames != games.size() || layout.cells().size() != entries.size()) {
+            layout = ArchiveLayout.create(w, h, gallery, games.size(), programs.size());
+            layoutGallery = gallery;
+            layoutGames = games.size();
         }
-        screen.drawScrollbar(g, x + w - 4, y + 32, Math.max(1, h - 36), visible, entries.size(), scroll, maximumScroll);
+        focus = Math.min(focus, entries.size() - 1);
+        libraryScroll = Math.max(0, Math.min(layout.maximumScroll(), libraryScroll));
+        if (revealFocus) {
+            libraryScroll = layout.reveal(focus, libraryScroll);
+            revealFocus = false;
+        }
+        kit.begin();
+        g.drawString(font, Component.literal(screen.trimToWidth(Component.translatable("computer.antos.programs.library").getString(), w - 50)), x, y + 5, Ui.TEXT_STRONG, false);
+        kit.iconButton(g, x + w - 39, y, 18, FileExplorerApp.icon("archive_list"), !gallery, true, tr("list_view"), () -> setGallery(false));
+        kit.iconButton(g, x + w - 18, y, 18, FileExplorerApp.icon("archive_grid"), gallery, true, tr("icon_view"), () -> setGallery(true));
+        g.drawString(font, Component.literal(screen.trimToWidth(Component.translatable("computer.antos.programs.library_hint").getString(), w - 8)), x, y + 25, Ui.TEXT_MUTED, false);
+        int top = y + ArchiveLayout.BODY_TOP;
+        int bottom = top + layout.viewportHeight();
         if (entries.isEmpty()) {
-            g.drawString(font, Component.translatable("computer.antos.programs.empty"), x + 8, y + 60, PALE_GREEN, false);
-            g.drawString(font, Component.translatable("computer.antos.programs.find_disks"), x + 8, y + 76, PALE_GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.programs.empty"), x + 6, top + 12, Ui.TEXT, false);
+            g.drawString(font, Component.translatable("computer.antos.programs.find_disks"), x + 6, top + 27, Ui.TEXT_MUTED, false);
         }
+        int ticks = (int) (System.currentTimeMillis() / 50L);
+        screen.enableComputerScissor(g, x, top, x + w - 8, bottom);
+        kit.clip(x, top, w - 8, layout.viewportHeight());
+        try {
+            for (ArchiveLayout.Section section : layout.sections()) {
+                int sectionY = top + section.y() - libraryScroll;
+                if (sectionY + ArchiveLayout.HEADING <= top || sectionY >= bottom) continue;
+                String label = tr(section.folders() ? "section.games" : "section.programs");
+                g.drawString(font, Component.literal(label), x + 3, sectionY + 3, Ui.TEXT_MUTED, false);
+                g.fill(x + 8 + font.width(label), sectionY + 7, x + w - 12, sectionY + 8, Ui.LINE);
+            }
+            for (ArchiveLayout.Cell cell : layout.cells()) {
+                int cellY = top + cell.y() - libraryScroll;
+                if (cellY + cell.height() <= top || cellY >= bottom) continue;
+                renderCell(g, window, entries.get(cell.index()), cell.index(), gallery, x + cell.x(), cellY, cell.width() - 3, cell.height() - 2, ticks);
+            }
+        } finally {
+            kit.unclip();
+            g.disableScissor();
+        }
+        kit.scrollbar(g, x + w - 4, top, layout.viewportHeight(), layout.viewportHeight(), layout.contentHeight(), libraryScroll, layout.maximumScroll(), value -> libraryScroll = value);
+        g.fill(x, y + h - 11, x + w, y + h - 10, Ui.LINE);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("summary", games.size(), programs.size()), w - 8)), x + 3, y + h - 8, Ui.TEXT_MUTED, false);
+        kit.drawTooltip(g, x, y, x + w, y + h);
+    }
+
+    private void renderCell(ThemedGraphics g, Window window, Entry entry, int index, boolean gallery, int x, int y, int w, int h, int ticks) {
+        boolean hover = kit.hovered(x, y, w, h);
+        boolean focused = keyboardFocus && index == focus;
+        if (gallery || hover || focused) g.fill(x, y, x + w, y + h, hover ? Ui.HOVER : Ui.PANEL);
+        if (focused) kit.outline(g, x, y, w, h, Ui.FOCUS);
+        int art = gallery ? 36 : 26;
+        int artX = gallery ? x + (w - art) / 2 : x + 3;
+        int artY = gallery ? y + (hover ? 3 : 4) : y + 2;
+        GameIconRenderer.render(screen, g, entry.icon(), artX, artY, art, ticks, hover || focused);
+        int textWidth = gallery ? w - 10 : w - 52;
+        String title = screen.trimToWidth(entry.title(), textWidth);
+        String kind = screen.trimToWidth(entry.kind(), textWidth);
+        if (gallery) {
+            g.drawString(font, Component.literal(title), x + (w - font.width(title)) / 2, y + 45, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.literal(kind), x + (w - font.width(kind)) / 2, y + 56, Ui.TEXT_MUTED, false);
+        } else {
+            g.drawString(font, Component.literal(title), x + 36, y + 5, Ui.TEXT_STRONG, false);
+            g.drawString(font, Component.literal(kind), x + 36, y + 16, Ui.TEXT_MUTED, false);
+            g.drawString(font, Component.literal(">"), x + w - 10, y + 11, hover || focused ? Ui.ACCENT : Ui.TEXT, false);
+        }
+        if (hover && !title.equals(entry.title())) kit.tooltip(entry.title());
+        kit.hit(x, y, w, h, () -> {
+            focus = index;
+            keyboardFocus = false;
+            open(window, entry);
+        });
+    }
+
+    private void open(Window window, Entry entry) {
+        scroll = 0;
+        if (entry.program()) openProgram(entry.id());
+        else {
+            window.gameId = entry.id().toString();
+            window.gameOpen = true;
+        }
+    }
+
+    private void setGallery(boolean gallery) {
+        if (screen.session.gamesGallery == gallery) return;
+        if (focus < 0 && layout != null) {
+            layout.cells().stream().filter(cell -> cell.y() + cell.height() > libraryScroll).findFirst().ifPresent(cell -> focus = cell.index());
+        }
+        screen.session.gamesGallery = gallery;
+        revealFocus = true;
+    }
+
+    private static String tr(String key, Object... args) {
+        return Component.translatable("computer.antos.programs." + key, args).getString();
     }
 
     private JsonObject layoutRun;
@@ -78,10 +190,10 @@ final class GamesApp extends ComputerApp {
         button(g, x, y, 48, 18, "< BACK", mouseX, mouseY, this::back);
         var definition = ComputerProgramClientState.definition(programId);
         String title = definition == null ? String.valueOf(programId) : Component.translatable(definition.title()).getString();
-        g.drawString(font, Component.literal(screen.trimToWidth(title, w - 60)), x + 58, y + 5, GREEN, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(title, w - 60)), x + 58, y + 5, Ui.TEXT_STRONG, false);
         JsonObject run = ComputerProgramClientState.run();
         if (run == null || run.has("program") && !value(run, "program").equals(String.valueOf(programId))) {
-            g.drawString(font, Component.translatable("computer.antos.programs.loading"), x + 8, y + 42, PALE_GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.programs.loading"), x + 8, y + 42, Ui.TEXT, false);
             return;
         }
         String status = value(run, "status");
@@ -105,8 +217,8 @@ final class GamesApp extends ComputerApp {
             layoutLanguage = language;
         }
         List<net.minecraft.util.FormattedCharSequence> lines = layoutLines;
-        if (status.equals("quiz")) g.drawString(font, Component.translatable("computer.antos.programs.question", number(run, "question_number"), number(run, "total")), x + 8, y + 27, PALE_GREEN, false);
-        else g.drawString(font, Component.translatable("computer.antos.programs.console"), x + 8, y + 27, PALE_GREEN, false);
+        if (status.equals("quiz")) g.drawString(font, Component.translatable("computer.antos.programs.question", number(run, "question_number"), number(run, "total")), x + 8, y + 27, Ui.TEXT, false);
+        else g.drawString(font, Component.translatable("computer.antos.programs.console"), x + 8, y + 27, Ui.TEXT, false);
         int top = y + 44;
         int bodyHeight = Math.max(1, h - 50);
         panel(g, x, top, w, bodyHeight, false);
@@ -126,7 +238,7 @@ final class GamesApp extends ComputerApp {
             screen.archiveGreenTint = previousTint;
             cursor += preview;
         }
-        for (var line : lines) { g.drawString(font, line, x + 10, cursor, PALE_GREEN, false); cursor += 11; }
+        for (var line : lines) { g.drawString(font, line, x + 10, cursor, Ui.TEXT, false); cursor += 11; }
         cursor += 14;
         for (int index = 0; index < wrapped.size(); index++) {
             var row = wrapped.get(index);
@@ -136,15 +248,15 @@ final class GamesApp extends ComputerApp {
             int hitTop = Math.max(rowTop, top + 2);
             int hitBottom = Math.min(rowTop + height, top + bodyHeight - 2);
             panel(g, x + 8, rowTop, w - 24, height, pendingSequence < 0 && screen.inside(x + 8, rowTop, w - 24, height, mouseX, mouseY));
-            g.drawString(font, Component.literal((index + 1) + ">"), x + 14, rowTop + 7, GREEN, false);
-            for (int line = 0; line < row.size(); line++) g.drawString(font, row.get(line), x + 34, rowTop + 7 + line * 11, PALE_GREEN, false);
+            g.drawString(font, Component.literal((index + 1) + ">"), x + 14, rowTop + 7, Ui.TEXT_STRONG, false);
+            for (int line = 0; line < row.size(); line++) g.drawString(font, row.get(line), x + 34, rowTop + 7 + line * 11, Ui.TEXT, false);
             if (hitBottom > hitTop) hits.add(new Hit(x + 8, hitTop, w - 24, hitBottom - hitTop, () -> choose(choice)));
             cursor += height + 4;
         }
         if (done) {
             int restartTop = cursor;
             panel(g, x + 8, restartTop, w - 24, 26, screen.inside(x + 8, restartTop, w - 24, 26, mouseX, mouseY));
-            g.drawString(font, Component.translatable("computer.antos.programs.restart"), x + 16, restartTop + 8, GREEN, false);
+            g.drawString(font, Component.translatable("computer.antos.programs.restart"), x + 16, restartTop + 8, Ui.TEXT_STRONG, false);
             if (restartTop >= top + 2 && restartTop + 26 <= top + bodyHeight - 2) hits.add(new Hit(x + 8, restartTop, w - 24, 26, () -> openProgram(programId)));
         }
         g.disableScissor();
@@ -199,6 +311,12 @@ final class GamesApp extends ComputerApp {
         else if (ticks % (ComputerProgramClientState.run() == null ? 40 : 400) == 0) ComputerNetworking.requestProgramState();
     }
 
+    private void closeGame(Window window) {
+        gameSession(window).ifPresent(ComputerGame.Session::close);
+        gameSessions.remove(Identifier.tryParse(window.gameId));
+        window.gameOpen = false;
+    }
+
     java.util.Optional<ComputerGame.Session> gameSession(Window window) {
         if (window == null || window.gameId == null) return java.util.Optional.empty();
         Identifier id = Identifier.tryParse(window.gameId);
@@ -208,11 +326,27 @@ final class GamesApp extends ComputerApp {
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
-        if (button == 0 && !window.gameOpen) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); break; }
+        if (window.gameOpen) {
+            if (button == 0) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); return true; }
+            if (screen.inside(gameX, gameY, gameWidth, gameHeight, mouseX, mouseY)) gameSession(window).ifPresent(game -> game.mouseClicked(mouseX - gameX, mouseY - gameY, button));
+            return true;
+        }
+        if (window.programOpen) {
+            if (button == 0) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); break; }
+            return true;
+        }
+        if (button == 0) kit.click(mouseX, mouseY, button);
         return true;
     }
 
-    boolean scroll(Window window, double mouseX, double mouseY, double scrollY) { scroll = Math.max(0, Math.min(maximumScroll, scroll - (int) Math.signum(scrollY) * (window.programOpen ? 22 : 1))); return true; }
+    void drag(double mouseY) { kit.drag(mouseY); }
+    void release() { kit.release(); }
+
+    boolean scroll(Window window, double mouseX, double mouseY, double scrollY) {
+        if (window.programOpen) scroll = Math.max(0, Math.min(maximumScroll, scroll - (int) Math.signum(scrollY) * 22));
+        else if (!window.gameOpen && layout != null) libraryScroll = Math.max(0, Math.min(layout.maximumScroll(), libraryScroll - (int) Math.signum(scrollY) * 16));
+        return true;
+    }
     boolean type(Window window, char codePoint, int modifiers) { return window.gameOpen && gameSession(window).map(game -> game.charTyped(codePoint)).orElse(false); }
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
@@ -223,16 +357,35 @@ final class GamesApp extends ComputerApp {
             if (keyCode == InputConstants.KEY_DOWN || keyCode == InputConstants.KEY_UP) { scroll = Math.max(0, Math.min(maximumScroll, scroll + (keyCode == InputConstants.KEY_DOWN ? 22 : -22))); return true; }
         }
         if (window.gameOpen) {
-            if (keyCode == InputConstants.KEY_ESCAPE) { gameSession(window).ifPresent(ComputerGame.Session::close); gameSessions.remove(Identifier.tryParse(window.gameId)); window.gameOpen = false; return true; }
-            if (gameSession(window).map(game -> game.keyPressed(keyCode)).orElse(false)) return true;
+            if (keyCode == InputConstants.KEY_ESCAPE) { closeGame(window); return true; }
+            return gameSession(window).map(game -> game.keyPressed(keyCode)).orElse(false);
+        }
+        if (window.programOpen || layout == null || entries.isEmpty()) return false;
+        int dx = keyCode == InputConstants.KEY_LEFT ? -1 : keyCode == InputConstants.KEY_RIGHT ? 1 : 0;
+        int dy = keyCode == InputConstants.KEY_UP ? -1 : keyCode == InputConstants.KEY_DOWN ? 1 : 0;
+        if (dx != 0 || dy != 0) {
+            focus = !keyboardFocus || focus < 0 ? Math.max(0, focus) : layout.move(focus, dx, dy);
+            keyboardFocus = true;
+            revealFocus = true;
+            return true;
+        }
+        if (keyCode == InputConstants.KEY_HOME || keyCode == InputConstants.KEY_END) {
+            focus = keyCode == InputConstants.KEY_HOME ? 0 : entries.size() - 1;
+            keyboardFocus = true;
+            revealFocus = true;
+            return true;
+        }
+        if ((keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER || keyCode == InputConstants.KEY_SPACE) && keyboardFocus && focus >= 0 && focus < entries.size()) {
+            open(window, entries.get(focus));
+            return true;
         }
         return false;
     }
 
-    private void panel(ThemedGraphics g, int x, int y, int w, int h, boolean hover) { g.fill(x, y, x + w, y + h, hover ? 0xFF173C2C : 0xFF0A2118); g.renderOutline(x, y, w, h, 0xFF315E43); }
-    private void button(ThemedGraphics g, int x, int y, int w, int h, String text, int mouseX, int mouseY, Runnable action) { panel(g, x, y, w, h, screen.inside(x, y, w, h, mouseX, mouseY)); g.drawString(font, Component.literal(text), x + 5, y + 5, GREEN, false); hits.add(new Hit(x, y, w, h, action)); }
+    private void panel(ThemedGraphics g, int x, int y, int w, int h, boolean hover) { g.fill(x, y, x + w, y + h, hover ? Ui.GAME_HOVER : Ui.GAME_FILL); g.renderOutline(x, y, w, h, Ui.GAME_OUTLINE); }
+    private void button(ThemedGraphics g, int x, int y, int w, int h, String text, int mouseX, int mouseY, Runnable action) { panel(g, x, y, w, h, screen.inside(x, y, w, h, mouseX, mouseY)); g.drawString(font, Component.literal(text), x + 5, y + 5, Ui.TEXT_STRONG, false); hits.add(new Hit(x, y, w, h, action)); }
     private static String value(JsonObject root, String key) { return root.has(key) ? root.get(key).getAsString() : ""; }
     private static int number(JsonObject root, String key) { return root.has(key) ? root.get(key).getAsInt() : 0; }
-    private record Entry(Identifier id, String title, String kind, boolean program) { }
+    private record Entry(Identifier id, String title, String kind, GameIcon icon, boolean program) { }
     private record Hit(int x, int y, int width, int height, Runnable action) { }
 }

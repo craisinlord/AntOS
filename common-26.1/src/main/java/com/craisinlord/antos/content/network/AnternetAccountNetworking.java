@@ -11,8 +11,12 @@ public final class AnternetAccountNetworking {
         AnternetAccountNetworking.sender = sender;
     }
 
-    public static void create(String username, String password) {
-        sender.accept(new AnternetAccountPayload(AnternetAccountPayload.CREATE, username, password));
+    public static void create(String username, String password, String hint) {
+        sender.accept(new AnternetAccountPayload(AnternetAccountPayload.CREATE, username, password, hint == null ? "" : hint));
+    }
+
+    public static void setHint(String currentPassword, String hint) {
+        sender.accept(new AnternetAccountPayload(AnternetAccountPayload.SET_HINT, "", currentPassword, hint == null ? "" : hint));
     }
 
     public static void login(String username, String password) {

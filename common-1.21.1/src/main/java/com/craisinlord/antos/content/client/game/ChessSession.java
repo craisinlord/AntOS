@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.client.game;
 
+import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.content.client.ComputerTheme;
 import com.craisinlord.antos.content.client.game.chess.ChessAi;
@@ -39,11 +40,6 @@ public final class ChessSession implements ComputerGame.Session {
     private static final int RANK_GUTTER = 9;
     private static final int PANEL_GAP = 10;
     private static final int PAD = 8;
-    private static final int LIGHT = 0xFF2B5A2B;
-    private static final int DARK = 0xFF143014;
-    private static final int LAST_LIGHT = 0xFF3D753D;
-    private static final int LAST_DARK = 0xFF244C24;
-    private static final int SELECTED = 0xFF4F9A4F;
     private static final long AI_DELAY_MILLIS = 350L;
 
     static {
@@ -112,7 +108,7 @@ public final class ChessSession implements ComputerGame.Session {
     }
 
     private void renderMenu(GuiGraphics graphics, Font font, int x, int y, int width, int mouseX, int mouseY) {
-        graphics.drawString(font, GameButtons.trim(font, Component.translatable("computer.antos.chess.pick"), width - 8), x, y, GameButtons.PALE, false);
+        graphics.drawString(font, GameButtons.trim(font, Component.translatable("computer.antos.chess.pick"), width - 8), x, y, Ui.TEXT, false);
         int top = y + 16;
         for (ChessDifficulty option : ChessDifficulty.values()) {
             buttons.row(graphics, font, x, top, width - 8,
@@ -140,16 +136,16 @@ public final class ChessSession implements ComputerGame.Session {
                 int top = boardY + row * cell;
                 boolean light = (column + row) % 2 == 0;
                 boolean last = lastMove != null && (lastMove.fromX() == column && lastMove.fromY() == row || lastMove.toX() == column && lastMove.toY() == row);
-                int color = column == selectedX && row == selectedY ? SELECTED : last ? (light ? LAST_LIGHT : LAST_DARK) : light ? LIGHT : DARK;
+                int color = column == selectedX && row == selectedY ? Ui.BOARD_SELECTED : last ? (light ? Ui.BOARD_LAST_LIGHT : Ui.BOARD_LAST_DARK) : light ? Ui.BOARD_LIGHT : Ui.SURFACE_DEEP;
                 graphics.fill(left, top, left + cell, top + cell, color);
                 if (checked != null && checked[0] == column && checked[1] == row) {
-                    graphics.renderOutline(left, top, cell, cell, GameButtons.PALE);
-                    graphics.renderOutline(left + 1, top + 1, cell - 2, cell - 2, GameButtons.PALE);
+                    graphics.renderOutline(left, top, cell, cell, Ui.FOCUS);
+                    graphics.renderOutline(left + 1, top + 1, cell - 2, cell - 2, Ui.FOCUS);
                 }
-                if (hoverEnabled && column == hoverX && row == hoverY) graphics.renderOutline(left, top, cell, cell, GameButtons.GREEN);
+                if (hoverEnabled && column == hoverX && row == hoverY) graphics.renderOutline(left, top, cell, cell, Ui.ACCENT);
             }
         }
-        graphics.renderOutline(boardX - 1, y, boardSize + 2, boardSize + 2, 0xFF315E43);
+        graphics.renderOutline(boardX - 1, y, boardSize + 2, boardSize + 2, Ui.GAME_OUTLINE);
         int inset = (cell - 16) / 2;
         for (int column = 0; column < 8; column++) {
             for (int row = 0; row < 8; row++) {
@@ -161,16 +157,16 @@ public final class ChessSession implements ComputerGame.Session {
             int left = boardX + move.toX() * cell;
             int top = boardY + move.toY() * cell;
             if (game.piece(move.toX(), move.toY()) != null) {
-                graphics.renderOutline(left + 1, top + 1, cell - 2, cell - 2, GameButtons.GREEN);
+                graphics.renderOutline(left + 1, top + 1, cell - 2, cell - 2, Ui.ACCENT);
             } else {
-                graphics.fill(left + cell / 2 - 2, top + cell / 2 - 2, left + cell / 2 + 2, top + cell / 2 + 2, GameButtons.GREEN);
+                graphics.fill(left + cell / 2 - 2, top + cell / 2 - 2, left + cell / 2 + 2, top + cell / 2 + 2, Ui.ACCENT);
             }
         }
         for (int index = 0; index < 8; index++) {
             String file = Character.toString((char) ('a' + index));
-            graphics.drawString(font, file, boardX + index * cell + (cell - font.width(file)) / 2 + 1, boardY + boardSize + 3, GameButtons.MUTED, false);
+            graphics.drawString(font, file, boardX + index * cell + (cell - font.width(file)) / 2 + 1, boardY + boardSize + 3, Ui.TEXT_MUTED, false);
             String rank = Integer.toString(8 - index);
-            graphics.drawString(font, rank, x + (RANK_GUTTER - 1 - font.width(rank)) / 2, boardY + index * cell + (cell - 7) / 2, GameButtons.MUTED, false);
+            graphics.drawString(font, rank, x + (RANK_GUTTER - 1 - font.width(rank)) / 2, boardY + index * cell + (cell - 7) / 2, Ui.TEXT_MUTED, false);
         }
         int panelX = boardX + boardSize + 1 + PANEL_GAP;
         renderPanel(graphics, font, panelX, y, x + width - panelX, boardSize + 2, mouseX, mouseY);
@@ -182,12 +178,12 @@ public final class ChessSession implements ComputerGame.Session {
         int inner = width - PAD * 2;
         Component level = Component.translatable("computer.antos.chess.difficulty." + difficulty.id());
         Component move = Component.translatable("computer.antos.chess.move", game.fullmoveNumber());
-        graphics.drawString(font, move, x + width - PAD - font.width(move), y + PAD, GameButtons.MUTED, false);
-        graphics.drawString(font, GameButtons.trim(font, level, inner - font.width(move) - 6), x + PAD, y + PAD, GameButtons.GREEN, false);
-        graphics.fill(x + PAD, y + PAD + 13, x + width - PAD, y + PAD + 14, 0xFF315E43);
+        graphics.drawString(font, move, x + width - PAD - font.width(move), y + PAD, Ui.TEXT_MUTED, false);
+        graphics.drawString(font, GameButtons.trim(font, level, inner - font.width(move) - 6), x + PAD, y + PAD, Ui.TEXT_STRONG, false);
+        graphics.fill(x + PAD, y + PAD + 13, x + width - PAD, y + PAD + 14, Ui.GAME_OUTLINE);
         Component status;
         Component detail = Component.empty();
-        int statusColor = GameButtons.PALE;
+        int statusColor = Ui.TEXT;
         ChessGame.Status state = game.status();
         if (resigned) {
             status = Component.translatable("computer.antos.chess.lost");
@@ -195,7 +191,7 @@ public final class ChessSession implements ComputerGame.Session {
         } else if (state == ChessGame.Status.WHITE_WON) {
             status = Component.translatable("computer.antos.chess.won");
             detail = Component.translatable("computer.antos.chess.checkmate");
-            statusColor = GameButtons.GREEN;
+            statusColor = Ui.ACCENT;
         } else if (state == ChessGame.Status.BLACK_WON) {
             status = Component.translatable("computer.antos.chess.lost");
             detail = Component.translatable("computer.antos.chess.checkmate");
@@ -208,17 +204,17 @@ public final class ChessSession implements ComputerGame.Session {
         } else if (game.inCheck(ChessColor.WHITE)) {
             status = Component.translatable("computer.antos.chess.check");
             detail = Component.translatable("computer.antos.chess.check_hint");
-            statusColor = GameButtons.GREEN;
+            statusColor = Ui.ACCENT;
         } else {
             status = Component.translatable("computer.antos.chess.your_move");
             detail = Component.translatable(selectedX < 0 ? "computer.antos.chess.select_hint" : "computer.antos.chess.target_hint");
         }
         graphics.drawString(font, GameButtons.trim(font, status, inner), x + PAD, y + PAD + 20, statusColor, false);
-        GameButtons.wrap(graphics, font, detail, x + PAD, y + PAD + 32, inner, GameButtons.MUTED, 2);
+        GameButtons.wrap(graphics, font, detail, x + PAD, y + PAD + 32, inner, Ui.TEXT_MUTED, 2);
         int buttonY = y + height - PAD - GameButtons.BUTTON_HEIGHT;
         int capturedTop = y + PAD + 58;
         if (capturedTop + 45 <= buttonY - 6) {
-            graphics.drawString(font, Component.translatable("computer.antos.chess.captured"), x + PAD, capturedTop, GameButtons.MUTED, false);
+            graphics.drawString(font, Component.translatable("computer.antos.chess.captured"), x + PAD, capturedTop, Ui.TEXT_MUTED, false);
             drawCaptured(graphics, ChessColor.BLACK, x + PAD, capturedTop + 11, inner);
             drawCaptured(graphics, ChessColor.WHITE, x + PAD, capturedTop + 29, inner);
         }
@@ -260,9 +256,9 @@ public final class ChessSession implements ComputerGame.Session {
         int height = PAD + 12 + square + PAD;
         int left = boardX + (boardSize - width) / 2;
         int top = boardY + (boardSize - height) / 2;
-        graphics.fill(left, top, left + width, top + height, 0xF0061206);
-        graphics.renderOutline(left, top, width, height, GameButtons.GREEN);
-        graphics.drawString(font, title, left + (width - font.width(title)) / 2, top + PAD, GameButtons.PALE, false);
+        graphics.fill(left, top, left + width, top + height, Ui.alpha(Ui.SURFACE_SUNKEN, 0xF0));
+        graphics.renderOutline(left, top, width, height, Ui.BORDER_STRONG);
+        graphics.drawString(font, title, left + (width - font.width(title)) / 2, top + PAD, Ui.TEXT, false);
         int squaresLeft = left + (width - (PROMOTIONS.length * spacing - 4)) / 2;
         for (int index = 0; index < PROMOTIONS.length; index++) {
             int squareX = squaresLeft + index * spacing;
@@ -275,7 +271,7 @@ public final class ChessSession implements ComputerGame.Session {
     }
 
     private static void drawPiece(GuiGraphics graphics, ChessPiece piece, int x, int y) {
-        float[] tint = ComputerTheme.active().tint();
+        float[] tint = Ui.previewTint();
         graphics.setColor(tint[0], tint[1], tint[2], 1.0F);
         graphics.blit(TEXTURES.get(piece.color()).get(piece.type()), x, y, 0.0F, 0.0F, 16, 16, 16, 16);
         graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);

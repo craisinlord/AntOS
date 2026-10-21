@@ -1,0 +1,14 @@
+{
+  "title": "Crystal infusion",
+  "description": "Study the infusion layout and altar structure.",
+  "category": "antos:general",
+  "availability": "automatic",
+  "icon_item": "minecraft:amethyst_shard",
+  "content": [
+    {"text": "The same display definitions can be embedded in Tasks and Archive articles."},
+    {"display": "examplemod:crystal_infusion"},
+    {"text": "Use the layer controls to inspect each level."},
+    {"display": "examplemod:altar_structure"}
+  ],
+  "objectives": [{"id": "crystal", "type": "item", "target": "minecraft:amethyst_shard", "description": "Collect an amethyst shard", "count": 1}]
+}

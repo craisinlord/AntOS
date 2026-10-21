@@ -36,6 +36,8 @@ dependencies {
     compileOnly("dev.ftb.mods:ftb-library-fabric:${ftb_library_version_26_1}") { transitive = false }
     compileOnly "dev.ftb.mods:ftb-teams:${ftb_teams_version_26_1}"
     compileOnly("dev.ftb.mods:ftb-teams-fabric:${ftb_teams_version_26_1}") { transitive = false }
+    compileOnly "mezz.jei:jei-26.3-fabric-api:${jei_version_26_3}"
+    localRuntime("mezz.jei:jei-26.3-fabric:${jei_version_26_3}") { transitive = false }
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -88,4 +90,22 @@ tasks.register('runCommonTests') {
     group = 'verification'
     description = 'Runs every common test suite.'
     dependsOn commonTests.keySet()
+}
+
+def merchantTestClasses = layout.buildDirectory.dir('classes/java/merchantTest')
+
+tasks.register('compileMerchantTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source fileTree('../common-26.3/src/test/java/com/craisinlord/antos/content/merchant') { include '**/*.java' }
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = merchantTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+tasks.register('merchantTest', JavaExec) {
+    group = 'verification'
+    dependsOn tasks.named('compileMerchantTests')
+    classpath = files(merchantTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.merchant.MerchantStoreTest'
 }

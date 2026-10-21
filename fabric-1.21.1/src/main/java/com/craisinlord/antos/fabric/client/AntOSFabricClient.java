@@ -29,7 +29,8 @@ public final class AntOSFabricClient implements ClientModInitializer {
     @Override public void onInitializeClient() {
         CoreShaderRegistrationCallback.EVENT.register(context -> context.register(TaskShapeRenderer.SHADER_ID,
                 DefaultVertexFormat.POSITION_TEX, TaskShapeRenderer::setShader));
-        AntOSSettings.load(net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
+        AntOSSettings.loadClientState(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("antos").resolve("client.json"),
+                net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("antos.json"));
         AntOSFabricClientNetworking.register();
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(AntOSClientHooks::clearConnectionState));
         AntOSComputerGames.register();
@@ -38,6 +39,9 @@ public final class AntOSFabricClient implements ClientModInitializer {
         FloppyDiskModelProperties.register(AntOSFabricContent.FLOPPY_DISK);
         AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
         AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
+        net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(com.craisinlord.antos.content.client.ArchiveLookup.create(org.lwjgl.glfw.GLFW.GLFW_KEY_Z));
+        net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback.EVENT.register((stack, context, type, lines) -> com.craisinlord.antos.content.client.ArchiveLookup.tooltip(stack, lines));
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.ArchiveLookup.tick());
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if ((screen instanceof InventoryScreen || screen instanceof CreativeModeInventoryScreen)
                     && AntOSSettings.inventoryComputerButtonEnabled()) {

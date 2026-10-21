@@ -1,0 +1,7 @@
+{
+  "template": "examplemod:infusion_layout",
+  "values": {
+    "output": "minecraft:amethyst_cluster",
+    "output_name": "Infused crystal"
+  }
+}

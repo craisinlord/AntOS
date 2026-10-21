@@ -1,5 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
+import com.craisinlord.antos.content.client.palette.Ui;
+import com.google.gson.JsonObject;
 import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
@@ -16,10 +18,6 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.BLACK;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.DARK_GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.GREEN;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.PALE_GREEN;
 
 final class TextEditorApp extends ComputerApp {
     private static final int LINE = 11;
@@ -53,7 +51,7 @@ final class TextEditorApp extends ComputerApp {
     private String confirmAction = "";
     private long confirmUntil;
     private String notice = "";
-    private int noticeColor = GREEN;
+    private int noticeColor = Ui.ACCENT;
     private long noticeUntil;
     private boolean listed;
     private String matchQuery;
@@ -68,7 +66,7 @@ final class TextEditorApp extends ComputerApp {
             boolean requested = !state.pendingOpenPath.isEmpty() && opened.equals(state.pendingOpenPath);
             if (!opened.isEmpty() && !opened.toLowerCase(Locale.ROOT).endsWith(".antpaint")) {
                 if (requested || !state.dirty) load(opened, fileState.openedContents());
-                else if (!opened.equals(state.path)) notice(tr("notice.open_blocked"), AppKit.ERROR);
+                else if (!opened.equals(state.path)) notice(tr("notice.open_blocked"), Ui.ERROR);
             }
             if (requested) state.pendingOpenPath = "";
         }
@@ -108,7 +106,7 @@ final class TextEditorApp extends ComputerApp {
         state.pendingPath = "";
         if (!success) {
             AntOSUiSounds.play(Cue.ERROR);
-            notice(tr("notice.failed", AppKit.fileError(error)), AppKit.ERROR);
+            notice(tr("notice.failed", AppKit.fileError(error)), Ui.ERROR);
             return;
         }
         switch (kind) {
@@ -116,22 +114,22 @@ final class TextEditorApp extends ComputerApp {
                 state.savedContent = state.pendingContent;
                 state.dirty = !state.content.equals(state.pendingContent);
                 AntOSUiSounds.play(Cue.SAVE);
-                notice(tr("notice.saved"), PALE_GREEN);
+                notice(tr("notice.saved"), Ui.TEXT);
             }
             case "save_as" -> {
                 state.path = path;
                 state.savedContent = state.pendingContent;
                 state.dirty = !state.content.equals(state.pendingContent);
                 AntOSUiSounds.play(Cue.SAVE);
-                notice(tr("notice.saved"), PALE_GREEN);
+                notice(tr("notice.saved"), Ui.TEXT);
             }
             case "rename" -> {
                 state.path = path;
-                notice(tr("notice.renamed"), PALE_GREEN);
+                notice(tr("notice.renamed"), Ui.TEXT);
             }
             case "delete" -> {
                 reset();
-                notice(tr("notice.deleted"), PALE_GREEN);
+                notice(tr("notice.deleted"), Ui.TEXT);
             }
             default -> { }
         }
@@ -193,7 +191,7 @@ final class TextEditorApp extends ComputerApp {
             state.findFocused = true;
             state.focused = false;
         });
-        g.drawString(font, Component.literal(count), x + fieldWidth + 5, y + 5, matches.isEmpty() ? AppKit.MUTED : PALE_GREEN, false);
+        g.drawString(font, Component.literal(count), x + fieldWidth + 5, y + 5, matches.isEmpty() ? Ui.TEXT_MUTED : Ui.TEXT, false);
         int buttonX = x + w - buttonWidth * 3 - 4;
         kit.button(g, buttonX, y, buttonWidth, TOOLBAR, "<", false, !matches.isEmpty(), tr("tip.find_previous"), () -> findStep(false));
         kit.button(g, buttonX + buttonWidth + 2, y, buttonWidth, TOOLBAR, ">", false, !matches.isEmpty(), tr("tip.find_next"), () -> findStep(true));
@@ -205,7 +203,7 @@ final class TextEditorApp extends ComputerApp {
         areaTop = top;
         areaBottom = bottom;
         int right = x + w;
-        g.fill(x, top, right, bottom, BLACK);
+        g.fill(x, top, right, bottom, Ui.BACKGROUND);
         String lineNumbers = com.craisinlord.antos.config.AntOSSettings.preferences().editorLineNumbers;
         boolean gutter = lineNumbers.equals("on") || (lineNumbers.equals("auto") && w >= 300);
         int logicalLines = 1;
@@ -215,10 +213,10 @@ final class TextEditorApp extends ComputerApp {
         }
         int gutterWidth = gutter ? Math.max(20, font.width(String.valueOf(logicalLines)) + 10) : 0;
         if (gutter) {
-            g.fill(x + 2, top + 2, x + 2 + gutterWidth, bottom - 2, AppKit.PANEL);
-            g.fill(x + 2 + gutterWidth, top + 2, x + 3 + gutterWidth, bottom - 2, DARK_GREEN);
+            g.fill(x + 2, top + 2, x + 2 + gutterWidth, bottom - 2, Ui.PANEL);
+            g.fill(x + 2 + gutterWidth, top + 2, x + 3 + gutterWidth, bottom - 2, Ui.SURFACE);
         }
-        screen.box(g, x, top, right, bottom, state.focused && !dialog.active() ? PALE_GREEN : AppKit.SOFT);
+        screen.box(g, x, top, right, bottom, state.focused && !dialog.active() ? Ui.FOCUS : Ui.LINE);
         textX = x + 2 + gutterWidth + 5;
         textY = top + 6;
         textWidth = Math.max(10, right - 10 - textX);
@@ -249,34 +247,34 @@ final class TextEditorApp extends ComputerApp {
                     int matchEnd = matchStart + queryLength;
                     if (matchStart >= end) break;
                     if (matchEnd <= start) continue;
-                    highlight(g, start, Math.max(start, matchStart), Math.min(end, matchEnd), lineY, match == state.findIndex ? 0xFF4C8A4C : 0xFF1D3D1D);
+                    highlight(g, start, Math.max(start, matchStart), Math.min(end, matchEnd), lineY, match == state.findIndex ? Ui.FIND_CURRENT : Ui.FIND_MATCH);
                 }
             }
             if (selectionStart >= 0 && selectionEnd > start && selectionStart <= end) {
                 int from = Math.max(start, selectionStart);
                 int to = Math.min(end, selectionEnd);
-                if (to > from) highlight(g, start, from, to, lineY, AppKit.SELECTION);
+                if (to > from) highlight(g, start, from, to, lineY, Ui.SELECTION);
                 if (selectionEnd > end && end < state.content.length() && state.content.charAt(end) == '\n') {
                     int edge = textX + font.width(state.content.substring(start, end));
-                    g.fill(edge, lineY - 1, edge + 3, lineY + 10, AppKit.SELECTION);
+                    g.fill(edge, lineY - 1, edge + 3, lineY + 10, Ui.SELECTION);
                 }
             }
-            if (end > start) g.drawString(font, Component.literal(state.content.substring(start, end) + (rows.get(row)[2] == 1 ? "-" : "")), textX, lineY, PALE_GREEN, false);
+            if (end > start) g.drawString(font, Component.literal(state.content.substring(start, end) + (rows.get(row)[2] == 1 ? "-" : "")), textX, lineY, Ui.TEXT, false);
             if (gutter && isLineStart(start)) {
                 String number = String.valueOf(lineNumber);
-                g.drawString(font, Component.literal(number), x + 2 + gutterWidth - 4 - font.width(number), lineY, AppKit.MUTED, false);
+                g.drawString(font, Component.literal(number), x + 2 + gutterWidth - 4 - font.width(number), lineY, Ui.TEXT_MUTED, false);
             }
             if (gutter && isLineStart(start)) lineNumber++;
         }
         if (state.content.isEmpty()) {
-            g.drawString(font, Component.literal(screen.trimToWidth(tr("placeholder"), textWidth)), textX + 2, textY, AppKit.PLACEHOLDER, false);
+            g.drawString(font, Component.literal(screen.trimToWidth(tr("placeholder"), textWidth)), textX + 2, textY, Ui.TEXT_PLACEHOLDER, false);
         }
         if (state.focused && !dialog.active() && screen.caretVisible()) {
             int caretRow = rowOf(state.cursor);
             if (caretRow >= state.scroll && caretRow < state.scroll + visibleRows) {
                 int caretX = textX + font.width(state.content.substring(rows.get(caretRow)[0], state.cursor));
                 int caretY = textY + (caretRow - state.scroll) * LINE;
-                g.fill(caretX, caretY - 1, caretX + 1, caretY + 9, GREEN);
+                g.fill(caretX, caretY - 1, caretX + 1, caretY + 9, Ui.TEXT_STRONG);
             }
         }
         kit.scrollbar(g, right - 6, top + 4, bottom - top - 8, visibleRows, rows.size(), state.scroll, state.maximumScroll, value -> state.scroll = value);
@@ -321,13 +319,13 @@ final class TextEditorApp extends ComputerApp {
     }
 
     private void renderFooter(GuiGraphics g, int x, int y, int w) {
-        g.fill(x, y, x + w, y + 1, DARK_GREEN);
+        g.fill(x, y, x + w, y + 1, Ui.SURFACE);
         int textLine = y + 3;
         String right;
-        int rightColor = AppKit.MUTED;
+        int rightColor = Ui.TEXT_MUTED;
         if (state.deleteConfirm) {
             right = tr("notice.delete_confirm");
-            rightColor = AppKit.ERROR;
+            rightColor = Ui.ERROR;
         } else if (System.currentTimeMillis() < noticeUntil) {
             right = notice;
             rightColor = noticeColor;
@@ -346,7 +344,7 @@ final class TextEditorApp extends ComputerApp {
         int rightWidth = font.width(right);
         g.drawString(font, Component.literal(right), x + w - rightWidth, textLine, rightColor, false);
         String name = fileName() + (state.dirty ? " *" : "");
-        g.drawString(font, Component.literal(screen.trimToWidth(name, Math.max(10, w - rightWidth - 8))), x, textLine, state.dirty ? PALE_GREEN : GREEN, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(name, Math.max(10, w - rightWidth - 8))), x, textLine, state.dirty ? Ui.TEXT : Ui.ACCENT, false);
     }
 
     private int wordCount() {
@@ -540,7 +538,7 @@ final class TextEditorApp extends ComputerApp {
                 }
                 case GLFW.GLFW_KEY_DELETE -> {
                     if (fileExists(state.path) && !ComputerFileSystem.isProtected(state.path)) state.deleteConfirm = true;
-                    else notice(tr("notice.save_first"), AppKit.ERROR);
+                    else notice(tr("notice.save_first"), Ui.ERROR);
                     return true;
                 }
                 default -> { }
@@ -729,7 +727,7 @@ final class TextEditorApp extends ComputerApp {
         int room = ComputerFileSystem.MAX_FILE_SIZE - (state.content.length() - (end - start));
         if (text.length() > room) {
             text = text.substring(0, Math.max(0, room));
-            notice(tr("notice.limit"), AppKit.ERROR);
+            notice(tr("notice.limit"), Ui.ERROR);
             if (text.isEmpty() && start == end) return;
         }
         remember(kind);
@@ -921,7 +919,7 @@ final class TextEditorApp extends ComputerApp {
 
     private void beginRename() {
         if (!fileExists(state.path) || ComputerFileSystem.isProtected(state.path)) {
-            notice(tr("notice.save_first"), AppKit.ERROR);
+            notice(tr("notice.save_first"), Ui.ERROR);
             return;
         }
         dialog.openName(tr("rename.title"), fileName(), input -> {
@@ -987,4 +985,18 @@ final class TextEditorApp extends ComputerApp {
         final ArrayDeque<Snapshot> undo = new ArrayDeque<>();
         final ArrayDeque<Snapshot> redo = new ArrayDeque<>();
     }
+
+    JsonObject saveResume() {
+        JsonObject json = new JsonObject();
+        if (!state.path.equals(UNTITLED)) json.addProperty("path", state.path);
+        return json;
+    }
+
+    void loadResume(JsonObject json) {
+        String path = ComputerResume.string(json, "path");
+        if (!path.startsWith("/") || path.equals(UNTITLED)) return;
+        state.pendingOpenPath = path;
+        ComputerNetworking.openFile(path);
+    }
+
 }

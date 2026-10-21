@@ -16,6 +16,7 @@ allprojects {
         maven { url 'https://maven.neoforged.net/releases' }
         maven { url 'https://api.modrinth.com/maven' }
         maven { url 'https://cursemaven.com' }
+        maven { url 'https://maven.blamejared.com/' }
         maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
         mavenCentral()
     }
@@ -68,4 +69,33 @@ tasks.named('jar') { enabled = false }
             }
         }
     }
+}
+
+def uiColorCheck = tasks.register('checkUiColors') {
+    group = 'verification'
+    description = 'Fails when AntOS interface code uses a color literal instead of a palette token from Ui'
+    def sources = fileTree(projectDir) {
+        include 'common-*/src/main/java/com/craisinlord/antos/content/client/**/*.java'
+        exclude '**/content/client/palette/**'
+        exclude '**/content/client/ComputerTheme.java'
+    }
+    def root = projectDir.toPath()
+    inputs.files(sources)
+    doLast {
+        def offenders = []
+        sources.each { file ->
+            file.readLines('UTF-8').eachWithIndex { line, index ->
+                if (line =~ /0x[0-9A-Fa-f]{8}\b(?!L)/ && !line.contains('value & 0x7FFFFFFF')) {
+                    offenders << "${root.relativize(file.toPath())}:${index + 1}: ${line.trim()}"
+                }
+            }
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException('Hard-coded interface colors found. Use a palette token from Ui instead:\n' + offenders.join('\n'))
+        }
+    }
+}
+
+subprojects {
+    tasks.matching { it.name == 'compileJava' }.configureEach { dependsOn(uiColorCheck) }
 }
