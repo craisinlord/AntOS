@@ -24,7 +24,20 @@ final class ArchiveApp extends ComputerApp {
     private Object textLanguage;
     private String textPlayer;
     private long textRevision = -1;
-    private int detailWidth = -1;
+    private long displayRevision = -1;
+    private long displayIndexRevision = -1;
+    private java.util.Set<Identifier> searchAccess = java.util.Set.of();
+    private String revealDisplay = "", revealVariant = "";
+
+    void revealDisplay(String display, String variant) { revealDisplay = display; revealVariant = variant; }
+    private boolean heroOpen;
+    private int revealScroll = -1;
+    private List<Anchor> anchors = List.of();
+    private Identifier anchorsFor;
+    private final java.util.Map<Identifier, Integer> pageScrolls = new java.util.HashMap<>();
+    private Identifier heroFor;
+    private java.util.Set<String> bookmarks = java.util.Set.of();
+    private List<String> recentEntries = List.of();
     private List<ComputerGuideData.Entry> filterSource;
     private String filterQuery;
     private Identifier filterFolder;
@@ -58,9 +71,11 @@ final class ArchiveApp extends ComputerApp {
         state.entryId = entry.id();
         openedEntry = entry.id();
         state.searchFocused = false;
-        state.detailScroll = 0;
+        state.detailScroll = pageScrolls.getOrDefault(entry.id(), 0);
         state.controlFocus = "content";
         ComputerNetworking.recordArchiveViewed(entry.id());
+        com.craisinlord.antos.config.AntOSSettings.recordArchiveEntry(
+                com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of(), entry.id().toString());
         if (!entry.structureId().isBlank() || !entry.locatorId().isBlank()) {
             com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.searching(entry.dimensionId(), entry.structureId().isBlank());
             ComputerNetworking.locateStructure(entry.id());
@@ -79,7 +94,7 @@ final class ArchiveApp extends ComputerApp {
         if (recovering) return;
         if (state.backHistory.size() >= 64) state.backHistory.remove(0);
         state.backHistory.add(new ViewState(state.folderId, state.entryId, state.search, state.scroll,
-                state.detailScroll, state.focusKey, state.gallery, List.copyOf(state.history)));
+                state.detailScroll, state.focusKey, state.gallery, state.favoritesOnly, state.recentOnly, List.copyOf(state.history)));
     }
 
     private void restoreView(ViewState view) {
@@ -91,6 +106,9 @@ final class ArchiveApp extends ComputerApp {
         state.detailScroll = view.detailScroll();
         state.focusKey = view.focus();
         state.gallery = view.gallery();
+        state.favoritesOnly = view.favoritesOnly();
+        state.recentOnly = view.recentOnly();
+        filterSource = null;
         state.history.clear();
         state.history.addAll(view.history());
         state.searchFocused = false;
@@ -103,6 +121,12 @@ final class ArchiveApp extends ComputerApp {
         List<Identifier> diskIds = screen.workspaceDiskIds();
         List<Identifier> unlocked = com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get();
         List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(diskIds, unlocked);
+        long indexRevision = DisplayArchiveIndex.update(entries);
+        java.util.Set<Identifier> accessible = entries.stream().map(ComputerGuideData.Entry::id).collect(java.util.stream.Collectors.toSet());
+        if (!accessible.equals(searchAccess) || displayRevision != com.craisinlord.antos.content.guide.CustomDisplays.revision() || displayIndexRevision != indexRevision) {
+            displayIndexRevision = indexRevision;
+            searchAccess = accessible; displayRevision = com.craisinlord.antos.content.guide.CustomDisplays.revision(); searchText.clear(); filterSource = null; filterResult = null;
+        }
         visibleItems = browseItems(entries);
         if (!state.focusKey.isEmpty() && visibleItems.stream().noneMatch(item -> item.key().equals(state.focusKey))) state.focusKey = "";
         ComputerGuideData.Entry selected = ComputerGuideData.availableEntry(diskIds, unlocked, state.entryId);
@@ -128,7 +152,7 @@ final class ArchiveApp extends ComputerApp {
         kit.suppressHover(breadcrumbMenu);
         renderToolbar(g, x, y, w, selected);
         renderBreadcrumbs(g, x, y + 21, w);
-        if (selected != null) renderArticle(g, selected, entries, x, y + ArchiveLayout.BODY_TOP, w - 8, layout.viewportHeight());
+        if (selected != null) renderArticle(g, selected, entries, x, y + ArchiveLayout.BODY_TOP, w - 8, layout.viewportHeight(), maximized);
         else renderBrowser(g, x, y, w);
         renderFooter(g, x, y + h - 11, w, selected, folders);
         if (breadcrumbMenu) {
@@ -150,9 +174,13 @@ final class ArchiveApp extends ComputerApp {
             state.searchFocused = false;
         });
         if (visibleItems.isEmpty()) {
-            g.drawString(font, Component.literal(tr(state.search.isBlank() ? "empty" : "no_results")), x + 6, top + 12, Ui.TEXT, false);
-            screen.wrap(g, tr(state.search.isBlank() ? "empty_hint" : "no_results_hint"), x + 6, top + 27, w - 22, Ui.TEXT_MUTED);
-            if (!state.search.isBlank()) kit.button(g, x + 6, top + 52, kit.labelWidth(tr("clear")), 18, tr("clear"), false, true, this::clearSearch);
+            if (state.favoritesOnly || state.recentOnly) {
+                screen.wrap(g, tr(state.favoritesOnly ? "favorites_empty" : "recent_empty"), x + 6, top + 12, w - 22, Ui.TEXT_MUTED);
+            } else {
+                g.drawString(font, Component.literal(tr(state.search.isBlank() ? "empty" : "no_results")), x + 6, top + 12, Ui.TEXT, false);
+                screen.wrap(g, tr(state.search.isBlank() ? "empty_hint" : "no_results_hint"), x + 6, top + 27, w - 22, Ui.TEXT_MUTED);
+                if (!state.search.isBlank()) kit.button(g, x + 6, top + 52, kit.labelWidth(tr("clear")), 18, tr("clear"), false, true, this::clearSearch);
+            }
         }
         screen.enableComputerScissor(g, x, top, x + w - 8, bottom);
         kit.clip(x, top, w - 8, layout.viewportHeight());
@@ -217,35 +245,94 @@ final class ArchiveApp extends ComputerApp {
         g.drawString(font, Component.literal(screen.trimToWidth(label, w - 8)), x + 3, y + 3, Ui.TEXT_MUTED, false);
     }
 
-    private void renderArticle(ThemedGraphics g, ComputerGuideData.Entry entry, List<ComputerGuideData.Entry> entries, int x, int top, int w, int h) {
-        state.detailScroll = Math.max(0, Math.min(state.detailScroll, state.detailMaxScroll));
+    private void renderArticle(ThemedGraphics g, ComputerGuideData.Entry entry, List<ComputerGuideData.Entry> entries, int x, int top, int w, int h, boolean maximized) {
+        state.detailScroll = Math.max(0, state.detailScroll);
         int bottom = top + h;
         int contentWidth = w - 12;
         int line = top + 5 - state.detailScroll * 11;
         screen.archiveGreenTint = entry.greenTint();
         screen.enableComputerScissor(g, x, top, x + w, bottom);
         kit.clip(x, top, w, h);
-        line = screen.wrap(g, entry.category().toUpperCase(Locale.ROOT), x + 5, line, contentWidth, Ui.TEXT_MUTED) + 7;
-        line = renderArticleTitle(g, AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString()), x + 5, line, contentWidth) + 5;
-        if (!entry.subtitleKey().isBlank()) line = screen.wrap(g, AntOSPlayerText.apply(translated(entry.subtitleKey())), x + 5, line, contentWidth, Ui.TEXT) + 7;
-        g.fill(x + 5, line, x + w - 5, line + 1, Ui.LINE);
-        line += 8;
+        if (!entry.id().equals(heroFor)) { heroFor = entry.id(); heroOpen = false; }
         String heroEntity = !entry.entityId().isBlank() ? entry.entityId()
                 : entry.itemId().isBlank() && entry.recipeId().isBlank() ? entry.coverEntityId() : "";
-        if (!heroEntity.isBlank()) line = visible(line, 96, top, bottom)
-                ? screen.renderArchivePreview(g, "", heroEntity, "", x + 5, line, contentWidth, entry.rotation(), entry.renderScale()) + 8 : line + 104;
-        else if (entry.itemId().isBlank() && entry.recipeId().isBlank() && entry.enchantmentId().isBlank()
-                && (!entry.coverItemId().isBlank() || !entry.coverPotionId().isBlank())) {
-            if (visible(line, 48, top, bottom)) screen.renderArchiveAsset(g, entry.coverItemId(), "", "", entry.coverPotionId(),
-                    x + contentWidth / 2, line + 24, 44, entry.rotation(), entry.renderScale());
-            line += 56;
+        boolean coverItem = heroEntity.isBlank() && entry.itemId().isBlank() && entry.recipeId().isBlank() && entry.enchantmentId().isBlank()
+                && (!entry.coverItemId().isBlank() || !entry.coverPotionId().isBlank());
+        boolean thumbnail = !heroEntity.isBlank() || coverItem;
+        boolean columns = maximized && contentWidth >= 360;
+        int leftWidth = columns ? (contentWidth - 8) * 40 / 100 : contentWidth;
+        int headerTop = line, textX = x + 5 + (thumbnail ? 38 : 0), textWidth = leftWidth - (thumbnail ? 38 : 0);
+        if (thumbnail) {
+            boolean hover = kit.hovered(x + 5, headerTop, 32, 32);
+            if (visible(headerTop, 32, top, bottom)) {
+                g.fill(x + 5, headerTop, x + 37, headerTop + 32, hover || heroOpen ? Ui.HOVER : Ui.SURFACE);
+                screen.box(g, x + 5, headerTop, x + 37, headerTop + 32, hover ? Ui.ACCENT : Ui.GRID_LINE);
+                screen.renderArchiveAsset(g, coverItem ? entry.coverItemId() : "", heroEntity, "", coverItem ? entry.coverPotionId() : "",
+                        x + 21, headerTop + 16, 28, entry.rotation(), entry.renderScale());
+            }
+            if (hover) kit.tooltip(tr(heroOpen ? "hide_preview" : "show_preview"));
+            kit.hit(x + 5, headerTop, 32, 32, () -> heroOpen = !heroOpen);
         }
-        for (String part : entry.descriptionKeys()) line = renderDescriptionPart(g, part, x + 5, line, contentWidth, top, bottom) + 4;
+        int textBottom = renderArticleTitle(g, AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString()), textX, line, textWidth) + 1;
+        if (!entry.subtitleKey().isBlank()) textBottom = renderScaledText(g, AntOSPlayerText.apply(translated(entry.subtitleKey())), textX, textBottom, textWidth, Ui.TEXT_MUTED, top, bottom);
+        line = Math.max(textBottom, thumbnail ? headerTop + 32 : textBottom) + 6;
+        if (thumbnail && heroOpen) {
+            if (!heroEntity.isBlank()) line = visible(line, 96, top, bottom)
+                    ? screen.renderArchivePreview(g, "", heroEntity, "", x + 5, line, leftWidth, entry.rotation(), entry.renderScale()) + 6 : line + 102;
+            else {
+                if (visible(line, 48, top, bottom)) screen.renderArchiveAsset(g, entry.coverItemId(), "", "", entry.coverPotionId(),
+                        x + 5 + leftWidth / 2, line + 24, 44, entry.rotation(), entry.renderScale());
+                line += 54;
+            }
+        }
+        revealScroll = -1;
+        List<Anchor> found = new java.util.ArrayList<>();
+        if (entry.id().equals(anchorsFor) && anchors.size() >= 2 && state.detailMaxScroll > 8) line = renderContents(g, x + 5, line, leftWidth, top, bottom) + 4;
+        List<Block> blocks = blocks(entry.descriptionKeys());
+        int rightX = x + 5 + leftWidth + 8, rightWidth = contentWidth - leftWidth - 8;
+        int leftY = line, rightY = columns ? headerTop : line, lastText = columns ? headerTop : line;
+        boolean firstText = true;
+        java.util.List<Pinned> pinned = new java.util.ArrayList<>();
+        for (int index = 0; index < blocks.size(); index++) {
+            Block block = blocks.get(index);
+            if (block.displays().isEmpty()) {
+                Block next = index + 1 < blocks.size() ? blocks.get(index + 1) : null;
+                if (!columns && next != null && next.beside() && contentWidth >= 300) {
+                    int besideWidth = (contentWidth - 6) * 55 / 100;
+                    int textEnd = renderDescriptionPart(g, block.part(), x + 5, leftY, besideWidth, top, bottom) + 3;
+                    int displayEnd = renderBlock(g, entry, next, x + 5 + besideWidth + 6, leftY, leftY, contentWidth - besideWidth - 6, top, bottom, found) + 4;
+                    leftY = Math.max(textEnd, displayEnd);
+                    index++;
+                    continue;
+                }
+                if (!columns || !firstText) lastText = leftY;
+                firstText = false;
+                leftY = renderDescriptionPart(g, block.part(), x + 5, leftY, leftWidth, top, bottom) + 3;
+            } else if (columns) {
+                int natural = Math.max(rightY, lastText);
+                pinned.add(new Pinned(block, natural));
+                rightY = natural + pinnedHeights.getOrDefault(entry.id() + "/" + block.index(), 150) + 4;
+            } else leftY = renderBlock(g, entry, block, x + 5, leftY, leftY, contentWidth, top, bottom, found) + 4;
+        }
+        int columnEnd = Math.max(leftY, rightY);
+        for (int i = 0; i < pinned.size(); i++) {
+            Pinned item = pinned.get(i);
+            String heightKey = entry.id() + "/" + item.block().index();
+            int known = pinnedHeights.getOrDefault(heightKey, 150);
+            int limit = i + 1 < pinned.size() ? pinned.get(i + 1).natural() : columnEnd;
+            int at = Math.max(item.natural(), Math.min(top + 4, limit - known - 4));
+            screen.displays.screenShare = .8F;
+            int end;
+            try { end = renderBlock(g, entry, item.block(), rightX, at, item.natural(), rightWidth, top, bottom, found); }
+            finally { screen.displays.screenShare = .7F; }
+            pinnedHeights.put(heightKey, end - at);
+            rightY = Math.max(rightY, item.natural() + end - at + 4);
+        }
+        line = Math.max(leftY, rightY);
+        if (!entry.gallery().isEmpty()) found.add(new Anchor(tr("gallery"), Math.max(0, state.detailScroll + (line - top - 5) / 11)));
         line = renderGallery(g, entry, entries, x + 5, line + 3, contentWidth, top, bottom);
-        if (!entry.itemId().isBlank()) line = visible(line, 48, top, bottom)
-                ? screen.renderArchivePreview(g, entry.itemId(), "", "", x + 5, line, contentWidth) + 8 : line + 56;
-        if (!entry.enchantmentId().isBlank()) line = visible(line, 48, top, bottom)
-                ? screen.renderArchivePreview(g, "", "", entry.enchantmentId(), x + 5, line, contentWidth) + 8 : line + 56;
+        if (!entry.itemId().isBlank()) line = renderCompactPreview(g, entry.itemId(), "", x + 5, line, contentWidth, top, bottom) + 4;
+        if (!entry.enchantmentId().isBlank()) line = renderCompactPreview(g, "", entry.enchantmentId(), x + 5, line, contentWidth, top, bottom) + 4;
         if (!entry.recipeId().isBlank()) line = screen.renderArchiveRecipe(g, entry.recipeId(), x + 5, line, contentWidth) + 8;
         if (!entry.structureId().isBlank() || !entry.locatorId().isBlank()) {
             g.fill(x + 5, line, x + w - 5, line + 1, Ui.LINE);
@@ -254,24 +341,143 @@ final class ArchiveApp extends ComputerApp {
         if (!entry.dimensionId().isBlank()) line = screen.wrap(g, tr("dimension", entry.dimensionId()), x + 5, line, contentWidth, Ui.TEXT_MUTED);
         kit.unclip();
         g.disableScissor();
+        anchors = found;
+        anchorsFor = entry.id();
         state.detailMaxScroll = Math.max(0, (line + state.detailScroll * 11 - bottom + 10) / 11);
-        state.detailScroll = Math.min(state.detailScroll, state.detailMaxScroll);
+        state.detailScroll = Math.min(revealScroll >= 0 ? revealScroll : state.detailScroll, state.detailMaxScroll);
+        pageScrolls.put(entry.id(), state.detailScroll);
         kit.scrollbar(g, x + w + 4, top, h, Math.max(1, h / 11), Math.max(1, h / 11) + state.detailMaxScroll,
                 state.detailScroll, state.detailMaxScroll, value -> state.detailScroll = value);
         focusTargets.add(new FocusTarget("content", x, top, w, h, () -> state.controlFocus = "content"));
     }
 
     private int renderArticleTitle(ThemedGraphics g, String title, int x, int y, int w) {
-        var lines = font.split(Component.literal(title), Math.max(1, (int) (w / 1.25F)));
+        var lines = font.split(Component.literal(title), Math.max(1, (int) (w / 1.1F)));
         g.pose().pushPose();
         try {
             g.pose().translate(x, y, 0);
-            g.pose().scale(1.25F, 1.25F, 1.0F);
+            g.pose().scale(1.1F, 1.1F, 1.0F);
             for (int index = 0; index < lines.size(); index++) g.drawString(font, lines.get(index), 0, index * 11, Ui.TEXT_STRONG, false);
         } finally {
             g.pose().popPose();
         }
-        return y + lines.size() * 14;
+        return y + lines.size() * 12;
+    }
+
+    private record Block(String part, List<String> displays, boolean beside, int index) { }
+
+    private record Anchor(String label, int scroll) { }
+
+    private static List<Block> blocks(List<String> parts) {
+        List<Block> result = new java.util.ArrayList<>();
+        boolean beside = false;
+        for (int index = 0; index < parts.size(); index++) {
+            String part = parts.get(index);
+            if (part.equals("@beside")) { beside = true; continue; }
+            if (part.startsWith("@display:")) {
+                String id = part.substring(9);
+                Block last = result.isEmpty() ? null : result.get(result.size() - 1);
+                if (!beside && last != null && !last.displays().isEmpty() && !last.beside()) last.displays().add(id);
+                else result.add(new Block("", new java.util.ArrayList<>(List.of(id)), beside, index));
+                beside = false;
+            } else {
+                result.add(new Block(part, List.of(), false, index));
+                beside = false;
+            }
+        }
+        return result;
+    }
+
+    private record Pinned(Block block, int natural) { }
+
+    private final java.util.Map<String, Integer> pinnedHeights = new java.util.HashMap<>();
+
+    private int renderBlock(ThemedGraphics g, ComputerGuideData.Entry entry, Block block, int x, int y, int anchorY, int w, int top, int bottom, List<Anchor> found) {
+        List<String> ids = block.displays();
+        String label = screen.displays.title(ids.get(0)) + (ids.size() > 1 ? " +" + (ids.size() - 1) : "");
+        int scroll = Math.max(0, state.detailScroll + (anchorY - top - 5) / 11);
+        found.add(new Anchor(label, scroll));
+        String key = "archive/" + entry.id() + "/" + block.index();
+        if (!revealDisplay.isEmpty() && ids.contains(revealDisplay)) {
+            if (ids.size() > 1) screen.displays.selectTab(key, ids, revealDisplay);
+            screen.displays.selectVariant(ids.size() > 1 ? key + "/" + revealDisplay : key, revealVariant);
+            revealScroll = scroll;
+            revealDisplay = "";
+            revealVariant = "";
+        }
+        return ids.size() == 1 ? screen.displays.render(g, ids.get(0), key, x, y, w, top, bottom) : screen.displays.renderTabs(g, ids, key, x, y, w, top, bottom);
+    }
+
+    private int renderContents(ThemedGraphics g, int x, int y, int w, int top, int bottom) {
+        float scale = textScale();
+        int cx = x, cy = y;
+        for (Anchor anchor : anchors) {
+            String label = screen.trimToWidth(anchor.label(), (int) (110 / scale));
+            int chipWidth = (int) (font.width(label) * scale) + 8;
+            if (cx > x && cx + chipWidth > x + w) { cx = x; cy += 13; }
+            boolean hover = kit.hovered(cx, cy, chipWidth, 11);
+            if (visible(cy, 11, top, bottom)) {
+                g.fill(cx, cy, cx + chipWidth, cy + 11, hover ? Ui.HOVER : Ui.SURFACE);
+                screen.box(g, cx, cy, cx + chipWidth, cy + 11, hover ? Ui.ACCENT : Ui.GRID_LINE);
+                drawScaled(g, net.minecraft.util.FormattedCharSequence.forward(label, net.minecraft.network.chat.Style.EMPTY), cx + 4, cy + 2, scale, hover ? Ui.ACCENT : Ui.TEXT);
+            }
+            kit.hit(cx, cy, chipWidth, 11, () -> state.detailScroll = Math.min(anchor.scroll(), state.detailMaxScroll));
+            cx += chipWidth + 3;
+        }
+        return cy + 11;
+    }
+
+    static float textScale() {
+        return switch (com.craisinlord.antos.config.AntOSSettings.preferences().archiveText) {
+            case "normal" -> 1.0F;
+            case "large" -> 1.15F;
+            default -> 0.85F;
+        };
+    }
+
+    static int lineHeight() {
+        return switch (com.craisinlord.antos.config.AntOSSettings.preferences().archiveText) {
+            case "normal" -> 10;
+            case "large" -> 12;
+            default -> 9;
+        };
+    }
+
+    private int renderScaledText(ThemedGraphics g, String text, int x, int y, int w, int color, int clipTop, int clipBottom) {
+        float scale = textScale();
+        int height = lineHeight();
+        for (var line : font.split(Component.literal(text), Math.max(1, (int) (w / scale)))) {
+            if (visible(y, height, clipTop, clipBottom)) drawScaled(g, line, x, y, scale, color);
+            y += height;
+        }
+        return y;
+    }
+
+    private void drawScaled(ThemedGraphics g, net.minecraft.util.FormattedCharSequence line, int x, int y, float scale, int color) {
+        g.pose().pushPose();
+        try {
+            g.pose().translate(x, y, 0);
+            g.pose().scale(scale, scale, 1.0F);
+            g.drawString(font, line, 0, 0, color, false);
+        } finally {
+            g.pose().popPose();
+        }
+    }
+
+    private int renderCompactPreview(ThemedGraphics g, String itemId, String enchantmentId, int x, int y, int w, int clipTop, int clipBottom) {
+        if (!visible(y, 22, clipTop, clipBottom)) return y + 22;
+        g.fill(x, y, x + 22, y + 22, Ui.SURFACE);
+        screen.renderArchiveAsset(g, itemId, "", enchantmentId, "", x + 11, y + 11, 18, 0.0F, 1.0F);
+        String name;
+        if (!enchantmentId.isBlank()) name = tr("enchantment_label", enchantmentId);
+        else {
+            Identifier id = Identifier.tryParse(itemId);
+            var item = id == null ? net.minecraft.world.item.Items.AIR : net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(id);
+            name = item == net.minecraft.world.item.Items.AIR ? itemId : new net.minecraft.world.item.ItemStack(item).getHoverName().getString();
+        }
+        drawScaled(g, net.minecraft.util.FormattedCharSequence.forward(screen.trimToWidth(name, (int) ((w - 28) / textScale())), net.minecraft.network.chat.Style.EMPTY),
+                x + 28, y + 7, textScale(), Ui.TEXT);
+        return y + 22;
     }
 
     private static String folderPathTitle(Identifier folderId) {
@@ -299,10 +505,10 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private void renderToolbar(ThemedGraphics g, int x, int y, int w, ComputerGuideData.Entry selected) {
-        control(g, "back", x, y, 18, "<", false, selected != null || state.folderId != null || !state.backHistory.isEmpty(), tr("back"), this::goBack);
+        control(g, "back", x, y, 18, "<", false, selected != null || state.folderId != null || state.favoritesOnly || state.recentOnly || !state.backHistory.isEmpty(), tr("back"), this::goBack);
         control(g, "up", x + 21, y, 18, "^", false, selected != null || state.folderId != null, tr("up"), this::goUp);
         int fieldX = x + 42;
-        int fieldW = Math.max(30, w - 84);
+        int fieldW = Math.max(30, w - 126);
         String scope = state.folderId == null ? Component.translatable("computer.antos.app.archive.name").getString() : folderPathTitle(state.folderId);
         kit.field(g, fieldX, y, fieldW - 21, 18, state.search, state.search.length(), state.searchFocused, tr("search", scope));
         if (kit.hovered(fieldX, y, fieldW - 21, 18)) kit.tooltip(tr("search", scope));
@@ -311,8 +517,30 @@ final class ArchiveApp extends ComputerApp {
             focusTargets.add(new FocusTarget("search", fieldX, y, fieldW, 18, this::focusSearch));
         }
         control(g, "clear", fieldX + fieldW - 18, y, 18, "X", false, selected == null && !state.search.isEmpty(), tr("clear"), this::clearSearch);
+        control(g, "recent", x + w - 81, y, 18, "R", state.recentOnly, selected == null, tr("recent"), () -> toggleCollection(false));
+        boolean starred = selected == null ? state.favoritesOnly : bookmarks.contains(selected.id().toString());
+        control(g, "favorite", x + w - 60, y, 18, starred ? "★" : "☆", starred, true,
+                tr(selected == null ? "favorites" : starred ? "unbookmark" : "bookmark"), () -> {
+                    if (selected == null) toggleCollection(true);
+                    else com.craisinlord.antos.config.AntOSSettings.toggleArchiveBookmark(
+                            com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of(), selected.id().toString());
+                });
         control(g, "list", x + w - 39, y, 18, "=", !state.gallery, selected == null, tr("list_view"), () -> setGallery(false));
         control(g, "grid", x + w - 18, y, 18, "+", state.gallery, selected == null, tr("gallery_view"), () -> setGallery(true));
+    }
+
+    private void toggleCollection(boolean favorites) {
+        rememberView();
+        boolean wasActive = favorites ? state.favoritesOnly : state.recentOnly;
+        state.favoritesOnly = favorites && !wasActive;
+        state.recentOnly = !favorites && !wasActive;
+        state.folderId = null;
+        state.entryId = null;
+        state.search = "";
+        state.scroll = 0;
+        state.focusKey = "";
+        state.searchFocused = false;
+        filterSource = null;
     }
 
     private void focusSearch() {
@@ -381,6 +609,8 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private String crumbTitle(Identifier id) {
+        if (id == null && state.favoritesOnly) return tr("favorites");
+        if (id == null && state.recentOnly) return tr("recent");
         return id == null ? Component.translatable("computer.antos.app.archive.name").getString()
                 : AntOSPlayerText.apply(ComputerGuideData.archiveFolderTitle(ComputerGuideData.archiveFolder(id)).getString());
     }
@@ -456,12 +686,16 @@ final class ArchiveApp extends ComputerApp {
 
     private void navigateTo(Identifier folder) {
         if (ComputerGuideData.archiveFolder(folder) == null) folder = null;
-        if (state.entryId != null || !java.util.Objects.equals(state.folderId, folder)) rememberView();
+        boolean collection = state.favoritesOnly || state.recentOnly;
+        if (state.entryId != null || state.favoritesOnly || state.recentOnly || !java.util.Objects.equals(state.folderId, folder)) rememberView();
+        state.favoritesOnly = false;
+        state.recentOnly = false;
+        filterSource = null;
         state.entryId = null;
         state.detailScroll = 0;
         state.searchFocused = false;
         kit.release();
-        if (java.util.Objects.equals(state.folderId, folder)) return;
+        if (!collection && java.util.Objects.equals(state.folderId, folder)) return;
         state.folderId = folder;
         for (int index = state.history.size() - 1; index >= 0; index--) {
             BrowseLocation location = state.history.get(index);
@@ -504,6 +738,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private List<ComputerGuideData.Entry> filterEntries(List<ComputerGuideData.Entry> entries) {
+        syncCollections();
         validateTextCaches();
         if (filterSource != entries) {
             while (state.folderId != null && entries.stream().noneMatch(entry -> ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))) {
@@ -517,11 +752,14 @@ final class ArchiveApp extends ComputerApp {
         if (filterSource == entries && query.equals(filterQuery) && java.util.Objects.equals(filterFolder, state.folderId)) return filterResult;
         if (searchText.size() > entries.size() * 2 + 64) searchText.clear();
         List<ComputerGuideData.Entry> result = entries.stream()
-                .filter(entry -> ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))
+                .filter(entry -> state.favoritesOnly || state.recentOnly || ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))
+                .filter(entry -> !state.favoritesOnly || bookmarks.contains(entry.id().toString()))
+                .filter(entry -> !state.recentOnly || recentEntries.contains(entry.id().toString()))
                 .filter(entry -> query.isEmpty() || searchText.computeIfAbsent(entry, this::entrySearchText).contains(query))
                 .sorted(java.util.Comparator.comparingInt(ComputerGuideData.Entry::sortOrder)
                         .thenComparing(entry -> AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString()), String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(entry -> entry.id().toString())).toList();
+        if (state.recentOnly) result = result.stream().sorted(java.util.Comparator.comparingInt(entry -> recentEntries.indexOf(entry.id().toString()))).toList();
         filterSource = entries;
         filterQuery = query;
         filterFolder = state.folderId;
@@ -529,11 +767,22 @@ final class ArchiveApp extends ComputerApp {
         return result;
     }
 
+    private void syncCollections() {
+        String workspace = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
+        var savedBookmarks = com.craisinlord.antos.config.AntOSSettings.archiveBookmarks(workspace);
+        var savedRecent = com.craisinlord.antos.config.AntOSSettings.recentArchiveEntries(workspace);
+        if (!savedBookmarks.equals(bookmarks) || !savedRecent.equals(recentEntries)) {
+            bookmarks = savedBookmarks;
+            recentEntries = savedRecent;
+            filterSource = null;
+        }
+    }
+
     private List<BrowseItem> browseItems(List<ComputerGuideData.Entry> entries) {
         List<ComputerGuideData.Entry> filtered = filterEntries(entries);
         if (browseSource == filtered && browseResult != null) return browseResult;
         List<BrowseItem> result = new java.util.ArrayList<>();
-        if (state.search.isBlank()) {
+        if (state.search.isBlank() && !state.favoritesOnly && !state.recentOnly) {
             java.util.Map<Identifier, Integer> counts = new java.util.HashMap<>();
             for (ComputerGuideData.Entry entry : filtered) {
                 Identifier folder = ComputerGuideData.archiveFolderId(entry);
@@ -595,18 +844,17 @@ final class ArchiveApp extends ComputerApp {
 
     private List<net.minecraft.util.FormattedCharSequence> detailLines(String part, int w) {
         validateTextCaches();
-        if (w != detailWidth || detailLines.size() > 512) {
-            detailWidth = w;
-            detailLines.clear();
-        }
-        return detailLines.computeIfAbsent(part, key -> font.split(Component.literal(AntOSPlayerText.apply(translated(key))), w));
+        if (detailLines.size() > 512) detailLines.clear();
+        return detailLines.computeIfAbsent(w + "|" + part, key -> font.split(Component.literal(AntOSPlayerText.apply(translated(part))), w));
     }
 
     private String entrySearchText(ComputerGuideData.Entry entry) {
         StringBuilder text = new StringBuilder();
+        if (screen != null) text.append(DisplayArchiveIndex.text(entry, ComputerGuideData.entriesFor(screen.workspaceDiskIds(), com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get()))).append(' ');
         text.append(ComputerGuideData.archiveTitle(entry).getString()).append(' ');
         if (!entry.subtitleKey().isBlank()) text.append(Component.translatable(entry.subtitleKey()).getString()).append(' ');
         for (String part : entry.descriptionKeys()) {
+            if (part.equals("@beside")) continue;
             if (part.startsWith("@item:") || part.startsWith("@entity:") || part.startsWith("@enchantment:") || part.startsWith("@recipe:")) {
                 text.append(part.substring(part.indexOf(':') + 1).replace('_', ' ').replace(':', ' ')).append(' ');
             } else if (part.startsWith("literal:")) {
@@ -658,10 +906,10 @@ final class ArchiveApp extends ComputerApp {
         List<ComputerGuideData.GalleryItem> gallery = selected.gallery();
         if (gallery.isEmpty()) return y;
         String title = selected.galleryTitleKey().isBlank() ? tr("gallery") : Component.translatable(selected.galleryTitleKey()).getString().toUpperCase(Locale.ROOT);
-        y = screen.wrap(g, title + " // " + gallery.size(), x, y + 2, w, Ui.TEXT) + 3;
-        int cell = 48;
-        int cellWidth = 64;
-        int cellHeight = cell + 26;
+        y = renderScaledText(g, title + " // " + gallery.size(), x, y + 2, w, Ui.TEXT_MUTED, clipTop, clipBottom) + 2;
+        int cell = 22;
+        int cellWidth = 24;
+        int cellHeight = 24;
         int columns = Math.max(1, (w + cellWidth - cell) / cellWidth);
         for (int index = 0; index < gallery.size(); index++) {
             ComputerGuideData.GalleryItem galleryItem = gallery.get(index);
@@ -674,10 +922,8 @@ final class ArchiveApp extends ComputerApp {
             boolean hover = target != null && screen.inside(cellX, cellY, cell, cell, screen.session.archiveMouseX, screen.session.archiveMouseY);
             g.fill(cellX, cellY, cellX + cell, cellY + cell, hover ? Ui.HOVER : Ui.SURFACE);
             if (target != null) screen.box(g, cellX, cellY, cellX + cell, cellY + cell, hover ? Ui.ACCENT : Ui.GRID_LINE);
-            screen.renderArchiveAsset(g, itemId, entityId, "", "", cellX + cell / 2, cellY + cell / 2, cell - 6, 0.0F, 1.0F);
-            List<net.minecraft.util.FormattedCharSequence> nameLines = font.split(Component.literal(galleryName(galleryItem, entityId)), cellWidth - 4);
-            for (int nameLine = 0; nameLine < Math.min(2, nameLines.size()); nameLine++)
-                g.drawString(font, nameLines.get(nameLine), cellX, cellY + cell + 3 + nameLine * 10, target != null ? Ui.ACCENT : Ui.TEXT, false);
+            screen.renderArchiveAsset(g, itemId, entityId, "", "", cellX + cell / 2, cellY + cell / 2, cell - 4, 0.0F, 1.0F);
+            if (kit.hovered(cellX, cellY, cell, cell)) kit.tooltip(galleryName(galleryItem, entityId) + (target != null ? "  >" : ""));
             if (target != null && cellY >= clipTop && cellY + cell <= clipBottom)
                 kit.hit(cellX, cellY, cell, cell, () -> {
                     ComputerGuideData.Entry entry = ComputerGuideData.availableEntry(screen.workspaceDiskIds(),
@@ -715,15 +961,17 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private int renderDescriptionPart(ThemedGraphics g, String part, int x, int y, int w, int clipTop, int clipBottom) {
-        if (part.startsWith("@item:")) return visible(y, 48, clipTop, clipBottom) ? screen.renderArchivePreview(g, part.substring(6), "", "", x, y, w) + 2 : y + 50;
+        if (part.startsWith("@item:")) return renderCompactPreview(g, part.substring(6), "", x, y, w, clipTop, clipBottom) + 2;
         if (part.startsWith("@entity:")) return visible(y, 96, clipTop, clipBottom) ? screen.renderArchivePreview(g, "", part.substring(8), "", x, y, w) + 2 : y + 98;
-        if (part.startsWith("@enchantment:")) return visible(y, 48, clipTop, clipBottom) ? screen.renderArchivePreview(g, "", "", part.substring(13), x, y, w) + 2 : y + 50;
+        if (part.startsWith("@enchantment:")) return renderCompactPreview(g, "", part.substring(13), x, y, w, clipTop, clipBottom) + 2;
         if (part.startsWith("@recipe:")) return screen.renderArchiveRecipe(g, part.substring(8), x, y, w) + 2;
-        for (var line : detailLines(part, w)) {
-            if (visible(y, 11, clipTop, clipBottom)) g.drawString(font, line, x, y, Ui.TEXT_STRONG, false);
-            y += 11;
+        float scale = textScale();
+        int height = lineHeight();
+        for (var line : detailLines(part, Math.max(1, (int) (w / scale)))) {
+            if (visible(y, height, clipTop, clipBottom)) drawScaled(g, line, x, y, scale, Ui.TEXT_STRONG);
+            y += height;
         }
-        return y + 3;
+        return y + 1;
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
@@ -744,7 +992,7 @@ final class ArchiveApp extends ComputerApp {
 
     boolean scroll(Window window, double mouseX, double mouseY, double scrollY) {
         if (breadcrumbMenu) return true;
-        if (state.entryId != null) state.detailScroll = Math.max(0, Math.min(state.detailMaxScroll, state.detailScroll - (int) Math.signum(scrollY) * 3));
+        if (state.entryId != null) state.detailScroll = Math.max(0, Math.min(state.detailMaxScroll, state.detailScroll - (int) Math.signum(scrollY) * 5));
         else if (layout != null) state.scroll = Math.max(0, Math.min(layout.maximumScroll(), state.scroll - (int) Math.signum(scrollY) * 16));
         return true;
     }
@@ -764,7 +1012,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
-        if (keyCode == InputConstants.KEY_F && (modifiers & 2) != 0 && state.entryId == null) {
+        if (keyCode == InputConstants.KEY_F && (modifiers & InputConstants.MOD_CONTROL) != 0 && state.entryId == null) {
             focusSearch();
             return true;
         }
@@ -772,7 +1020,7 @@ final class ArchiveApp extends ComputerApp {
             if (focusTargets.isEmpty()) return true;
             int current = -1;
             for (int index = 0; index < focusTargets.size(); index++) if (focusTargets.get(index).key().equals(state.controlFocus)) current = index;
-            int next = Math.floorMod(current + ((modifiers & 1) != 0 ? -1 : 1), focusTargets.size());
+            int next = Math.floorMod(current + ((modifiers & InputConstants.MOD_SHIFT) != 0 ? -1 : 1), focusTargets.size());
             state.controlFocus = focusTargets.get(next).key();
             state.searchFocused = state.controlFocus.equals("search");
             return true;
@@ -783,7 +1031,8 @@ final class ArchiveApp extends ComputerApp {
             else if (state.searchFocused) {
                 state.searchFocused = false;
                 state.controlFocus = "content";
-            } else if (state.folderId != null) openParent();
+            } else if (state.favoritesOnly || state.recentOnly) goBack();
+            else if (state.folderId != null) openParent();
             else return false;
             return true;
         }
@@ -846,7 +1095,7 @@ final class ArchiveApp extends ComputerApp {
     private record BreadcrumbButton(int left, int top, int right, int bottom, Identifier folder, boolean back) { }
     private record FocusTarget(String key, int x, int y, int w, int h, Runnable action) { }
     private record ViewState(Identifier folder, Identifier entry, String search, int scroll, int detailScroll,
-                             String focus, boolean gallery, List<BrowseLocation> history) { }
+                             String focus, boolean gallery, boolean favoritesOnly, boolean recentOnly, List<BrowseLocation> history) { }
 
     static final class State {
         Identifier entryId;
@@ -857,6 +1106,8 @@ final class ArchiveApp extends ComputerApp {
         String search = "";
         boolean searchFocused;
         boolean gallery;
+        boolean favoritesOnly;
+        boolean recentOnly;
         String focusKey = "";
         String controlFocus = "content";
         int detailScroll;
@@ -865,12 +1116,24 @@ final class ArchiveApp extends ComputerApp {
 
     JsonObject saveResume() {
         JsonObject json = new JsonObject();
+        json.addProperty("gallery", state.gallery);
+        json.addProperty("favorites", state.favoritesOnly);
+        json.addProperty("recent", state.recentOnly);
+        json.addProperty("search", state.search);
+        json.addProperty("scroll", state.scroll);
+        json.addProperty("detail_scroll", state.detailScroll);
         if (state.folderId != null) json.addProperty("folder", state.folderId.toString());
         if (state.entryId != null) json.addProperty("entry", state.entryId.toString());
         return json;
     }
 
     void loadResume(JsonObject json) {
+        state.gallery = ComputerResume.flag(json, "gallery");
+        state.favoritesOnly = ComputerResume.flag(json, "favorites");
+        state.recentOnly = !state.favoritesOnly && ComputerResume.flag(json, "recent");
+        state.search = ComputerResume.string(json, "search");
+        state.scroll = Math.max(0, ComputerResume.number(json, "scroll"));
+        state.detailScroll = Math.max(0, ComputerResume.number(json, "detail_scroll"));
         String folder = ComputerResume.string(json, "folder");
         String entry = ComputerResume.string(json, "entry");
         if (!folder.isEmpty()) state.folderId = Identifier.tryParse(folder);

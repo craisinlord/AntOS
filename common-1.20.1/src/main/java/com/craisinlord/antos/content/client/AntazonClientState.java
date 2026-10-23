@@ -156,7 +156,7 @@ public final class AntazonClientState {
                 int units = envelope.length > 3 ? parseInt(envelope[3]) : 0;
                 String receipt = envelope.length > 4 ? envelope[4] : "";
                 NOTICES.put(key, new Notice("purchase", envelope.length > 1 ? envelope[1] : "", product, units, receipt, success, System.currentTimeMillis()));
-                playFeedback(AntazonTransactionFeedback.purchase(success));
+                playFeedback(AntazonTransactionFeedback.purchase(success), icon(product, ""));
                 refreshAfterPurchase();
             } else if (data.startsWith(ComputerAccessPayload.ANTAZON_CART + "\0")) {
                 String[] envelope = data.split("\u0000", 3);
@@ -178,7 +178,8 @@ public final class AntazonClientState {
                     CARTS.put(key, cart(response.getAsJsonArray("cart")));
                     CART_RECEIVED.put(key, true);
                     playFeedback(AntazonTransactionFeedback.checkout(result.result() == ComputerAccessResultPayload.SUCCESS,
-                            lines.stream().map(CheckoutLine::status).toList()));
+                            lines.stream().map(CheckoutLine::status).toList()), lines.stream().filter(line -> "accepted".equals(line.status()))
+                            .findFirst().map(line -> icon(line.product(), line.variant())).orElse(null));
                 } else {
                     AntOSUiSounds.play(AntOSUiSounds.Cue.ERROR);
                     NOTICES.put(key, new Notice("purchase", envelope.length > 1 ? envelope[1] : "invalid_request", "", 0, "", false, System.currentTimeMillis()));
@@ -195,7 +196,7 @@ public final class AntazonClientState {
                 STATUS.put(key, status);
                 SELL_FEEDBACK.put(key, status);
                 if (envelope.length > 2 && !envelope[2].isBlank()) SELL_AMOUNT.put(key, Long.parseLong(envelope[2]));
-                playFeedback(AntazonTransactionFeedback.sale(result.result() == ComputerAccessResultPayload.SUCCESS));
+                playFeedback(AntazonTransactionFeedback.sale(result.result() == ComputerAccessResultPayload.SUCCESS), null);
                 if (result.result() == ComputerAccessResultPayload.SUCCESS) {
                     com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonSellState();
                     com.craisinlord.antos.content.network.ComputerNetworking.requestAntazonPrices();
@@ -209,10 +210,26 @@ public final class AntazonClientState {
         }
     }
 
-    private static void playFeedback(AntazonTransactionFeedback feedback) {
+    private static PreviewAsset icon(String productId, String variant) {
+        if (variant != null && !variant.isBlank()) return new PreviewAsset(variant, "");
+        ProductRow product = product(productId);
+        return product == null ? null : product.thumbnail();
+    }
+
+    private static void playFeedback(AntazonTransactionFeedback feedback, PreviewAsset icon) {
+        String iconItem = icon == null || icon.item() == null ? "" : icon.item();
+        String iconEntity = icon == null || icon.entity() == null ? "" : icon.entity();
         switch (feedback) {
-            case ORDER -> AntOSUiSounds.play(AntOSUiSounds.Cue.ORDER);
-            case SALE -> AntOSUiSounds.play(AntOSUiSounds.Cue.SALE);
+            case ORDER -> {
+                AntOSUiSounds.play(AntOSUiSounds.Cue.ORDER);
+                ComputerNotificationClientState.record("order", net.minecraft.network.chat.Component.translatable("computer.antos.notify.order_title"),
+                        net.minecraft.network.chat.Component.translatable("computer.antos.notify.order_message"), "", iconItem, iconEntity);
+            }
+            case SALE -> {
+                AntOSUiSounds.play(AntOSUiSounds.Cue.SALE);
+                ComputerNotificationClientState.record("sale", net.minecraft.network.chat.Component.translatable("computer.antos.notify.sale_title"),
+                        net.minecraft.network.chat.Component.translatable("computer.antos.notify.sale_message"));
+            }
             case ERROR -> AntOSUiSounds.play(AntOSUiSounds.Cue.ERROR);
             case NONE -> { }
         }

@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ThemedGraphics {
     private static final Field GUI_RENDER_STATE_FIELD = field(GuiGraphicsExtractor.class, "guiRenderState");
+    private static final Field SCISSOR_STACK_FIELD = field(GuiGraphicsExtractor.class, "scissorStack");
     private static final Field ITEM_LAYERS_FIELD = field(ItemStackRenderState.class, "layers");
     private static final Field ITEM_LAYER_COUNT_FIELD = field(ItemStackRenderState.class, "activeLayerCount");
     private static final Field LAYER_QUADS_FIELD = field(ItemStackRenderState.LayerRenderState.class, "quads");
@@ -151,6 +152,44 @@ public final class ThemedGraphics {
                      int sourceWidth, int sourceHeight, int textureWidth, int textureHeight) {
         source.blit(RenderPipelines.GUI_TEXTURED, texture, x, y, (float) u, (float) v, width, height,
                 sourceWidth, sourceHeight, textureWidth, textureHeight, colorMultiplier);
+    }
+
+    public void renderItemDecorations(Font font, ItemStack stack, int x, int y, String text) {
+        source.itemDecorations(font, stack, x, y, text);
+    }
+
+    public void blitSprite(net.minecraft.client.renderer.texture.TextureAtlasSprite sprite, int x, int y, int width, int height, int color) {
+        int spriteWidth = sprite.contents().width(), spriteHeight = sprite.contents().height();
+        int atlasWidth = Math.round(spriteWidth / Math.max(1.0E-6F, sprite.getU1() - sprite.getU0()));
+        int atlasHeight = Math.round(spriteHeight / Math.max(1.0E-6F, sprite.getV1() - sprite.getV0()));
+        source.blit(RenderPipelines.GUI_TEXTURED, sprite.atlasLocation(), x, y, (float) sprite.getX(), (float) sprite.getY(), width, height,
+                spriteWidth, spriteHeight, atlasWidth, atlasHeight, applyColor(color));
+    }
+
+    public net.minecraft.client.gui.navigation.ScreenRectangle scissor() {
+        try {
+            Object stack = SCISSOR_STACK_FIELD == null ? null : SCISSOR_STACK_FIELD.get(source);
+            if (stack == null) return null;
+            Method peek = stack.getClass().getDeclaredMethod("peek");
+            peek.setAccessible(true);
+            return (net.minecraft.client.gui.navigation.ScreenRectangle) peek.invoke(stack);
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            return null;
+        }
+    }
+
+    public void submitElement(net.minecraft.client.renderer.state.gui.GuiElementRenderState state) {
+        GuiRenderState renderState = guiRenderState();
+        if (renderState != null) renderState.addGuiElement(state);
+    }
+
+    public void submitPicture(net.minecraft.client.renderer.state.gui.pip.PictureInPictureRenderState state) {
+        GuiRenderState renderState = guiRenderState();
+        if (renderState != null) renderState.addPicturesInPictureState(state);
+    }
+
+    public int tint(int color) {
+        return applyColor(color);
     }
 
     private int applyColor(int color) {

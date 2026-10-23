@@ -9,8 +9,8 @@ import java.util.regex.Pattern;
 
 /** Converts explicit Archive-style render markers in mail into portable attachments. */
 public final class AntmailRenderMarkers {
-    private static final Pattern MARKER = Pattern.compile("@(item|entity|enchantment|potion|recipe):([a-z0-9_.-]+:[a-z0-9_./-]+)");
-    private static final Set<String> KINDS = Set.of("item", "entity", "enchantment", "potion", "recipe");
+    private static final Pattern MARKER = Pattern.compile("@(item|entity|enchantment|potion|recipe|display|archive):([a-z0-9_.-]+:[a-z0-9_./-]+)");
+    private static final Set<String> KINDS = Set.of("item", "entity", "enchantment", "potion", "recipe", "display", "archive");
 
     private AntmailRenderMarkers() { }
 

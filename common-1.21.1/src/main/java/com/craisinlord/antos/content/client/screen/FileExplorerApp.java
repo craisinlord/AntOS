@@ -147,21 +147,21 @@ final class FileExplorerApp extends ComputerApp {
         buttonX += BUTTON + 1;
         kit.divider(g, buttonX + 1, y, TOOLBAR);
         buttonX += 4;
-        kit.iconButton(g, buttonX, y, BUTTON, icon("new_folder"), false, writable, tr("tip.new_folder"), this::newFolder);
+        kit.iconButton(g, buttonX, y, BUTTON, icon("new_folder"), false, writable, (writable ? tr("tip.new_folder") : tr("tip.read_only")), this::newFolder);
         buttonX += BUTTON + 1;
-        kit.iconButton(g, buttonX, y, BUTTON, icon("new_text"), false, writable, tr("tip.new_text"), this::newTextFile);
+        kit.iconButton(g, buttonX, y, BUTTON, icon("new_text"), false, writable, (writable ? tr("tip.new_text") : tr("tip.read_only")), this::newTextFile);
         buttonX += BUTTON + 1;
-        kit.iconButton(g, buttonX, y, BUTTON, icon("new_image"), false, writable, tr("tip.new_image"), this::newPainting);
+        kit.iconButton(g, buttonX, y, BUTTON, icon("new_image"), false, writable, (writable ? tr("tip.new_image") : tr("tip.read_only")), this::newPainting);
         buttonX += BUTTON + 1;
         kit.divider(g, buttonX + 1, y, TOOLBAR);
         buttonX += 4;
-        kit.iconButton(g, buttonX, y, BUTTON, icon("open"), false, selected != null, tr("tip.open"), () -> activate(find(state.selected)));
+        kit.iconButton(g, buttonX, y, BUTTON, icon("open"), false, selected != null, (selected == null ? tr("tip.select_first") : tr("tip.open")), () -> activate(find(state.selected)));
         buttonX += BUTTON + 1;
-        kit.iconButton(g, buttonX, y, BUTTON, icon("pencil"), false, mutable, tr("tip.rename"), () -> rename(find(state.selected)));
+        kit.iconButton(g, buttonX, y, BUTTON, icon("pencil"), false, mutable, (selected == null ? tr("tip.select_first") : !mutable ? tr("tip.protected") : tr("tip.rename")), () -> rename(find(state.selected)));
         buttonX += BUTTON + 1;
-        kit.iconButton(g, buttonX, y, BUTTON, icon("move"), false, mutable, tr("tip.move"), () -> move(find(state.selected)));
+        kit.iconButton(g, buttonX, y, BUTTON, icon("move"), false, mutable, (selected == null ? tr("tip.select_first") : !mutable ? tr("tip.protected") : tr("tip.move")), () -> move(find(state.selected)));
         buttonX += BUTTON + 1;
-        kit.iconButton(g, buttonX, y, BUTTON, icon("trash"), false, mutable, tr("tip.delete"), () -> delete(find(state.selected)));
+        kit.iconButton(g, buttonX, y, BUTTON, icon("trash"), false, mutable, (selected == null ? tr("tip.select_first") : !mutable ? tr("tip.protected") : tr("tip.delete")), () -> delete(find(state.selected)));
         buttonX += BUTTON + 1;
         kit.divider(g, buttonX + 1, y, TOOLBAR);
         buttonX += 4;
@@ -961,6 +961,9 @@ final class FileExplorerApp extends ComputerApp {
         JsonObject json = new JsonObject();
         json.addProperty("directory", state.directory);
         json.addProperty("selected", state.selected);
+        json.addProperty("descending", state.descending);
+        json.addProperty("sort_by_size", state.sortBySize);
+        json.addProperty("scroll", state.scroll);
         return json;
     }
 
@@ -968,6 +971,9 @@ final class FileExplorerApp extends ComputerApp {
         String directory = ComputerResume.string(json, "directory");
         if (!directory.startsWith("/")) return;
         state.directory = directory;
+        state.descending = ComputerResume.flag(json, "descending");
+        if (json.has("sort_by_size")) state.sortBySize = ComputerResume.flag(json, "sort_by_size");
+        state.scroll = Math.max(0, ComputerResume.number(json, "scroll"));
         state.selected = ComputerResume.string(json, "selected");
         state.revealSelected = !state.selected.isEmpty();
     }

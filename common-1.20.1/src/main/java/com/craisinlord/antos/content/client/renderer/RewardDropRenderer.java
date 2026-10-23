@@ -26,10 +26,12 @@ public final class RewardDropRenderer extends EntityRenderer<RewardDropEntity> {
     @Override
     public void render(RewardDropEntity entity, float entityYaw, float partialTick, PoseStack pose,
                        MultiBufferSource buffers, int packedLight) {
+        if (entity.deliveryHidden()) return;
         pose.pushPose();
         pose.translate(0.0D, 0.38D, 0.0D);
         pose.mulPose(Axis.YP.rotationDegrees((entity.tickCount + partialTick) * 7.0F));
-        pose.scale(0.9F, 0.9F, 0.9F);
+        float scale = 0.9F * entity.deliveryScale();
+        pose.scale(scale, scale, scale);
         this.itemRenderer.renderStatic(chest, ItemDisplayContext.FIXED, packedLight,
                 OverlayTexture.NO_OVERLAY, pose, buffers, entity.level(), entity.getId());
         pose.popPose();

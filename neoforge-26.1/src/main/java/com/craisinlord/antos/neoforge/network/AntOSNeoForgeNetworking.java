@@ -38,6 +38,8 @@ public final class AntOSNeoForgeNetworking {
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.FloppyTextureClientState.update(payload)));
         registrar.playToClient(JeiSyncPayload.TYPE, JeiSyncPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.JeiClientState.update(payload)));
+        registrar.playToClient(com.craisinlord.antos.content.network.DisplaySyncPayload.TYPE, com.craisinlord.antos.content.network.DisplaySyncPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.DisplaySyncClientState.update(payload)));
         registrar.playToClient(ArchiveRecipeResultPayload.TYPE, ArchiveRecipeResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.ArchiveRecipeClientState.update(payload)));
 
@@ -47,6 +49,7 @@ public final class AntOSNeoForgeNetworking {
         FloppyTextureSync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         JeiSync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         ArchiveRecipeNetworking.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
+        com.craisinlord.antos.content.network.DisplaySync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
     }
 
     private static void withPlayer(net.neoforged.neoforge.network.handling.IPayloadContext context,

@@ -4,6 +4,7 @@ import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.AntOSObjects;
 import com.craisinlord.antos.content.client.screen.ComputerScreen;
 import com.craisinlord.antos.content.guide.ArchiveLookupIndex;
+import com.craisinlord.antos.content.guide.ArchiveRecipeOutputs;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.util.ArrayList;
@@ -43,6 +44,10 @@ public final class ArchiveLookup {
     private static boolean waitRelease;
     private static Target pending;
     private static Screen returnTo;
+    private static ArchiveRecipeOutputs indexedOutputs;
+    private static Target insideTarget;
+    private static int insideHold;
+    private static boolean insideWaitRelease;
 
     private ArchiveLookup() { }
 
@@ -70,6 +75,9 @@ public final class ArchiveLookup {
         known = false;
         tasks = Map.of();
         indexed = null;
+        indexedOutputs = null;
+        insideTarget = null;
+        insideHold = 0;
         byItem = Map.of();
         hovered = null;
         hold = 0;
@@ -175,14 +183,54 @@ public final class ArchiveLookup {
         String item = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
         if (AntOSSettings.appEnabled("ARCHIVE")) {
             List<ComputerGuideData.Entry> entries = ComputerGuideData.entriesFor(disks, unlocked);
-            if (entries != indexed) {
-                byItem = ArchiveLookupIndex.build(ComputerGuideData.archiveEntries(), entries);
+            ArchiveRecipeOutputs outputs = recipeOutputs();
+            if (entries != indexed || outputs != indexedOutputs) {
+                byItem = ArchiveLookupIndex.build(ComputerGuideData.archiveEntries(), entries, outputs);
                 indexed = entries;
+                indexedOutputs = outputs;
             }
             ArchiveLookupIndex.Match match = byItem.get(item);
             if (match != null) return new Target("archive", match.entry().id().toString());
         }
         String task = AntOSSettings.appEnabled("TASKS") ? tasks.get(item) : null;
         return task == null ? null : new Target("task", task);
+    }
+
+    private static ArchiveRecipeOutputs recipeOutputs() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.getConnection() == null || minecraft.level == null) return ArchiveRecipeOutputs.EMPTY;
+        return ArchiveRecipeOutputs.of(minecraft.getConnection().getRecipeManager(), minecraft.level.registryAccess(),
+                ComputerGuideData.archiveEntries());
+    }
+
+    public static Target inside(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || key == null || key.isUnbound()) return null;
+        return find(stack);
+    }
+
+    public static String insideHint(Target target) {
+        if (target == null) return "";
+        if (target.equals(insideTarget) && insideHold > 0) {
+            int filled = Math.min(BAR, Math.round(insideHold * (float) BAR / HOLD_TICKS));
+            return "§a" + "|".repeat(filled) + "§8" + "|".repeat(BAR - filled);
+        }
+        return "§8" + Component.translatable("computer.antos.lookup.hint", key.getTranslatedKeyMessage().getString()).getString();
+    }
+
+    public static boolean insideTick(Target target, boolean typing) {
+        Minecraft minecraft = Minecraft.getInstance();
+        boolean down = down(minecraft);
+        if (!down) insideWaitRelease = false;
+        if (target == null || !down || insideWaitRelease || typing) {
+            insideHold = 0;
+            insideTarget = target;
+            return false;
+        }
+        if (!target.equals(insideTarget)) insideHold = 0;
+        insideTarget = target;
+        if (++insideHold < HOLD_TICKS) return false;
+        insideHold = 0;
+        insideWaitRelease = true;
+        return true;
     }
 }

@@ -36,6 +36,8 @@ final class ArchiveApp extends ComputerApp {
     private ResourceLocation anchorsFor;
     private final java.util.Map<ResourceLocation, Integer> pageScrolls = new java.util.HashMap<>();
     private ResourceLocation heroFor;
+    private java.util.Set<String> bookmarks = java.util.Set.of();
+    private List<String> recentEntries = List.of();
     private List<ComputerGuideData.Entry> filterSource;
     private String filterQuery;
     private ResourceLocation filterFolder;
@@ -72,6 +74,8 @@ final class ArchiveApp extends ComputerApp {
         state.detailScroll = pageScrolls.getOrDefault(entry.id(), 0);
         state.controlFocus = "content";
         ComputerNetworking.recordArchiveViewed(entry.id());
+        com.craisinlord.antos.config.AntOSSettings.recordArchiveEntry(
+                com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of(), entry.id().toString());
         if (!entry.structureId().isBlank() || !entry.locatorId().isBlank()) {
             com.craisinlord.antos.content.client.ComputerStructureLocatorClientState.searching(entry.dimensionId(), entry.structureId().isBlank());
             ComputerNetworking.locateStructure(entry.id());
@@ -90,7 +94,7 @@ final class ArchiveApp extends ComputerApp {
         if (recovering) return;
         if (state.backHistory.size() >= 64) state.backHistory.remove(0);
         state.backHistory.add(new ViewState(state.folderId, state.entryId, state.search, state.scroll,
-                state.detailScroll, state.focusKey, state.gallery, List.copyOf(state.history)));
+                state.detailScroll, state.focusKey, state.gallery, state.favoritesOnly, state.recentOnly, List.copyOf(state.history)));
     }
 
     private void restoreView(ViewState view) {
@@ -102,6 +106,9 @@ final class ArchiveApp extends ComputerApp {
         state.detailScroll = view.detailScroll();
         state.focusKey = view.focus();
         state.gallery = view.gallery();
+        state.favoritesOnly = view.favoritesOnly();
+        state.recentOnly = view.recentOnly();
+        filterSource = null;
         state.history.clear();
         state.history.addAll(view.history());
         state.searchFocused = false;
@@ -167,9 +174,13 @@ final class ArchiveApp extends ComputerApp {
             state.searchFocused = false;
         });
         if (visibleItems.isEmpty()) {
-            g.drawString(font, Component.literal(tr(state.search.isBlank() ? "empty" : "no_results")), x + 6, top + 12, Ui.TEXT, false);
-            screen.wrap(g, tr(state.search.isBlank() ? "empty_hint" : "no_results_hint"), x + 6, top + 27, w - 22, Ui.TEXT_MUTED);
-            if (!state.search.isBlank()) kit.button(g, x + 6, top + 52, kit.labelWidth(tr("clear")), 18, tr("clear"), false, true, this::clearSearch);
+            if (state.favoritesOnly || state.recentOnly) {
+                screen.wrap(g, tr(state.favoritesOnly ? "favorites_empty" : "recent_empty"), x + 6, top + 12, w - 22, Ui.TEXT_MUTED);
+            } else {
+                g.drawString(font, Component.literal(tr(state.search.isBlank() ? "empty" : "no_results")), x + 6, top + 12, Ui.TEXT, false);
+                screen.wrap(g, tr(state.search.isBlank() ? "empty_hint" : "no_results_hint"), x + 6, top + 27, w - 22, Ui.TEXT_MUTED);
+                if (!state.search.isBlank()) kit.button(g, x + 6, top + 52, kit.labelWidth(tr("clear")), 18, tr("clear"), false, true, this::clearSearch);
+            }
         }
         screen.enableComputerScissor(g, x, top, x + w - 8, bottom);
         kit.clip(x, top, w - 8, layout.viewportHeight());
@@ -235,7 +246,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private void renderArticle(GuiGraphics g, ComputerGuideData.Entry entry, List<ComputerGuideData.Entry> entries, int x, int top, int w, int h, boolean maximized) {
-        state.detailScroll = Math.max(0, Math.min(state.detailScroll, state.detailMaxScroll));
+        state.detailScroll = Math.max(0, state.detailScroll);
         int bottom = top + h;
         int contentWidth = w - 12;
         int line = top + 5 - state.detailScroll * 11;
@@ -494,10 +505,10 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private void renderToolbar(GuiGraphics g, int x, int y, int w, ComputerGuideData.Entry selected) {
-        control(g, "back", x, y, 18, "<", false, selected != null || state.folderId != null || !state.backHistory.isEmpty(), tr("back"), this::goBack);
+        control(g, "back", x, y, 18, "<", false, selected != null || state.folderId != null || state.favoritesOnly || state.recentOnly || !state.backHistory.isEmpty(), tr("back"), this::goBack);
         control(g, "up", x + 21, y, 18, "^", false, selected != null || state.folderId != null, tr("up"), this::goUp);
         int fieldX = x + 42;
-        int fieldW = Math.max(30, w - 84);
+        int fieldW = Math.max(30, w - 126);
         String scope = state.folderId == null ? Component.translatable("computer.antos.app.archive.name").getString() : folderPathTitle(state.folderId);
         kit.field(g, fieldX, y, fieldW - 21, 18, state.search, state.search.length(), state.searchFocused, tr("search", scope));
         if (kit.hovered(fieldX, y, fieldW - 21, 18)) kit.tooltip(tr("search", scope));
@@ -506,8 +517,30 @@ final class ArchiveApp extends ComputerApp {
             focusTargets.add(new FocusTarget("search", fieldX, y, fieldW, 18, this::focusSearch));
         }
         control(g, "clear", fieldX + fieldW - 18, y, 18, "X", false, selected == null && !state.search.isEmpty(), tr("clear"), this::clearSearch);
+        control(g, "recent", x + w - 81, y, 18, "R", state.recentOnly, selected == null, tr("recent"), () -> toggleCollection(false));
+        boolean starred = selected == null ? state.favoritesOnly : bookmarks.contains(selected.id().toString());
+        control(g, "favorite", x + w - 60, y, 18, starred ? "★" : "☆", starred, true,
+                tr(selected == null ? "favorites" : starred ? "unbookmark" : "bookmark"), () -> {
+                    if (selected == null) toggleCollection(true);
+                    else com.craisinlord.antos.config.AntOSSettings.toggleArchiveBookmark(
+                            com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of(), selected.id().toString());
+                });
         control(g, "list", x + w - 39, y, 18, "=", !state.gallery, selected == null, tr("list_view"), () -> setGallery(false));
         control(g, "grid", x + w - 18, y, 18, "+", state.gallery, selected == null, tr("gallery_view"), () -> setGallery(true));
+    }
+
+    private void toggleCollection(boolean favorites) {
+        rememberView();
+        boolean wasActive = favorites ? state.favoritesOnly : state.recentOnly;
+        state.favoritesOnly = favorites && !wasActive;
+        state.recentOnly = !favorites && !wasActive;
+        state.folderId = null;
+        state.entryId = null;
+        state.search = "";
+        state.scroll = 0;
+        state.focusKey = "";
+        state.searchFocused = false;
+        filterSource = null;
     }
 
     private void focusSearch() {
@@ -576,6 +609,8 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private String crumbTitle(ResourceLocation id) {
+        if (id == null && state.favoritesOnly) return tr("favorites");
+        if (id == null && state.recentOnly) return tr("recent");
         return id == null ? Component.translatable("computer.antos.app.archive.name").getString()
                 : AntOSPlayerText.apply(ComputerGuideData.archiveFolderTitle(ComputerGuideData.archiveFolder(id)).getString());
     }
@@ -651,12 +686,16 @@ final class ArchiveApp extends ComputerApp {
 
     private void navigateTo(ResourceLocation folder) {
         if (ComputerGuideData.archiveFolder(folder) == null) folder = null;
-        if (state.entryId != null || !java.util.Objects.equals(state.folderId, folder)) rememberView();
+        boolean collection = state.favoritesOnly || state.recentOnly;
+        if (state.entryId != null || state.favoritesOnly || state.recentOnly || !java.util.Objects.equals(state.folderId, folder)) rememberView();
+        state.favoritesOnly = false;
+        state.recentOnly = false;
+        filterSource = null;
         state.entryId = null;
         state.detailScroll = 0;
         state.searchFocused = false;
         kit.release();
-        if (java.util.Objects.equals(state.folderId, folder)) return;
+        if (!collection && java.util.Objects.equals(state.folderId, folder)) return;
         state.folderId = folder;
         for (int index = state.history.size() - 1; index >= 0; index--) {
             BrowseLocation location = state.history.get(index);
@@ -699,6 +738,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private List<ComputerGuideData.Entry> filterEntries(List<ComputerGuideData.Entry> entries) {
+        syncCollections();
         validateTextCaches();
         if (filterSource != entries) {
             while (state.folderId != null && entries.stream().noneMatch(entry -> ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))) {
@@ -712,11 +752,14 @@ final class ArchiveApp extends ComputerApp {
         if (filterSource == entries && query.equals(filterQuery) && java.util.Objects.equals(filterFolder, state.folderId)) return filterResult;
         if (searchText.size() > entries.size() * 2 + 64) searchText.clear();
         List<ComputerGuideData.Entry> result = entries.stream()
-                .filter(entry -> ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))
+                .filter(entry -> state.favoritesOnly || state.recentOnly || ComputerGuideData.archiveFolderContains(state.folderId, ComputerGuideData.archiveFolderId(entry)))
+                .filter(entry -> !state.favoritesOnly || bookmarks.contains(entry.id().toString()))
+                .filter(entry -> !state.recentOnly || recentEntries.contains(entry.id().toString()))
                 .filter(entry -> query.isEmpty() || searchText.computeIfAbsent(entry, this::entrySearchText).contains(query))
                 .sorted(java.util.Comparator.comparingInt(ComputerGuideData.Entry::sortOrder)
                         .thenComparing(entry -> AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString()), String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(entry -> entry.id().toString())).toList();
+        if (state.recentOnly) result = result.stream().sorted(java.util.Comparator.comparingInt(entry -> recentEntries.indexOf(entry.id().toString()))).toList();
         filterSource = entries;
         filterQuery = query;
         filterFolder = state.folderId;
@@ -724,11 +767,22 @@ final class ArchiveApp extends ComputerApp {
         return result;
     }
 
+    private void syncCollections() {
+        String workspace = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
+        var savedBookmarks = com.craisinlord.antos.config.AntOSSettings.archiveBookmarks(workspace);
+        var savedRecent = com.craisinlord.antos.config.AntOSSettings.recentArchiveEntries(workspace);
+        if (!savedBookmarks.equals(bookmarks) || !savedRecent.equals(recentEntries)) {
+            bookmarks = savedBookmarks;
+            recentEntries = savedRecent;
+            filterSource = null;
+        }
+    }
+
     private List<BrowseItem> browseItems(List<ComputerGuideData.Entry> entries) {
         List<ComputerGuideData.Entry> filtered = filterEntries(entries);
         if (browseSource == filtered && browseResult != null) return browseResult;
         List<BrowseItem> result = new java.util.ArrayList<>();
-        if (state.search.isBlank()) {
+        if (state.search.isBlank() && !state.favoritesOnly && !state.recentOnly) {
             java.util.Map<ResourceLocation, Integer> counts = new java.util.HashMap<>();
             for (ComputerGuideData.Entry entry : filtered) {
                 ResourceLocation folder = ComputerGuideData.archiveFolderId(entry);
@@ -977,7 +1031,8 @@ final class ArchiveApp extends ComputerApp {
             else if (state.searchFocused) {
                 state.searchFocused = false;
                 state.controlFocus = "content";
-            } else if (state.folderId != null) openParent();
+            } else if (state.favoritesOnly || state.recentOnly) goBack();
+            else if (state.folderId != null) openParent();
             else return false;
             return true;
         }
@@ -1040,7 +1095,7 @@ final class ArchiveApp extends ComputerApp {
     private record BreadcrumbButton(int left, int top, int right, int bottom, ResourceLocation folder, boolean back) { }
     private record FocusTarget(String key, int x, int y, int w, int h, Runnable action) { }
     private record ViewState(ResourceLocation folder, ResourceLocation entry, String search, int scroll, int detailScroll,
-                             String focus, boolean gallery, List<BrowseLocation> history) { }
+                             String focus, boolean gallery, boolean favoritesOnly, boolean recentOnly, List<BrowseLocation> history) { }
 
     static final class State {
         ResourceLocation entryId;
@@ -1051,6 +1106,8 @@ final class ArchiveApp extends ComputerApp {
         String search = "";
         boolean searchFocused;
         boolean gallery;
+        boolean favoritesOnly;
+        boolean recentOnly;
         String focusKey = "";
         String controlFocus = "content";
         int detailScroll;
@@ -1059,12 +1116,24 @@ final class ArchiveApp extends ComputerApp {
 
     JsonObject saveResume() {
         JsonObject json = new JsonObject();
+        json.addProperty("gallery", state.gallery);
+        json.addProperty("favorites", state.favoritesOnly);
+        json.addProperty("recent", state.recentOnly);
+        json.addProperty("search", state.search);
+        json.addProperty("scroll", state.scroll);
+        json.addProperty("detail_scroll", state.detailScroll);
         if (state.folderId != null) json.addProperty("folder", state.folderId.toString());
         if (state.entryId != null) json.addProperty("entry", state.entryId.toString());
         return json;
     }
 
     void loadResume(JsonObject json) {
+        state.gallery = ComputerResume.flag(json, "gallery");
+        state.favoritesOnly = ComputerResume.flag(json, "favorites");
+        state.recentOnly = !state.favoritesOnly && ComputerResume.flag(json, "recent");
+        state.search = ComputerResume.string(json, "search");
+        state.scroll = Math.max(0, ComputerResume.number(json, "scroll"));
+        state.detailScroll = Math.max(0, ComputerResume.number(json, "detail_scroll"));
         String folder = ComputerResume.string(json, "folder");
         String entry = ComputerResume.string(json, "entry");
         if (!folder.isEmpty()) state.folderId = ResourceLocation.tryParse(folder);

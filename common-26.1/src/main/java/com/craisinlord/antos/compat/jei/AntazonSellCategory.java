@@ -47,9 +47,15 @@ final class AntazonSellCategory implements IRecipeCategory<JeiRecipes.SellRecipe
     }
 
     @Override
+    public void createRecipeExtras(mezz.jei.api.gui.widgets.IRecipeExtrasBuilder builder, JeiRecipes.SellRecipe recipe, IFocusGroup focuses) {
+        builder.addGuiEventListener(new JeiOpenButton(getWidth(), new com.craisinlord.antos.content.client.ArchiveLookup.Target("sell", recipe.rule().item())));
+    }
+
+    @Override
     public void draw(JeiRecipes.SellRecipe recipe, IRecipeSlotsView slots, GuiGraphicsExtractor g, double mouseX, double mouseY) {
         JeiDrawing.panel(g, getWidth(), HEIGHT);
-        JeiDrawing.text(g, Component.translatable("jei.antos.sell.title"), 5, 5, getWidth() - 10, Ui.TEXT_STRONG);
+        JeiDrawing.text(g, Component.translatable("jei.antos.sell.title"), 5, 5, JeiOpenButton.titleWidth(getWidth()), Ui.TEXT_STRONG);
+        JeiOpenButton.draw(g, getWidth(), mouseX, mouseY);
         JeiDrawing.slot(g, 5, 16);
         arrow.draw(g, 28, 16);
         String value = JeiDrawing.number(recipe.rule().value());
@@ -66,6 +72,7 @@ final class AntazonSellCategory implements IRecipeCategory<JeiRecipes.SellRecipe
 
     @Override
     public void getTooltip(ITooltipBuilder tooltip, JeiRecipes.SellRecipe recipe, IRecipeSlotsView slots, double mouseX, double mouseY) {
+        if (JeiOpenButton.tooltip(tooltip, getWidth(), mouseX, mouseY)) return;
         if (JeiDrawing.inside(mouseX, mouseY, 56, 16, getWidth() - 60, 16)) {
             tooltip.add(JeiDrawing.currency(recipe.rule().value()));
             return;

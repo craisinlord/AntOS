@@ -1,6 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
 import com.craisinlord.antos.content.client.palette.Ui;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.api.client.game.ComputerGameRegistry;
@@ -376,14 +377,15 @@ final class GamesApp extends ComputerApp {
             return true;
         }
         if ((keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER || keyCode == InputConstants.KEY_SPACE) && keyboardFocus && focus >= 0 && focus < entries.size()) {
-            open(window, entries.get(focus));
+            Entry entry = entries.get(focus);
+            AntOSUiSounds.action(() -> open(window, entry));
             return true;
         }
         return false;
     }
 
     private void panel(ThemedGraphics g, int x, int y, int w, int h, boolean hover) { g.fill(x, y, x + w, y + h, hover ? Ui.GAME_HOVER : Ui.GAME_FILL); g.renderOutline(x, y, w, h, Ui.GAME_OUTLINE); }
-    private void button(ThemedGraphics g, int x, int y, int w, int h, String text, int mouseX, int mouseY, Runnable action) { panel(g, x, y, w, h, screen.inside(x, y, w, h, mouseX, mouseY)); g.drawString(font, Component.literal(text), x + 5, y + 5, Ui.TEXT_STRONG, false); hits.add(new Hit(x, y, w, h, action)); }
+    private void button(ThemedGraphics g, int x, int y, int w, int h, String text, int mouseX, int mouseY, Runnable action) { panel(g, x, y, w, h, screen.inside(x, y, w, h, mouseX, mouseY)); g.drawString(font, Component.literal(text), x + 5, y + 5, Ui.TEXT_STRONG, false); hits.add(new Hit(x, y, w, h, () -> AntOSUiSounds.action(action))); }
     private static String value(JsonObject root, String key) { return root.has(key) ? root.get(key).getAsString() : ""; }
     private static int number(JsonObject root, String key) { return root.has(key) ? root.get(key).getAsInt() : 0; }
     private record Entry(Identifier id, String title, String kind, GameIcon icon, boolean program) { }

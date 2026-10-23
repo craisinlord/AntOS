@@ -81,8 +81,16 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class ComputerScreen extends Screen {
+    private int draftCheckpointTicks;
     private Window pointerWindow;
     private int pointerButton = -1;
+    private Window lastTitleWindow;
+    private long lastTitleClick;
+    private double lastTitleX;
+    private double lastTitleY;
+    private boolean displayPreview;
+    private int desktopWidth = WIDTH;
+    private int desktopHeight = HEIGHT;
 
     static final int WIDTH = 440;
     static final int HEIGHT = 286;
@@ -120,6 +128,9 @@ public final class ComputerScreen extends Screen {
     final GamesApp games = new GamesApp();
     final TasksApp tasks = new TasksApp();
     final CustomDisplayViewer displays = new CustomDisplayViewer(this);
+    final NotificationPanel notifications = new NotificationPanel();
+    private int pointerX;
+    private int pointerY;
     private ComputerAccessResultPayload accessResult;
     private com.craisinlord.antos.content.client.DiskRewardsClientState.Award diskRewardToast;
     private int diskRewardToastTicks;
@@ -167,13 +178,14 @@ public final class ComputerScreen extends Screen {
 
     ComputerScreen(boolean preview) {
         super(Component.translatable("screen.antos.computer"));
+        displayPreview = preview;
         PixelIcons.clear();
         var accountResult = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
         this.sessionKey = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
         boolean freshSession = !SESSIONS.containsKey(sessionKey);
         this.session = preview ? new Session() : SESSIONS.computeIfAbsent(sessionKey, ignored -> new Session());
         this.session.attach(this);
-        for (ComputerApp app : List.of(tasks, games)) app.attach(this);
+        for (ComputerApp app : List.of(tasks, games, notifications)) app.attach(this);
         if (preview) { session.onboardingCompleted = true; return; }
         this.loggedIn = accountResult != null && accountResult.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS;
         if (!loggedIn || AntOSSettings.hasCompletedComputerTour(accountResult.accountId())) {
@@ -353,6 +365,11 @@ public final class ComputerScreen extends Screen {
             }
         }
         session.terminal.tick();
+        if (loggedIn && ++draftCheckpointTicks >= 40) {
+            draftCheckpointTicks = 0;
+            session.text.checkpoint();
+            session.paint.checkpoint();
+        }
         if (loggedIn && !diskRewardToastKey.equals(com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of())) {
             diskRewardToastKey = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
             diskRewardToast = null;
@@ -366,6 +383,8 @@ public final class ComputerScreen extends Screen {
             }
         }
         if (activeWindow != null && activeWindow.type.equals("GAMES")) games.tick(activeWindow);
+        com.craisinlord.antos.content.client.ArchiveLookup.Target lookup = lookupTarget(hoveredItem);
+        if (com.craisinlord.antos.content.client.ArchiveLookup.insideTick(lookup, typingInActiveWindow())) followLookup(lookup);
         openLookupEntry();
     }
 
@@ -378,29 +397,74 @@ public final class ComputerScreen extends Screen {
         displays.beginFrame();
         if (archivePreviewLevel != null && archivePreviewLevel != Minecraft.getInstance().level) clearArchivePreviews();
         this.renderBackground(source);
+        updateDesktopBounds();
         Ui.refresh();
         GuiGraphics graphics = new com.craisinlord.antos.content.client.ThemedGraphics(source);
         float scale = uiScale();
         graphics.pose().pushPose();
         graphics.pose().translate(width / 2.0F, height / 2.0F, 0.0F);
         graphics.pose().scale(scale, scale, 1.0F);
-        int left = -WIDTH / 2;
-        int top = -HEIGHT / 2;
+        int left = -desktopWidth / 2;
+        int top = -desktopHeight / 2;
         int localMouseX = (int) ((mouseX - width / 2.0F) / scale);
         int localMouseY = (int) ((mouseY - height / 2.0F) / scale);
         session.mouseX = localMouseX;
         session.mouseY = localMouseY;
-        graphics.fill(left - 5, top - 5, left + WIDTH + 5, top + HEIGHT + 5, Ui.BORDER_STRONG);
-        graphics.fill(left, top, left + WIDTH, top + HEIGHT, Ui.BACKGROUND);
-        graphics.fill(left + 5, top + 5, left + WIDTH - 5, top + HEIGHT - 5, Ui.SURFACE);
-        if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, localMouseX, localMouseY); else renderLogin(graphics, left, top);
+        graphics.fill(left - 5, top - 5, left + desktopWidth + 5, top + desktopHeight + 5, Ui.BORDER_STRONG);
+        graphics.fill(left, top, left + desktopWidth, top + desktopHeight, Ui.BACKGROUND);
+        graphics.fill(left + 5, top + 5, left + desktopWidth - 5, top + desktopHeight - 5, Ui.SURFACE);
+        pointerX = localMouseX;
+        pointerY = localMouseY;
+        if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseX, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseY); else renderLogin(graphics, left, top);
         graphics.pose().popPose();
         graphics.flush();
     }
 
     float uiScale() {
-        float availableScale = Math.max(0.1F, Math.min((width - 24.0F) / WIDTH, (height - 24.0F) / HEIGHT));
-        return Math.min(AntOSSettings.antosUiScale(), availableScale);
+        return DesktopViewport.fit(width, height, AntOSSettings.antosUiScale(), fullscreenDesktop()).scale();
+    }
+
+    private boolean fullscreenDesktop() {
+        return !displayPreview && AntOSSettings.preferences().fullscreenDesktop;
+    }
+
+    int desktopWidth() { return desktopWidth; }
+    int desktopHeight() { return desktopHeight; }
+    String workspaceKey() { return sessionKey; }
+
+    private void updateDesktopBounds() {
+        DesktopViewport viewport = DesktopViewport.fit(width, height, AntOSSettings.antosUiScale(), fullscreenDesktop());
+        desktopWidth = viewport.width();
+        desktopHeight = viewport.height();
+        for (Window window : session.windows) {
+            window.x = Math.max(12, Math.min(desktopWidth - window.width - 12, window.x));
+            window.y = Math.max(34, Math.min(desktopHeight - window.height - 12, window.y));
+        }
+    }
+
+    void resetWindowLayout() {
+        int index = 0;
+        for (Window window : session.windows) {
+            window.minimized = false;
+            window.maximized = false;
+            window.x = 18 + index * 12;
+            window.y = 38 + index * 10;
+            window.restoreX = window.x;
+            window.restoreY = window.y;
+            index++;
+        }
+        updateDesktopBounds();
+        focusTopWindow();
+    }
+
+    void openNotifications() {
+        notifications.open();
+    }
+
+    void openNotificationSettings() {
+        if (!AntOSSettings.appEnabled("SETTINGS")) return;
+        open("SETTINGS");
+        session.settings.openNotifications();
     }
 
     private void renderBoot(GuiGraphics g, int l, int t) {
@@ -408,9 +472,9 @@ public final class ComputerScreen extends Screen {
         int message = Math.min(BOOT_MESSAGES.length - 1, progress * BOOT_MESSAGES.length / 101);
         g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 28, t + 78, Ui.TEXT_STRONG, false);
         g.drawString(font, Component.literal("INITIALIZING SYSTEM..."), l + 28, t + 105, Ui.TEXT, false);
-        g.fill(l + 28, t + 132, l + WIDTH - 28, t + 148, Ui.BACKGROUND);
-        box(g, l + 28, t + 132, l + WIDTH - 28, t + 148, Ui.BORDER_STRONG);
-        g.fill(l + 32, t + 136, l + 32 + (WIDTH - 64) * progress / 100, t + 144, Ui.ACCENT);
+        g.fill(l + 28, t + 132, l + desktopWidth - 28, t + 148, Ui.BACKGROUND);
+        box(g, l + 28, t + 132, l + desktopWidth - 28, t + 148, Ui.BORDER_STRONG);
+        g.fill(l + 32, t + 136, l + 32 + (desktopWidth - 64) * progress / 100, t + 144, Ui.ACCENT);
         g.drawString(font, Component.literal(progress + "%"), l + 28, t + 164, Ui.TEXT_STRONG, false);
         g.drawString(font, Component.literal(BOOT_MESSAGES[message]), l + 28, t + 190, Ui.TEXT, false);
     }
@@ -418,35 +482,35 @@ public final class ComputerScreen extends Screen {
     private void renderLogin(GuiGraphics g, int l, int t) {
         g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 28, t + 25, Ui.TEXT_STRONG, false);
         g.drawString(font, Component.literal("ANTERNET // ACCOUNT"), l + 28, t + 43, Ui.TEXT, false);
-        g.fill(l + 28, t + 59, l + WIDTH - 28, t + 61, Ui.BORDER_STRONG);
-        int buttonX = l + WIDTH / 2 - 70;
+        g.fill(l + 28, t + 59, l + desktopWidth - 28, t + 61, Ui.BORDER_STRONG);
+        int buttonX = l + desktopWidth / 2 - 70;
         loginButton(g, buttonX, t + 70, 66, 20, "LOG IN", !creatingAccount);
         loginButton(g, buttonX + 74, t + 70, 66, 20, "CREATE", creatingAccount);
         g.drawString(font, Component.literal("USERNAME"), l + 28, t + 99, Ui.TEXT, false);
-        g.fill(l + 28, t + 109, l + WIDTH - 28, t + 132, Ui.BACKGROUND);
-        box(g, l + 28, t + 109, l + WIDTH - 28, t + 132, accountPasswordFocused || accountHintFocused ? Ui.BORDER_INACTIVE : Ui.ACCENT);
+        g.fill(l + 28, t + 109, l + desktopWidth - 28, t + 132, Ui.BACKGROUND);
+        box(g, l + 28, t + 109, l + desktopWidth - 28, t + 132, accountPasswordFocused || accountHintFocused ? Ui.BORDER_INACTIVE : Ui.ACCENT);
         g.drawString(font, Component.literal(accountUsername + (accountPasswordFocused || accountHintFocused ? "" : "_")), l + 34, t + 117, Ui.TEXT, false);
         g.drawString(font, Component.literal("PASSWORD"), l + 28, t + 140, Ui.TEXT, false);
-        g.fill(l + 28, t + 150, l + WIDTH - 28, t + 173, Ui.BACKGROUND);
-        box(g, l + 28, t + 150, l + WIDTH - 28, t + 173, accountPasswordFocused ? Ui.ACCENT : Ui.BORDER_INACTIVE);
+        g.fill(l + 28, t + 150, l + desktopWidth - 28, t + 173, Ui.BACKGROUND);
+        box(g, l + 28, t + 150, l + desktopWidth - 28, t + 173, accountPasswordFocused ? Ui.ACCENT : Ui.BORDER_INACTIVE);
         g.drawString(font, Component.literal("*".repeat(accountPassword.length()) + (accountPasswordFocused ? "_" : "")), l + 34, t + 158, Ui.TEXT, false);
         if (creatingAccount) {
             g.drawString(font, Component.translatable("computer.antos.account.hint_label"), l + 28, t + 178, Ui.TEXT, false);
-            g.fill(l + 28, t + 188, l + WIDTH - 28, t + 208, Ui.BACKGROUND);
-            box(g, l + 28, t + 188, l + WIDTH - 28, t + 208, accountHintFocused ? Ui.ACCENT : Ui.BORDER_INACTIVE);
-            g.drawString(font, Component.literal(trimToWidth(accountHint + (accountHintFocused ? "_" : ""), WIDTH - 68)), l + 34, t + 194, Ui.TEXT, false);
+            g.fill(l + 28, t + 188, l + desktopWidth - 28, t + 208, Ui.BACKGROUND);
+            box(g, l + 28, t + 188, l + desktopWidth - 28, t + 208, accountHintFocused ? Ui.ACCENT : Ui.BORDER_INACTIVE);
+            g.drawString(font, Component.literal(trimToWidth(accountHint + (accountHintFocused ? "_" : ""), desktopWidth - 68)), l + 34, t + 194, Ui.TEXT, false);
         }
         loginButton(g, buttonX, t + (creatingAccount ? 214 : 184), 140, 22, accountWaiting ? "CONNECTING..." : creatingAccount ? "CREATE ACCOUNT" : "SIGN IN", true);
         Component accountMessageComponent = accountMessage == null
                 ? Component.translatable("computer.antos.account.initial_prompt")
                 : Component.literal(accountMessage);
-        g.drawCenteredString(font, accountMessageComponent, l + WIDTH / 2, t + (creatingAccount ? 242 : 218),
+        g.drawCenteredString(font, accountMessageComponent, l + desktopWidth / 2, t + (creatingAccount ? 242 : 218),
                 accountMessage != null && (accountMessage.contains("UNAVAILABLE") || accountMessage.contains("NOT RECOGNIZED")) ? Ui.ERROR : Ui.TEXT);
         if (!creatingAccount && !accountHintMessage.isEmpty()) {
-            g.drawCenteredString(font, Component.literal(trimToWidth(Component.translatable("computer.antos.account.hint_shown", accountHintMessage).getString(), WIDTH - 56)),
-                    l + WIDTH / 2, t + 231, Ui.TEXT);
+            g.drawCenteredString(font, Component.literal(trimToWidth(Component.translatable("computer.antos.account.hint_shown", accountHintMessage).getString(), desktopWidth - 56)),
+                    l + desktopWidth / 2, t + 231, Ui.TEXT);
         }
-        g.drawCenteredString(font, Component.literal("Turn on FACE ID in settings to skip login"), l + WIDTH / 2, t + HEIGHT - 14, Ui.TEXT);
+        g.drawCenteredString(font, Component.literal("Turn on FACE ID in settings to skip login"), l + desktopWidth / 2, t + desktopHeight - 14, Ui.TEXT);
     }
 
     void submitFaceIdLink() {
@@ -517,6 +581,20 @@ public final class ComputerScreen extends Screen {
             renderOnboarding(g, l, t, mouseX, mouseY);
         }
         if (diskRewardToast != null && diskRewardToastTicks > 0) renderDiskRewardToast(g, l, t, layer + 2);
+        session.mouseX = pointerX;
+        session.mouseY = pointerY;
+        if (session.onboardingCompleted && !lookPickerOpen() && notifications.isOpen()) {
+            beginLayer(g);
+            g.pose().pushPose();
+            g.pose().translate(0, 0, (layer + 4) * 10.0F);
+            try {
+                notifications.render(g, l, t);
+            } finally {
+                g.pose().popPose();
+            }
+        } else {
+            notifications.render(g, l, t);
+        }
         if (session.onboardingCompleted && !lookPickerOpen()) displays.renderOverlay(g);
     }
 
@@ -532,8 +610,8 @@ public final class ComputerScreen extends Screen {
         try {
             int rows = Math.min(4, diskRewardToast.rewards().size());
             int h = 40 + rows * 12 + (diskRewardToast.rewards().size() > rows ? 12 : 0);
-            int x = l + WIDTH - 230;
-            int y = t + HEIGHT - h - 14;
+            int x = l + desktopWidth - 230;
+            int y = t + desktopHeight - h - 14;
             g.fill(x, y, x + 216, y + h, Ui.BACKGROUND);
             box(g, x, y, x + 216, y + h, Ui.BORDER_STRONG);
             g.drawString(font, Component.translatable("computer.antos.disks.rewards_received"), x + 8, y + 7, Ui.TEXT_STRONG, false);
@@ -548,7 +626,7 @@ public final class ComputerScreen extends Screen {
 
     private void renderDesktopSurface(GuiGraphics g, int l, int t, int mouseX, int mouseY) {
         renderWallpaper(g, l, t);
-        g.fill(l + 9, t + 9, l + WIDTH - 9, t + 30, Ui.BACKGROUND);
+        g.fill(l + 9, t + 9, l + desktopWidth - 9, t + 30, Ui.BACKGROUND);
         g.drawString(font, Component.literal("AntOS // v" + AntOS.MOD_VERSION), l + 18, t + 15, Ui.TEXT_STRONG, false);
         long dayTime = Minecraft.getInstance().level == null ? 0L : Minecraft.getInstance().level.getDayTime();
         long dayTicks = Math.floorMod(dayTime, 24000L);
@@ -559,24 +637,19 @@ public final class ComputerScreen extends Screen {
             clockMinute = minute;
             clockLabel = String.format("%02d:%02d", hours, minutes);
         }
-        g.drawString(font, Component.literal(clockLabel), l + WIDTH - 48, t + 15, Ui.TEXT, false);
-        g.fill(l + 9, t + 31, l + WIDTH - 9, t + 33, Ui.BORDER_STRONG);
+        g.drawString(font, Component.literal(clockLabel), l + desktopWidth - 48, t + 15, Ui.TEXT, false);
+        notifications.renderBell(g, l, t);
+        if (fullscreenDesktop()) {
+            String restore = Component.translatable("computer.antos.notifications.windowed").getString();
+            drawFilterButton(g, windowedButtonX(l), t + 11, 74, false, trimToWidth(restore, 66));
+        }
+        g.fill(l + 9, t + 31, l + desktopWidth - 9, t + 33, Ui.BORDER_STRONG);
         List<String> desktopApps = renderedDesktopApps();
         for (int i = 0; i < desktopApps.size(); i++) {
             String app = desktopApps.get(i);
-            int x = desktopIconX(l, i);
-            int y = desktopIconY(t, i);
-            boolean hover = windowAtLocal(mouseX, mouseY) == null && inside(x - 8, y - 8, 84, 61, mouseX, mouseY);
-            if (hover) drawHover(g, x - 9, y - 9, 84, 62);
-            drawDesktopIcon(g, app, x + 25, y + 2);
-            if (app.equals("ANTMAIL") && session.antmail.hasUnreadMessages()) drawNotificationBadge(g, x + 35, y + 6);
-            if (app.equals("ANTAZON") && session.antazon.hasUnseenDeals()) drawNotificationBadge(g, x + 35, y + 6);
-            if (app.equals("MERCHANT") && session.merchant.hasPending()) drawNotificationBadge(g, x + 35, y + 6);
-            g.drawString(font, Component.translatable(appNameKey(app)), x, y + 35, Ui.TEXT_STRONG, false);
-            if (desktopKeyboardFocus && desktopFocusIndex == i) {
-                box(g, x - 10, y - 10, x + 76, y + 53, Ui.BACKGROUND);
-                box(g, x - 9, y - 9, x + 75, y + 52, Ui.FOCUS);
-            }
+            DesktopIconLayout icon = desktopIconLayout(i);
+            boolean hover = windowAtLocal(mouseX, mouseY) == null && icon.contains(mouseX - l, mouseY - t);
+            renderDesktopTile(g, app, i, l, t, hover, desktopKeyboardFocus && desktopFocusIndex == i, false);
         }
     }
 
@@ -584,18 +657,11 @@ public final class ComputerScreen extends Screen {
         List<String> apps = renderedDesktopApps();
         int appStep = session.onboardingStep - 1;
         boolean welcome = session.onboardingStep == 0;
-        g.fill(l + 9, t + 34, l + WIDTH - 9, t + HEIGHT - 9, Ui.alpha(Ui.SHADOW, 0xC4));
+        g.fill(l + 9, t + 34, l + desktopWidth - 9, t + desktopHeight - 9, Ui.alpha(Ui.SHADOW, 0xC4));
         if (!welcome && appStep >= 0 && appStep < apps.size()) {
             String app = apps.get(appStep);
             int desktopIndex = renderedDesktopApps().indexOf(app);
-            if (desktopIndex >= 0) {
-                int iconX = desktopIconX(l, desktopIndex);
-                int iconY = desktopIconY(t, desktopIndex);
-                g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.HOVER);
-                box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.ACCENT);
-                drawDesktopIcon(g, app, iconX + 25, iconY + 2);
-                g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, Ui.TEXT_STRONG, false);
-            }
+            if (desktopIndex >= 0) renderDesktopTile(g, app, desktopIndex, l, t, false, false, true);
             int panelX = onboardingAppPanelX(l, desktopIndex);
             int panelY = onboardingAppPanelY(t, desktopIndex);
             int panelW = 190;
@@ -614,19 +680,12 @@ public final class ComputerScreen extends Screen {
             Component nextLabel = Component.translatable(appStep + 1 < apps.size()
                     ? "computer.antos.onboarding.next" : "computer.antos.onboarding.done");
             onboardingButton(g, panelX + panelW - 78, actionY, 68, nextLabel, hovered(panelX + panelW - 78, actionY, 68, 22));
-            if (desktopIndex >= 0) {
-                int iconX = desktopIconX(l, desktopIndex);
-                int iconY = desktopIconY(t, desktopIndex);
-                g.fill(iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.HOVER);
-                box(g, iconX - 10, iconY - 10, iconX + 66, iconY + 52, Ui.ACCENT);
-                drawDesktopIcon(g, app, iconX + 25, iconY + 2);
-            g.drawString(font, Component.translatable(appNameKey(app)), iconX, iconY + 35, Ui.TEXT_STRONG, false);
-            }
+            if (desktopIndex >= 0) renderDesktopTile(g, app, desktopIndex, l, t, false, false, true);
             return;
         }
         int panelX = l + 30;
         int panelY = t + 43;
-        int panelW = WIDTH - 60;
+        int panelW = desktopWidth - 60;
         int panelH = 228;
         int contentX = panelX + 22;
         int actionY = panelY + 185;
@@ -657,10 +716,11 @@ public final class ComputerScreen extends Screen {
     }
 
     private int onboardingAppPanelX(int left, int desktopIndex) {
-        return desktopIndex % 4 < 2 ? left + 238 : left + 12;
+        return desktopIndex % 4 < 2 ? left + (fullscreenDesktop() ? desktopWidth - 202 : 238) : left + 12;
     }
 
     private int onboardingAppPanelY(int top, int desktopIndex) {
+        if (fullscreenDesktop()) return top + (desktopHeight - 154) / 2;
         return desktopIndex / 4 < 2 ? top + 126 : top + 43;
     }
 
@@ -685,12 +745,36 @@ public final class ComputerScreen extends Screen {
         return frameDesktopApps;
     }
 
-    private int desktopIconX(int left, int index) {
-        return left + 28 + index % 4 * 104;
+    private DesktopIconLayout desktopIconLayout(int index) {
+        return DesktopIconLayout.at(desktopWidth, desktopHeight, index, fullscreenDesktop());
     }
 
-    private int desktopIconY(int top, int index) {
-        return top + 48 + index / 4 * 78;
+    private void renderDesktopTile(GuiGraphics g, String app, int index, int left, int top, boolean hover, boolean focus, boolean tour) {
+        DesktopIconLayout icon = desktopIconLayout(index);
+        g.pose().pushPose();
+        try {
+            g.pose().translate(left + icon.x(), top + icon.y(), 0);
+            g.pose().scale(icon.scale(), icon.scale(), 1);
+            if (hover || tour) drawHover(g, -9, -9, 84, 62);
+            if (tour) box(g, -10, -10, 76, 53, Ui.ACCENT);
+            drawDesktopIcon(g, app, 25, 2);
+            if (app.equals("ANTMAIL") && session.antmail.hasUnreadMessages()) drawNotificationBadge(g, 35, 6);
+            if (app.equals("ANTAZON") && session.antazon.hasUnseenDeals()) drawNotificationBadge(g, 35, 6);
+            if (app.equals("MERCHANT") && session.merchant.hasPending()) drawNotificationBadge(g, 35, 6);
+            Component label = Component.translatable(appNameKey(app));
+            if (fullscreenDesktop()) g.drawCenteredString(font, label, 25, 35, Ui.TEXT_STRONG);
+            else g.drawString(font, label, 0, 35, Ui.TEXT_STRONG, false);
+            if (focus) {
+                box(g, -10, -10, 76, 53, Ui.BACKGROUND);
+                box(g, -9, -9, 75, 52, Ui.FOCUS);
+            }
+        } finally {
+            g.pose().popPose();
+        }
+    }
+
+    private int windowedButtonX(int l) {
+        return NotificationPanel.bellX(l, desktopWidth) - 80;
     }
 
     private void drawDesktopIcon(GuiGraphics g, String type, int x, int y) {
@@ -754,8 +838,8 @@ public final class ComputerScreen extends Screen {
     private void renderWallpaper(GuiGraphics g, int l, int t) {
         int left = l + 9;
         int top = t + 34;
-        int right = l + WIDTH - 9;
-        int bottom = t + HEIGHT - 8;
+        int right = l + desktopWidth - 9;
+        int bottom = t + desktopHeight - 8;
         String wallpaperId = session.wallpaperId;
         ComputerGuideData.Wallpaper wallpaper;
         try { wallpaper = ComputerGuideData.wallpaper(parsedWallpaper(wallpaperId)); }
@@ -891,8 +975,8 @@ public final class ComputerScreen extends Screen {
 
     private void renderWindowLayer(GuiGraphics g, Window window, int l, int t, int mouseX, int mouseY) {
         if (!window.maximized) {
-            window.x = Math.max(12, Math.min(WIDTH - window.width - 12, window.x));
-            window.y = Math.max(34, Math.min(HEIGHT - window.height - 12, window.y));
+            window.x = Math.max(12, Math.min(desktopWidth - window.width - 12, window.x));
+            window.y = Math.max(34, Math.min(desktopHeight - window.height - 12, window.y));
         }
         int x = l + windowLocalX(window);
         int y = t + windowLocalY(window);
@@ -991,8 +1075,8 @@ public final class ComputerScreen extends Screen {
 
     static int windowLocalX(Window window) { return window.maximized ? 14 : window.x; }
     static int windowLocalY(Window window) { return window.maximized ? 34 : window.y; }
-    static int windowWidth(Window window) { return window.maximized ? WIDTH - 28 : window.width; }
-    static int windowHeight(Window window) { return window.maximized ? HEIGHT - 48 : window.height; }
+    int windowWidth(Window window) { return window.maximized ? desktopWidth - 28 : window.width; }
+    int windowHeight(Window window) { return window.maximized ? desktopHeight - 48 : window.height; }
 
     private static void toggleMaximized(Window window) {
         AntOSUiSounds.play(window.maximized ? Cue.OPEN : Cue.MAXIMIZE);
@@ -1023,7 +1107,7 @@ public final class ComputerScreen extends Screen {
             if (holder == null) return false;
             var recipe = holder;
             var access = Minecraft.getInstance().level.registryAccess();
-            List<Ingredient> ingredients = recipe.getIngredients();
+            List<Ingredient> ingredients = archiveRecipeIngredients(recipe);
             ResourceLocation typeId = BuiltInRegistries.RECIPE_TYPE.getKey(recipe.getType());
             boolean gunBench = typeId != null && typeId.getNamespace().equals("scguns") && typeId.getPath().equals("gun_bench");
             int columns = gunBench ? 4 : 3;
@@ -1031,14 +1115,15 @@ public final class ComputerScreen extends Screen {
             int gridWidth = actualSlot * columns;
             int outputX = x + gridWidth + 8;
             int outputY = y + actualSlot;
-            int shapedWidth = recipe instanceof ShapedRecipe shaped ? shaped.getWidth() : 3;
-            int shapedHeight = recipe instanceof ShapedRecipe shaped ? shaped.getHeight() : 3;
+            int shapedWidth = recipe instanceof ShapedRecipe shaped ? shaped.getWidth() : archiveRecipeDimension(recipe, "getWidth");
+            int shapedHeight = recipe instanceof ShapedRecipe shaped ? shaped.getHeight() : archiveRecipeDimension(recipe, "getHeight");
+            boolean shapedGrid = recipe instanceof ShapedRecipe || shapedWidth < 3 || shapedHeight < 3;
             for (int index = 0; index < columns * 3; index++) {
                 int column = index % columns;
                 int row = index / columns;
                 int ingredientIndex;
                 if (gunBench) ingredientIndex = row < 2 ? row * 4 + column : column == 0 ? 8 : column == 2 ? 9 : -2;
-                else if (recipe instanceof ShapedRecipe) ingredientIndex = column < shapedWidth && row < shapedHeight ? row * shapedWidth + column : -1;
+                else if (shapedGrid) ingredientIndex = column < shapedWidth && row < shapedHeight ? row * shapedWidth + column : -1;
                 else ingredientIndex = index;
                 if (ingredientIndex == -2) continue;
                 int cellX = x + column * actualSlot;
@@ -1072,6 +1157,7 @@ public final class ComputerScreen extends Screen {
 
     private static final Map<String, Optional<net.minecraft.world.item.crafting.Recipe<?>>> archiveResolvedRecipes = new HashMap<>();
     private static final Map<Class<?>, Optional<java.lang.reflect.Method>> archiveResultMethods = new HashMap<>();
+    private static final Map<Class<?>, Optional<java.lang.reflect.Method>> archiveIngredientMethods = new HashMap<>();
     private static Object archiveRecipeLevel;
     private static Object archiveRecipeManager;
     private static Object archiveRecipeCollection;
@@ -1141,6 +1227,41 @@ public final class ComputerScreen extends Screen {
             }
         } catch (ReflectiveOperationException | RuntimeException ignored) { }
         return List.of();
+    }
+
+    // Some mods keep their inputs outside Recipe#getIngredients (e.g. counted ingredient stacks),
+    // so fall back to a getIngredientStacks() list whose entries expose getIngredient().
+    static List<Ingredient> archiveRecipeIngredients(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+        List<Ingredient> direct = recipe.getIngredients();
+        if (!direct.isEmpty()) return direct;
+        java.lang.reflect.Method method = archiveIngredientMethods.computeIfAbsent(recipe.getClass(), type -> {
+            try {
+                return Optional.of(type.getMethod("getIngredientStacks"));
+            } catch (NoSuchMethodException ignored) {
+                return Optional.empty();
+            }
+        }).orElse(null);
+        if (method == null) return direct;
+        try {
+            if (method.invoke(recipe) instanceof List<?> list) {
+                List<Ingredient> ingredients = new java.util.ArrayList<>();
+                for (Object value : list) {
+                    if (value instanceof Ingredient ingredient) ingredients.add(ingredient);
+                    else if (value != null && value.getClass().getMethod("getIngredient").invoke(value) instanceof Ingredient ingredient) ingredients.add(ingredient);
+                    else ingredients.add(Ingredient.EMPTY);
+                }
+                return ingredients;
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        return direct;
+    }
+
+    // Grid size for non-vanilla shaped recipes; anything unknown or out of range lays out as a 3x3 list.
+    private static int archiveRecipeDimension(net.minecraft.world.item.crafting.Recipe<?> recipe, String getter) {
+        try {
+            if (recipe.getClass().getMethod(getter).invoke(recipe) instanceof Integer value && value >= 1 && value <= 3) return value;
+        } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        return 3;
     }
 
     private static ItemStack archiveRecipeStation(net.minecraft.world.item.crafting.Recipe<?> recipe) {
@@ -1357,6 +1478,40 @@ public final class ComputerScreen extends Screen {
         org.joml.Vector4f to = matrix.transform(new org.joml.Vector4f(x + size, y + size, 0.0F, 1.0F));
         if (renderMouseX >= Math.min(from.x(), to.x()) && renderMouseX < Math.max(from.x(), to.x())
                 && renderMouseY >= Math.min(from.y(), to.y()) && renderMouseY < Math.max(from.y(), to.y())) frameHoveredItem = stack;
+    }
+
+    void noteHovered(ItemStack stack) {
+        if (stack != null && !stack.isEmpty()) frameHoveredItem = stack;
+    }
+
+    String lookupHint() {
+        return com.craisinlord.antos.content.client.ArchiveLookup.insideHint(lookupTarget(frameHoveredItem));
+    }
+
+    private com.craisinlord.antos.content.client.ArchiveLookup.Target lookupTarget(ItemStack stack) {
+        if (!loggedIn || stack == null || stack.isEmpty()) return null;
+        com.craisinlord.antos.content.client.ArchiveLookup.Target target = com.craisinlord.antos.content.client.ArchiveLookup.inside(stack);
+        if (target == null) return null;
+        if (target.kind().equals("archive") && activeWindow != null && activeWindow.type.equals("ARCHIVE")
+                && session.archive.state.entryId != null && session.archive.state.entryId.toString().equals(target.id())) return null;
+        return target;
+    }
+
+    private void followLookup(com.craisinlord.antos.content.client.ArchiveLookup.Target target) {
+        if (target.kind().equals("task")) {
+            if (!AntOSSettings.appEnabled("TASKS")) return;
+            displays.closeOverlay();
+            open("TASKS");
+            tasks.openDisplayTask(target.id());
+            return;
+        }
+        ResourceLocation id = ResourceLocation.tryParse(target.id());
+        ComputerGuideData.Entry entry = id == null ? null : ComputerGuideData.availableEntry(workspaceDiskIds(),
+                com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(), id);
+        if (entry == null) return;
+        displays.closeOverlay();
+        session.archive.select(entry);
+        open("ARCHIVE");
     }
 
     boolean hasTaskItemRecipe(String itemId) {
@@ -1596,12 +1751,12 @@ public final class ComputerScreen extends Screen {
         float scale = uiScale();
         mouseX = (mouseX - width / 2.0F) / scale;
         mouseY = (mouseY - height / 2.0F) / scale;
-        int l = -WIDTH / 2;
-        int t = -HEIGHT / 2;
+        int l = -desktopWidth / 2;
+        int t = -desktopHeight / 2;
         if (!loggedIn) {
             if (button != 0) return true;
             AntOSUiSounds.play(Cue.CLICK);
-            int buttonX = l + WIDTH / 2 - 70;
+            int buttonX = l + desktopWidth / 2 - 70;
             if (inside(buttonX, t + 70, 66, 20, mouseX, mouseY)) {
                 creatingAccount = false;
                 accountHintFocused = false;
@@ -1610,13 +1765,13 @@ public final class ComputerScreen extends Screen {
                 creatingAccount = true;
                 accountHintMessage = "";
                 accountMessage = "CHOOSE A USERNAME AND PASSWORD";
-            } else if (inside(l + 28, t + 109, WIDTH - 56, 23, mouseX, mouseY)) {
+            } else if (inside(l + 28, t + 109, desktopWidth - 56, 23, mouseX, mouseY)) {
                 accountPasswordFocused = false;
                 accountHintFocused = false;
-            } else if (inside(l + 28, t + 150, WIDTH - 56, 23, mouseX, mouseY)) {
+            } else if (inside(l + 28, t + 150, desktopWidth - 56, 23, mouseX, mouseY)) {
                 accountPasswordFocused = true;
                 accountHintFocused = false;
-            } else if (creatingAccount && inside(l + 28, t + 188, WIDTH - 56, 20, mouseX, mouseY)) {
+            } else if (creatingAccount && inside(l + 28, t + 188, desktopWidth - 56, 20, mouseX, mouseY)) {
                 accountPasswordFocused = false;
                 accountHintFocused = true;
             } else if (inside(buttonX, t + (creatingAccount ? 214 : 184), 140, 22, mouseX, mouseY)) submitAccount();
@@ -1626,6 +1781,12 @@ public final class ComputerScreen extends Screen {
         if (lookPickerOpen()) return lookPickerClicked(mouseX, mouseY);
         if (!session.onboardingCompleted) return onboardingClicked(mouseX, mouseY);
         if (displays.click(mouseX, mouseY, button)) return true;
+        if (button == 0 && notifications.bellClicked(l, t, mouseX, mouseY)) return true;
+        if (notifications.click(mouseX, mouseY, button)) return true;
+        if (button == 0 && fullscreenDesktop() && inside(windowedButtonX(l), t + 11, 74, 17, mouseX, mouseY)) {
+            AntOSSettings.updatePreferences(p -> p.fullscreenDesktop = false);
+            return true;
+        }
         if (pointerWindow != null || dragging != null) return true;
         Window window = windowAtLocal(mouseX, mouseY);
         if (window != null) {
@@ -1660,31 +1821,43 @@ public final class ComputerScreen extends Screen {
                 if (inside(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) closeWindow(window);
                 else if (inside(controlsLeft + WINDOW_CONTROL_WIDTH, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) toggleMaximized(window);
                 else if (inside(controlsLeft, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) minimizeWindow(window);
-                else if (!window.maximized) { dragging = window; dragX = (int) mouseX - x; dragY = (int) mouseY - y; }
+                else {
+                    long now = net.minecraft.Util.getMillis();
+                    if (lastTitleWindow == window && now - lastTitleClick <= 300
+                            && Math.abs(mouseX - lastTitleX) <= 4 && Math.abs(mouseY - lastTitleY) <= 4) {
+                        toggleMaximized(window);
+                        lastTitleWindow = null;
+                        dragging = null;
+                    } else {
+                        lastTitleWindow = window;
+                        lastTitleClick = now;
+                        lastTitleX = mouseX;
+                        lastTitleY = mouseY;
+                        if (!window.maximized) { dragging = window; dragX = (int) mouseX - x; dragY = (int) mouseY - y; }
+                    }
+                }
             }
             return true;
         }
         List<String> desktopApps = desktopApps();
         for (int i = 0; i < desktopApps.size(); i++) {
-            int x = desktopIconX(l, i);
-            int y = desktopIconY(t, i);
-            if (inside(x - 8, y - 8, 84, 61, mouseX, mouseY)) { desktopFocusIndex = i; desktopKeyboardFocus = false; open(desktopApps.get(i)); return true; }
+            if (desktopIconLayout(i).contains(mouseX - l, mouseY - t)) { desktopFocusIndex = i; desktopKeyboardFocus = false; open(desktopApps.get(i)); return true; }
         }
         return true;
     }
 
     private boolean onboardingClicked(double mouseX, double mouseY) {
         List<String> apps = onboardingApps();
-        int panelX = -WIDTH / 2 + 30;
-        int panelY = -HEIGHT / 2 + 43;
+        int panelX = -desktopWidth / 2 + 30;
+        int panelY = -desktopHeight / 2 + 43;
         int appStep = session.onboardingStep - 1;
         boolean welcome = session.onboardingStep == 0;
         int contentX = panelX + 22;
         int actionY = panelY + 185;
         if (!welcome && appStep >= 0 && appStep < apps.size()) {
             int desktopIndex = desktopApps().indexOf(apps.get(appStep));
-            panelX = onboardingAppPanelX(-WIDTH / 2, desktopIndex);
-            panelY = onboardingAppPanelY(-HEIGHT / 2, desktopIndex);
+            panelX = onboardingAppPanelX(-desktopWidth / 2, desktopIndex);
+            panelY = onboardingAppPanelY(-desktopHeight / 2, desktopIndex);
             contentX = panelX + 10;
             actionY = panelY + 121;
         }
@@ -1692,7 +1865,7 @@ public final class ComputerScreen extends Screen {
             if (inside(contentX, actionY, 126, 22, mouseX, mouseY)) {
                 if (apps.isEmpty()) finishOnboarding();
                 else session.onboardingStep = 1;
-            } else if (inside(panelX + 250, actionY, 88, 22, mouseX, mouseY)) {
+            } else if (inside(panelX + desktopWidth - 170, actionY, 88, 22, mouseX, mouseY)) {
                 finishOnboarding();
             }
             return true;
@@ -1719,10 +1892,10 @@ public final class ComputerScreen extends Screen {
     private void renderLookPicker(GuiGraphics g, int l, int t) {
         int panelX = l + 30;
         int panelY = t + 43;
-        int panelW = WIDTH - 60;
+        int panelW = desktopWidth - 60;
         int panelH = 228;
         int contentX = panelX + 22;
-        g.fill(l + 9, t + 34, l + WIDTH - 9, t + HEIGHT - 9, Ui.alpha(Ui.SHADOW, 0xC4));
+        g.fill(l + 9, t + 34, l + desktopWidth - 9, t + desktopHeight - 9, Ui.alpha(Ui.SHADOW, 0xC4));
         g.fill(panelX, panelY, panelX + panelW, panelY + panelH, Ui.BACKGROUND);
         box(g, panelX, panelY, panelX + panelW, panelY + panelH, Ui.BORDER_STRONG);
         g.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + 25, Ui.SURFACE);
@@ -1772,9 +1945,9 @@ public final class ComputerScreen extends Screen {
     }
 
     private boolean lookPickerClicked(double mouseX, double mouseY) {
-        int panelX = -WIDTH / 2 + 30;
-        int panelY = -HEIGHT / 2 + 43;
-        int panelW = WIDTH - 60;
+        int panelX = -desktopWidth / 2 + 30;
+        int panelY = -desktopHeight / 2 + 43;
+        int panelW = desktopWidth - 60;
         int cardW = (panelW - 56) / 2;
         for (int index = 0; index < LOOKS.length; index++) {
             if (inside(panelX + 22 + index * (cardW + 12), panelY + 60, cardW, 120, mouseX, mouseY)) {
@@ -1811,11 +1984,12 @@ public final class ComputerScreen extends Screen {
         mouseX = (mouseX - width / 2.0F) / scale;
         mouseY = (mouseY - height / 2.0F) / scale;
         if (displays.drag(mouseX, mouseY)) return true;
+        if (notifications.drag(mouseY)) return true;
         if (dragging != null && button == 0) {
-            int l = -WIDTH / 2;
-            int t = -HEIGHT / 2;
-            dragging.x = Math.max(12, Math.min(WIDTH - dragging.renderWidth - 12, (int) mouseX - l - this.dragX));
-            dragging.y = Math.max(34, Math.min(HEIGHT - dragging.renderHeight - 12, (int) mouseY - t - this.dragY));
+            int l = -desktopWidth / 2;
+            int t = -desktopHeight / 2;
+            dragging.x = Math.max(12, Math.min(desktopWidth - dragging.renderWidth - 12, (int) mouseX - l - this.dragX));
+            dragging.y = Math.max(34, Math.min(desktopHeight - dragging.renderHeight - 12, (int) mouseY - t - this.dragY));
         }
         if (pointerWindow != null && pointerButton == button && session.windows.contains(pointerWindow) && !pointerWindow.minimized) {
             switch (pointerWindow.type) {
@@ -1837,6 +2011,7 @@ public final class ComputerScreen extends Screen {
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         displays.release();
+        if (notifications.release()) return true;
         float scale = uiScale();
         mouseX = (mouseX - width / 2.0F) / scale;
         mouseY = (mouseY - height / 2.0F) / scale;
@@ -1864,6 +2039,7 @@ public final class ComputerScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         float scale = uiScale();
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && displays.scroll((mouseX - width / 2.0F) / scale, (mouseY - height / 2.0F) / scale, scrollY)) return true;
+        if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && notifications.scroll((mouseX - width / 2.0F) / scale, (mouseY - height / 2.0F) / scale, scrollY)) return true;
         Window hoveredWindow = windowAt(mouseX, mouseY);
         if (!loggedIn || hoveredWindow == null) return super.mouseScrolled(mouseX, mouseY, scrollY);
         if (!session.onboardingCompleted || lookPickerOpen()) return true;
@@ -1957,6 +2133,10 @@ public final class ComputerScreen extends Screen {
                 else finishOnboarding();
                 return true;
             }
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && notifications.isOpen()) {
+            notifications.close();
             return true;
         }
         if (!hoveredItem.isEmpty() && !typingInActiveWindow()) {
@@ -2056,7 +2236,7 @@ public final class ComputerScreen extends Screen {
     }
 
     private WindowBounds bounds(Window window) {
-        return new WindowBounds(-WIDTH / 2 + windowLocalX(window), -HEIGHT / 2 + windowLocalY(window), windowWidth(window), windowHeight(window));
+        return new WindowBounds(-desktopWidth / 2 + windowLocalX(window), -desktopHeight / 2 + windowLocalY(window), windowWidth(window), windowHeight(window));
     }
 
     private Window windowAt(double mouseX, double mouseY) {
@@ -2068,17 +2248,28 @@ public final class ComputerScreen extends Screen {
         return WindowBounds.topmost(session.windows, window -> window.minimized ? null : bounds(window), mouseX, mouseY);
     }
 
+    private void focusTopWindow() {
+        activeWindow = null;
+        for (int index = session.windows.size() - 1; index >= 0; index--) {
+            Window candidate = session.windows.get(index);
+            if (!candidate.minimized) { activeWindow = candidate; break; }
+        }
+    }
+
     private void minimizeWindow(Window window) {
         AntOSUiSounds.play(Cue.MINIMIZE);
         window.minimized = true;
-        if (activeWindow == window) activeWindow = null;
+        if (activeWindow == window) focusTopWindow();
     }
 
     private void closeWindow(Window window) {
+        if (window.type.equals("TEXT")) session.text.checkpoint();
+        if (window.type.equals("PAINT")) session.paint.checkpoint();
         AntOSUiSounds.play(Cue.CLOSE);
         if (window.type.equals("ANTMAIL")) session.antmail.windowClosed();
+        if (window.type.equals("TASKS")) tasks.remember();
         session.windows.remove(window);
-        if (activeWindow == window) activeWindow = null;
+        if (activeWindow == window) focusTopWindow();
     }
 
     static boolean inside(int x, int y, int w, int h, double mx, double my) { return mx >= x && mx < x + w && my >= y && my < y + h; }
@@ -2109,6 +2300,11 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public void removed() {
+        if (loggedIn) {
+            session.text.checkpoint();
+            session.paint.checkpoint();
+        }
+        if (loggedIn) tasks.remember();
         if (loggedIn && AntOSSettings.preferences().resumeSession) {
             AntOSSettings.setResumeSnapshot(sessionKey, ComputerResume.capture(session));
         }

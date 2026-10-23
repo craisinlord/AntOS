@@ -2,6 +2,7 @@ package com.craisinlord.antos.content.client.screen;
 
 import com.craisinlord.antos.content.client.palette.Ui;
 import com.google.gson.JsonObject;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
 import com.craisinlord.antos.content.client.AntazonClientState;
@@ -26,6 +27,10 @@ import java.util.Set;
 
 final class AntazonApp extends ComputerApp {
     private final State state = new State();
+
+    void openNotification(String kind) {
+        switchTab(kind.equals("order") ? 2 : 1);
+    }
     void tick(boolean loggedIn, boolean windowOpen) {
         if (state.walletRefreshTicks > 0 && --state.walletRefreshTicks == 0) ComputerNetworking.requestAntazonWallet();
         if (loggedIn && !state.prefetched && AntOSSettings.appEnabled("ANTAZON")) {
@@ -104,7 +109,7 @@ final class AntazonApp extends ComputerApp {
         g.fill(x, y, x + w, y + h, hover ? Ui.HOVER : primary && enabled ? Ui.SURFACE_DEEP : Ui.SURFACE);
         screen.box(g, x, y, x + w, y + h, !enabled ? Ui.LINE : hover ? Ui.FOCUS : primary ? Ui.ACCENT : Ui.LINE);
         centered(g, label, x + w / 2.0F, y + (h - 8) / 2.0F + 1, w - 6, !enabled ? Ui.TEXT_DIM : primary ? Ui.ACCENT : Ui.TEXT);
-        if (enabled) hit(x, y, w, h, action);
+        if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 
     private void chip(ThemedGraphics g, int x, int y, int w, boolean selected, String label, Runnable action) {
@@ -1942,6 +1947,19 @@ final class AntazonApp extends ComputerApp {
         state.lastListingsRefresh = now;
         ComputerNetworking.requestAntazonBootstrap(ComputerAccessPayload.BOOTSTRAP_STATE | ComputerAccessPayload.BOOTSTRAP_PRICES);
     }
+
+    void openSellPrice(String itemId) {
+        state.mode = "sell";
+        state.sellConfirm = false;
+        state.focus = 0;
+        AntazonClientState.clearSellFeedback();
+        ComputerNetworking.requestAntazonSellState();
+        showPrices();
+        state.priceSearch = itemId;
+        state.priceItem = itemId;
+    }
+
+    boolean typing() { return state.focus != 0; }
 
     void showPrices() {
         state.mode = "sell";

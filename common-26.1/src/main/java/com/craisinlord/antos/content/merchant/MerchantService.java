@@ -15,6 +15,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
+import java.lang.reflect.Field;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -24,23 +25,52 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.WeakHashMap;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.level.storage.PlayerDataStorage;
 
 public final class MerchantService {
     private static final Map<MinecraftServer, MerchantStore> STORES = new WeakHashMap<>();
     private static final int PAGE = 12;
+    private static final String RECEIPT_SEPARATOR = "\u001F";
+    private static Field playerData;
 
     private MerchantService() { }
 
     public static String report(MinecraftServer server) throws IOException {
         JsonObject root = store(server).snapshot();
         return "MERCHANT: " + root.getAsJsonArray("listings").size() + " listings, " + root.getAsJsonArray("trades").size() + " trades, " + root.getAsJsonArray("shipments").size()
-                + " shipments. Recovery: " + (root.has("pending") ? text(root.getAsJsonObject("pending"), "player") : "none");
+                + " shipments. Recovery: " + (root.has("pending") ? text(root.getAsJsonObject("pending"), "player") : "none")
+                + ", deferred: " + (root.has("deferred") ? root.getAsJsonArray("deferred").size() : 0);
+    }
+
+    public static int discardRecovery(MinecraftServer server, UUID player) throws IOException {
+        MerchantStore storage = store(server);
+        JsonObject root = storage.snapshot();
+        int discarded = 0;
+        if (root.has("pending") && text(root.getAsJsonObject("pending"), "player").equals(player.toString())) {
+            settleWallets(server, root.getAsJsonObject("pending"));
+            root.remove("pending");
+            discarded++;
+        }
+        if (root.has("deferred")) {
+            JsonArray deferred = root.getAsJsonArray("deferred");
+            int before = deferred.size();
+            deferred.asList().removeIf(element -> text(element.getAsJsonObject(), "player").equals(player.toString()));
+            discarded += before - deferred.size();
+            if (deferred.isEmpty()) root.remove("deferred");
+        }
+        if (discarded > 0) {
+            AntOS.LOGGER.warn("MERCHANT recovery for {} was discarded by an administrator", player);
+            storage.commit(root);
+        }
+        return discarded;
     }
 
     public static void resume(ServerPlayer player) throws IOException {
@@ -53,7 +83,7 @@ public final class MerchantService {
         require(!root.has("pending"), "recovery_pending");
         JsonObject listing = MerchantStore.find(root, "listings", id);
         require(integer(listing, "lots") > 0, "listing_unavailable");
-        shipment(root, text(listing, "owner"), listing.getAsJsonObject("stack"), Math.toIntExact(MerchantStore.total(integer(listing, "quantity"), integer(listing, "lots"))), "return", UUID.randomUUID().toString());
+        shipment(root, text(listing, "owner"), listing, Math.toIntExact(MerchantStore.total(integer(listing, "quantity"), integer(listing, "lots"))), "return", UUID.randomUUID().toString());
         listing.addProperty("lots", 0);
         listing.addProperty("revision", integer(listing, "revision") + 1);
         storage.commit(root);
@@ -74,12 +104,13 @@ public final class MerchantService {
             JsonObject request = MerchantProtocol.parse(encoded);
             result = MerchantProtocol.envelope(request);
             require(AntOSSettings.appEnabled("MERCHANT"), "disabled");
-            require(player.isAlive() && !player.isSpectator(), "unavailable");
             var account = AnternetAccountHandler.session(player);
             require(account != null, "unauthorized");
             MerchantStore storage = store(player.level().getServer());
-            recover(player, storage);
             String action = text(request, "action");
+            String restriction = MerchantAccess.failure(action, player.isAlive(), player.isSpectator());
+            require(restriction.isEmpty(), restriction);
+            if (!action.equals("state")) recover(player, storage);
             String owner = account.accountId().toString();
             if (!action.equals("state")) {
                 String requestId = UUID.fromString(text(request, "request")).toString();
@@ -131,9 +162,7 @@ public final class MerchantService {
     public static void recoverOnLogin(ServerPlayer player) {
         try {
             MerchantStore storage = store(player.level().getServer());
-            if (!storage.hasPending()) return;
-            JsonObject root = storage.snapshot();
-            if (root.has("pending") && text(root.getAsJsonObject("pending"), "player").equals(player.getUUID().toString())) recover(player, storage);
+            if (storage.hasPending() || storage.hasDeferred(player.getUUID().toString())) recover(player, storage);
         } catch (Exception exception) {
             AntOS.LOGGER.error("Could not recover interrupted MERCHANT transaction for {}", player.getUUID(), exception);
         }
@@ -144,7 +173,8 @@ public final class MerchantService {
         require(slot >= 0 && slot < 36, "invalid_item");
         ItemStack offered = player.getInventory().getItem(slot).copy();
         require(!offered.isEmpty(), "invalid_item");
-        require(ItemStack.isSameItemSameComponents(offered, decode(player, request.getAsJsonObject("expected"))), "inventory_changed");
+        require(encode(player, offered).equals(request.getAsJsonObject("expected")), "inventory_changed");
+        require(MerchantStore.activeListings(root, owner) < MerchantStore.MAX_ACTIVE_LISTINGS, "listing_limit");
         int amount = integer(request, "quantity");
         int lots = integer(request, "lots");
         long total = MerchantStore.total(amount, lots);
@@ -167,14 +197,13 @@ public final class MerchantService {
             require(!accepted.contains(option), "duplicate_payment");
             accepted.add(option);
         }
-        JsonArray before = inventory(player);
-        JsonArray after = remove(player, before, offered, (int) total);
+        Plan plan = plan(player, offered, (int) total);
         offered.setCount(1);
         JsonObject listing = new JsonObject();
         listing.addProperty("id", UUID.randomUUID().toString());
         listing.addProperty("owner", owner);
         listing.addProperty("seller", seller);
-        listing.add("stack", encode(player, offered));
+        putStack(player, listing, offered);
         listing.addProperty("name", offered.getHoverName().getString());
         listing.addProperty("item", BuiltInRegistries.ITEM.getKey(offered.getItem()).toString());
         listing.addProperty("quantity", amount);
@@ -183,12 +212,12 @@ public final class MerchantService {
         listing.addProperty("created", System.currentTimeMillis());
         listing.add("payments", accepted);
         root.getAsJsonArray("listings").add(listing);
-        transact(player, storage, root, before, after, owner, requestId, new JsonArray(), request);
+        transact(player, storage, root, plan, owner, requestId, new JsonArray(), request);
     }
 
     private static void buy(ServerPlayer player, MerchantStore storage, JsonObject root, JsonObject request, String owner, String buyer, String requestId) throws IOException {
         JsonObject listing = MerchantStore.find(root, "listings", text(request, "id"));
-        ItemStack goodsPrototype = decode(player, listing.getAsJsonObject("stack"));
+        ItemStack goodsPrototype = stackOf(player, listing);
         require(!goodsPrototype.isEmpty(), "invalid_item");
         int lots = integer(request, "lots");
         int option = integer(request, "option");
@@ -197,8 +226,7 @@ public final class MerchantService {
         JsonObject payment = alternatives.get(option).getAsJsonObject();
         long price = quote.price();
         long count = quote.quantity();
-        JsonArray before = inventory(player);
-        JsonArray after = before.deepCopy();
+        Plan plan = null;
         JsonArray wallets = new JsonArray();
         String seller = text(listing, "owner");
         if (text(payment, "item").equals("antcoins")) {
@@ -211,10 +239,13 @@ public final class MerchantService {
             wallets.add(wallet(seller, sellerBalance, sellerBalance + price));
         } else {
             ItemStack currency = plain(text(payment, "item"));
-            after = remove(player, before, currency, (int) price);
-            shipment(root, seller, encode(player, currency), (int) price, "payment", requestId);
+            plan = plan(player, currency, (int) price);
+            JsonObject source = new JsonObject();
+            putStack(player, source, currency);
+            shipment(root, seller, source, (int) price, "payment", requestId);
         }
-        JsonObject goods = shipment(root, owner, listing.getAsJsonObject("stack"), (int) count, "purchase", requestId);
+        if (plan == null) plan = unchanged(player);
+        JsonObject goods = shipment(root, owner, listing, (int) count, "purchase", requestId);
         listing.addProperty("lots", quote.remaining());
         listing.addProperty("revision", quote.revision());
         JsonObject trade = new JsonObject();
@@ -224,14 +255,14 @@ public final class MerchantService {
         trade.addProperty("seller", seller);
         trade.addProperty("sellerName", text(listing, "seller"));
         trade.addProperty("created", System.currentTimeMillis());
-        trade.add("stack", listing.get("stack").deepCopy());
+        copyStack(listing, trade);
         trade.addProperty("quantity", count);
         trade.add("payment", payment.deepCopy());
         trade.addProperty("paid", price);
         root.getAsJsonArray("trades").add(trade);
-        transact(player, storage, root, before, after, owner, requestId, wallets, request);
-        receipt(player.level().getServer(), text(listing, "seller"), "Items sold", count + " " + text(listing, "name") + " sold to " + buyer + ". Open MERCHANT to view your payment.");
-        receipt(player.level().getServer(), buyer, "Trade complete", "Purchased " + count + " " + text(listing, "name") + ". Open MERCHANT to view your delivery.");
+        transact(player, storage, root, plan, owner, requestId, wallets, request);
+        receipt(player.level().getServer(), text(listing, "seller"), "sold", Long.toString(count), text(listing, "name"), buyer);
+        receipt(player.level().getServer(), buyer, "bought", Long.toString(count), text(listing, "name"));
         JsonObject current = storage.snapshot();
         try {
             dispatch(player, storage, current, MerchantStore.find(current, "shipments", text(goods, "id")));
@@ -254,7 +285,7 @@ public final class MerchantService {
         require(integer(listing, "lots") > 0, "listing_unavailable");
         require(integer(listing, "revision") == integer(request, "revision"), "listing_changed");
         int quantity = Math.toIntExact(MerchantStore.total(integer(listing, "quantity"), integer(listing, "lots")));
-        shipment(root, owner, listing.getAsJsonObject("stack"), quantity, "return", requestId);
+        shipment(root, owner, listing, quantity, "return", requestId);
         listing.addProperty("lots", 0);
         listing.addProperty("revision", integer(listing, "revision") + 1);
         recordRequest(root, owner, requestId, request);
@@ -275,7 +306,7 @@ public final class MerchantService {
         var location = player.blockPosition();
         require(level.getWorldBorder().isWithinBounds(location) && level.hasChunkAt(location) && location.getY() > level.getMinY() + 2, "unsafe_delivery");
         require(!player.isInLava() && !player.isUnderWater(), "unsafe_delivery");
-        ItemStack prototype = decode(player, shipment.getAsJsonObject("stack"));
+        ItemStack prototype = stackOf(player, shipment);
         require(!prototype.isEmpty(), "invalid_item");
         int originalQuantity = integer(shipment, "quantity");
         MerchantStore.Batch batch = MerchantStore.deliveryBatch(originalQuantity, prototype.getMaxStackSize(), RewardDropEntity.MAX_REWARD_STACKS);
@@ -289,9 +320,9 @@ public final class MerchantService {
             amount -= count;
         }
         RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
-        drop.setPos(location.getX() + 0.5D, RewardDropEntity.spawnHeight(level, location), location.getZ() + 0.5D);
         drop.setRewards(stacks, player);
-        JsonObject remainder = batch.remaining() > 0 ? shipment(root, text(shipment, "owner"), shipment.getAsJsonObject("stack"), batch.remaining(), text(shipment, "kind"), text(shipment, "trade")) : null;
+        drop.prepareDelivery(location);
+        JsonObject remainder = batch.remaining() > 0 ? shipment(root, text(shipment, "owner"), shipment, batch.remaining(), text(shipment, "kind"), text(shipment, "trade")) : null;
         shipment.addProperty("quantity", batch.sent());
         shipment.addProperty("status", "dispatched");
         shipment.addProperty("dimension", level.dimension().identifier().toString());
@@ -299,6 +330,7 @@ public final class MerchantService {
         storage.commit(root);
         try {
             require(level.addFreshEntity(drop), "unsafe_delivery");
+            level.getChunkSource().save(false);
         } catch (RuntimeException exception) {
             if (level.getEntity(drop.getUUID()) == null) {
                 if (remainder != null) root.getAsJsonArray("shipments").remove(remainder);
@@ -312,11 +344,11 @@ public final class MerchantService {
         player.sendSystemMessage(Component.translatable("computer.antos.merchant.incoming"));
     }
 
-    private static JsonObject shipment(JsonObject root, String owner, JsonObject stack, int quantity, String kind, String trade) {
+    private static JsonObject shipment(JsonObject root, String owner, JsonObject source, int quantity, String kind, String trade) {
         JsonObject row = new JsonObject();
         row.addProperty("id", UUID.randomUUID().toString());
         row.addProperty("owner", owner);
-        row.add("stack", stack.deepCopy());
+        copyStack(source, row);
         row.addProperty("quantity", quantity);
         row.addProperty("kind", kind);
         row.addProperty("trade", trade);
@@ -334,11 +366,12 @@ public final class MerchantService {
         root.getAsJsonArray("requests").add(value);
     }
 
-    private static void transact(ServerPlayer player, MerchantStore storage, JsonObject next, JsonArray before, JsonArray after, String owner, String requestId, JsonArray wallets, JsonObject request) throws IOException {
+    private static void transact(ServerPlayer player, MerchantStore storage, JsonObject next, Plan plan, String owner, String requestId, JsonArray wallets, JsonObject request) throws IOException {
         JsonObject pending = new JsonObject();
         pending.addProperty("player", player.getUUID().toString());
-        pending.add("before", before);
-        pending.add("after", after);
+        pending.add("before", plan.before());
+        pending.add("after", plan.after());
+        pending.add("removals", plan.removals());
         pending.add("wallets", wallets);
         next.add("pending", pending);
         recordRequest(next, owner, requestId, request);
@@ -347,40 +380,96 @@ public final class MerchantService {
     }
 
     private static void recover(ServerPlayer player, MerchantStore storage) throws IOException {
-        if (!storage.hasPending()) return;
+        if (storage.hasPending()) {
+            JsonObject root = storage.snapshot();
+            if (root.has("pending")) {
+                JsonObject pending = root.getAsJsonObject("pending");
+                root.remove("pending");
+                settleWallets(player.level().getServer(), pending);
+                pending.add("wallets", new JsonArray());
+                ServerPlayer actor = player.level().getServer().getPlayerList().getPlayer(UUID.fromString(text(pending, "player")));
+                if (actor == null || !settleInventory(actor, pending)) {
+                    if (!root.has("deferred")) root.add("deferred", new JsonArray());
+                    root.getAsJsonArray("deferred").add(pending);
+                }
+                storage.commit(root);
+            }
+        }
+        String id = player.getUUID().toString();
+        if (!storage.hasDeferred(id)) return;
         JsonObject root = storage.snapshot();
-        if (!root.has("pending")) return;
-        JsonObject pending = root.getAsJsonObject("pending");
-        if (!text(pending, "player").equals(player.getUUID().toString())) {
-            ServerPlayer actor = player.level().getServer().getPlayerList().getPlayer(UUID.fromString(text(pending, "player")));
-            require(actor != null, "recovery_pending");
-            recover(actor, storage);
-            return;
+        JsonArray deferred = root.getAsJsonArray("deferred");
+        boolean settled = true;
+        for (int index = 0; index < deferred.size(); index++) {
+            JsonObject entry = deferred.get(index).getAsJsonObject();
+            if (!text(entry, "player").equals(id)) continue;
+            if (!settleInventory(player, entry)) {
+                settled = false;
+                break;
+            }
+            deferred.remove(index--);
         }
-        JsonArray current = inventory(player);
-        JsonArray before = pending.getAsJsonArray("before");
-        JsonArray after = pending.getAsJsonArray("after");
-        boolean inventoryChanged = !before.equals(after);
-        require(!inventoryChanged || current.equals(before) || current.equals(after), "recovery_conflict");
-        AntazonServerData coins = AntazonServerData.access(player.level().getServer());
-        for (JsonElement element : pending.getAsJsonArray("wallets")) {
-            JsonObject row = element.getAsJsonObject();
-            long balance = coins.wallet(UUID.fromString(text(row, "owner")));
-            require(balance == row.get("before").getAsLong() || balance == row.get("after").getAsLong(), "recovery_conflict");
-        }
-        if (inventoryChanged && current.equals(before)) {
-            for (int slot = 0; slot < 36; slot++) player.getInventory().setItem(slot, after.get(slot).isJsonNull() ? ItemStack.EMPTY : decode(player, after.get(slot).getAsJsonObject()));
-            player.getInventory().setChanged();
-            player.containerMenu.broadcastChanges();
-        }
-        for (JsonElement element : pending.getAsJsonArray("wallets")) {
-            JsonObject row = element.getAsJsonObject();
-            coins.setWallet(UUID.fromString(text(row, "owner")), row.get("after").getAsLong());
-        }
-        if (inventoryChanged) player.level().getServer().getPlayerList().saveAll();
-        if (!pending.getAsJsonArray("wallets").isEmpty()) player.level().getServer().overworld().getDataStorage().saveAndJoin();
-        root.remove("pending");
+        if (deferred.isEmpty()) root.remove("deferred");
         storage.commit(root);
+        require(settled, "recovery_conflict");
+    }
+
+    private static void settleWallets(MinecraftServer server, JsonObject pending) {
+        AntazonServerData coins = AntazonServerData.access(server);
+        boolean changed = false;
+        for (JsonElement element : pending.getAsJsonArray("wallets")) {
+            JsonObject row = element.getAsJsonObject();
+            UUID owner = UUID.fromString(text(row, "owner"));
+            long balance = coins.wallet(owner);
+            if (balance == row.get("before").getAsLong()) {
+                coins.setWallet(owner, row.get("after").getAsLong());
+                changed = true;
+            } else if (balance != row.get("after").getAsLong()) {
+                AntOS.LOGGER.warn("MERCHANT left wallet {} unchanged during recovery: expected {} or {}, found {}", owner, row.get("before"), row.get("after"), balance);
+            }
+        }
+        if (changed) server.overworld().getDataStorage().saveAndJoin();
+    }
+
+    private static boolean settleInventory(ServerPlayer player, JsonObject entry) {
+        JsonArray before = entry.getAsJsonArray("before");
+        JsonArray after = entry.getAsJsonArray("after");
+        if (before.equals(after)) return true;
+        JsonArray current = inventory(player);
+        if (current.equals(after)) return true;
+        if (!current.equals(before)) return false;
+        var inventory = player.getInventory();
+        if (entry.has("removals")) {
+            for (JsonElement element : entry.getAsJsonArray("removals")) {
+                JsonObject removal = element.getAsJsonObject();
+                inventory.getItem(integer(removal, "slot")).shrink(integer(removal, "count"));
+            }
+        } else {
+            for (int slot = 0; slot < 36; slot++) {
+                if (before.get(slot).equals(after.get(slot))) continue;
+                inventory.setItem(slot, after.get(slot).isJsonNull() ? ItemStack.EMPTY : decode(player, after.get(slot).getAsJsonObject()));
+            }
+        }
+        inventory.setChanged();
+        player.containerMenu.broadcastChanges();
+        savePlayer(player);
+        return true;
+    }
+
+    private static void savePlayer(ServerPlayer player) {
+        try {
+            if (playerData == null) {
+                for (Field field : MinecraftServer.class.getDeclaredFields()) {
+                    if (field.getType() == PlayerDataStorage.class) {
+                        field.setAccessible(true);
+                        playerData = field;
+                    }
+                }
+            }
+            ((PlayerDataStorage) playerData.get(player.level().getServer())).save(player);
+        } catch (RuntimeException | ReflectiveOperationException | LinkageError exception) {
+            player.level().getServer().getPlayerList().saveAll();
+        }
     }
 
     private static JsonArray inventory(ServerPlayer player) {
@@ -392,20 +481,71 @@ public final class MerchantService {
         return result;
     }
 
-    private static JsonArray remove(ServerPlayer player, JsonArray before, ItemStack prototype, int quantity) {
-        List<ItemStack> inventory = new ArrayList<>();
-        for (JsonElement element : before) inventory.add(element.isJsonNull() ? ItemStack.EMPTY : decode(player, element.getAsJsonObject()));
+    private record Plan(JsonArray before, JsonArray after, JsonArray removals) { }
+
+    private static Plan unchanged(ServerPlayer player) {
+        JsonArray before = inventory(player);
+        return new Plan(before, before.deepCopy(), new JsonArray());
+    }
+
+    private static Plan plan(ServerPlayer player, ItemStack prototype, int quantity) {
+        List<ItemStack> live = new ArrayList<>();
+        for (int slot = 0; slot < 36; slot++) live.add(player.getInventory().getItem(slot));
+        List<ItemStack> remaining = MerchantInventory.take(live, prototype, quantity);
+        JsonArray before = inventory(player);
         JsonArray after = new JsonArray();
-        for (ItemStack item : MerchantInventory.take(inventory, prototype, quantity)) after.add(item.isEmpty() ? com.google.gson.JsonNull.INSTANCE : encode(player, item));
-        return after;
+        JsonArray removals = new JsonArray();
+        for (int slot = 0; slot < 36; slot++) {
+            ItemStack item = remaining.get(slot);
+            after.add(item.isEmpty() ? com.google.gson.JsonNull.INSTANCE : encode(player, item));
+            int taken = live.get(slot).getCount() - item.getCount();
+            if (taken > 0) {
+                JsonObject removal = new JsonObject();
+                removal.addProperty("slot", slot);
+                removal.addProperty("count", taken);
+                removals.add(removal);
+            }
+        }
+        return new Plan(before, after, removals);
+    }
+
+    private static void putStack(ServerPlayer player, JsonObject row, ItemStack stack) {
+        row.add("stack", encode(player, stack));
+        try {
+            row.addProperty("nbt", ItemStack.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE, player.level().getServer().registryAccess()), stack).getOrThrow().toString());
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("invalid_item");
+        }
+    }
+
+    private static void copyStack(JsonObject source, JsonObject row) {
+        row.add("stack", source.get("stack").deepCopy());
+        if (source.has("nbt")) row.add("nbt", source.get("nbt").deepCopy());
+    }
+
+    private static ItemStack stackOf(ServerPlayer player, JsonObject row) {
+        if (!row.has("nbt")) return decode(player, row.getAsJsonObject("stack"));
+        try {
+            return ItemStack.CODEC.parse(RegistryOps.create(NbtOps.INSTANCE, player.level().getServer().registryAccess()), TagParser.parseCompoundFully(text(row, "nbt"))).getOrThrow();
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("invalid_item");
+        }
     }
 
     public static JsonObject encode(ServerPlayer player, ItemStack stack) {
-        return ItemStack.CODEC.encodeStart(RegistryOps.create(JsonOps.INSTANCE, player.level().getServer().registryAccess()), stack).getOrThrow().getAsJsonObject();
+        try {
+            return ItemStack.CODEC.encodeStart(RegistryOps.create(JsonOps.INSTANCE, player.level().getServer().registryAccess()), stack).getOrThrow().getAsJsonObject();
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("invalid_item");
+        }
     }
 
     private static ItemStack decode(ServerPlayer player, JsonObject value) {
-        return ItemStack.CODEC.parse(RegistryOps.create(JsonOps.INSTANCE, player.level().getServer().registryAccess()), value).getOrThrow();
+        try {
+            return ItemStack.CODEC.parse(RegistryOps.create(JsonOps.INSTANCE, player.level().getServer().registryAccess()), value).getOrThrow();
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("invalid_item");
+        }
     }
 
     private static ItemStack plain(String id) {
@@ -452,10 +592,11 @@ public final class MerchantService {
         if (collection.equals("listings") && sort.equals("name")) order = Comparator.comparing(row -> text(row, "name"));
         if (collection.equals("listings") && sort.equals("price") && !currency.isEmpty()) order = Comparator.comparingLong(row -> paymentPrice(row, currency));
         rows.sort(order);
+        int size = request.has("size") ? integer(request, "size") : PAGE;
         int page = request.has("page") ? Math.max(0, integer(request, "page")) : 0;
-        page = Math.min(page, Math.max(0, (rows.size() - 1) / PAGE));
+        page = Math.min(page, Math.max(0, (rows.size() - 1) / size));
         JsonArray pageRows = new JsonArray();
-        for (int index = page * PAGE; index < Math.min(rows.size(), (page + 1) * PAGE); index++) pageRows.add(rows.get(index).deepCopy());
+        for (int index = page * size; index < Math.min(rows.size(), (page + 1) * size); index++) pageRows.add(rows.get(index).deepCopy());
         if (request.has("selected")) {
             for (JsonElement element : root.getAsJsonArray(collection)) {
                 JsonObject row = element.getAsJsonObject();
@@ -472,6 +613,7 @@ public final class MerchantService {
         result.add("rows", pageRows);
         result.addProperty("total", rows.size());
         result.addProperty("page", page);
+        result.addProperty("size", size);
         result.addProperty("owner", owner);
         result.addProperty("view", view);
         result.addProperty("wallet", AntazonServerData.access(player.level().getServer()).wallet(UUID.fromString(owner)));
@@ -506,9 +648,11 @@ public final class MerchantService {
         return available;
     }
 
-    private static void receipt(MinecraftServer server, String username, String subject, String body) {
+    private static void receipt(MinecraftServer server, String username, String kind, String... values) {
+        String key = "computer.antos.merchant.receipt." + kind;
+        String body = key + "_body" + RECEIPT_SEPARATOR + String.join(RECEIPT_SEPARATOR, values);
         try {
-            AntmailServerData.access(server).deliver(server, AntmailMessage.create(AntmailAddress.ofUsername("merchant"), AntmailAddress.ofUsername(username), subject, body + "\n\nmerchant://deliveries", server.overworld().getGameTime(), List.of()));
+            AntmailServerData.access(server).deliver(server, AntmailMessage.create(AntmailAddress.ofUsername("merchant"), AntmailAddress.ofUsername(username), key + "_subject", body + "\n\nmerchant://deliveries", server.overworld().getGameTime(), List.of()));
         } catch (RuntimeException exception) {
             AntOS.LOGGER.warn("Could not send MERCHANT receipt", exception);
         }

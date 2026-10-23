@@ -43,6 +43,7 @@ public final class AntOSFabric implements ModInitializer {
         }
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
                 com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> com.craisinlord.antos.content.network.ComputerAccessHandler.sendLookup(handler.player));
         // Fabric has no advancement event; AntmailEventData.onTick polls earned advancements instead.
         AntmailEventData.registerListeners();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
@@ -51,6 +52,7 @@ public final class AntOSFabric implements ModInitializer {
             com.craisinlord.antos.content.antazon.AntazonCommands.register(dispatcher);
             com.craisinlord.antos.content.antazon.AntcoinCommands.register(dispatcher);
             com.craisinlord.antos.content.computer.AccountCommands.register(dispatcher);
+            com.craisinlord.antos.content.guide.DisplayCommands.register(dispatcher);
         });
         registerReloadListener("computer_data", ComputerGuideData.instance());
         registerReloadListener("blockle_answers", BlockleAnswers.instance());
@@ -59,14 +61,17 @@ public final class AntOSFabric implements ModInitializer {
         registerReloadListener("antazon_sell_data", AntazonSellData.instance());
         registerReloadListener("antazon_deal_data", com.craisinlord.antos.content.antazon.AntazonDealData.instance());
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            com.craisinlord.antos.content.guide.DisplayCommands.tick(server);
             FieldGuideCompat.tick(server);
             FloppyTextureSync.tick(server);
             com.craisinlord.antos.content.network.JeiSync.tick(server);
+            com.craisinlord.antos.content.network.DisplaySync.tick(server);
             AntmailEventData.onTick(server);
             com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
             com.craisinlord.antos.content.computer.ComputerPrograms.tick(server);
         });
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
             FieldGuideCompat.shutdown();
             com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
         });

@@ -5,6 +5,14 @@ import com.craisinlord.antos.content.network.ComputerAccessHandler;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -28,6 +36,13 @@ import java.util.UUID;
 
 public final class RewardDropEntity extends Entity {
     private static final double SPAWN_HEIGHT = 64.0D;
+    private static final EntityDataAccessor<Boolean> DELIVERY_HIDDEN = SynchedEntityData.defineId(RewardDropEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Integer> PORTAL_TICKS = SynchedEntityData.defineId(RewardDropEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Float> PORTAL_Y = SynchedEntityData.defineId(RewardDropEntity.class, EntityDataSerializers.FLOAT);
+    private BlockPos deliveryTarget;
+    private double deliveryFloorY;
+    private int deliveryFlightTicks;
+    private boolean deliveryWaitingNotified;
     private static final String REWARDS_TAG = "Rewards";
     private static final String RECIPIENT_TAG = "Recipient";
     public static final int MAX_REWARD_STACKS = 108;
@@ -44,8 +59,157 @@ public final class RewardDropEntity extends Entity {
         super(type, level);
     }
 
-    public static double spawnHeight(Level level, net.minecraft.core.BlockPos landing) {
+    public static double spawnHeight(Level level, BlockPos landing) {
         return Math.min(landing.getY() + SPAWN_HEIGHT, level.getMaxY() - 2.0D);
+    }
+
+    public boolean deliveryHidden() {
+        return entityData.get(DELIVERY_HIDDEN);
+    }
+
+    public float deliveryScale() {
+        int ticks = entityData.get(PORTAL_TICKS);
+        return ticks == 0 ? 1.0F : Math.max(0.0F, Math.min(1.0F, (ticks - DeliveryArrival.OPEN_TICKS) / 5.0F));
+    }
+
+    public void prepareDelivery(BlockPos destination) {
+        deliveryTarget = destination.immutable();
+        entityData.set(DELIVERY_HIDDEN, true);
+        setInvisible(true);
+        setPos(destination.getX() + 0.5D, destination.getY(), destination.getZ() + 0.5D);
+        tryDelivery();
+    }
+
+    private DeliveryArrival.Space deliverySpace() {
+        return new DeliveryArrival.Space() {
+            @Override
+            public double floor(int x, int y, int z) {
+                var search = new AABB(x + 0.2D, y - 1.0D, z + 0.2D,
+                        x + 0.8D, y + 0.75D, z + 0.8D);
+                if (!loaded(search)) return Double.NaN;
+                double floor = Double.NaN;
+                for (var shape : level().getBlockCollisions(RewardDropEntity.this, search)) {
+                    double top = shape.max(Direction.Axis.Y);
+                    if (top <= y + 0.75D && (!Double.isFinite(floor) || top > floor)) floor = top;
+                }
+                if (!Double.isFinite(floor)) return Double.NaN;
+                var support = level().getBlockState(BlockPos.containing(x + 0.5D, floor - 0.01D, z + 0.5D));
+                var landing = level().getBlockState(BlockPos.containing(x + 0.5D, floor + 0.01D, z + 0.5D));
+                if (landing.is(BlockTags.FIRE) || support.is(BlockTags.FIRE) || support.is(BlockTags.CAMPFIRES)
+                        || support.is(Blocks.MAGMA_BLOCK)
+                        || support.is(Blocks.CACTUS)) return Double.NaN;
+                return floor;
+            }
+
+            @Override
+            public double ceiling(double x, double y, double z, double top) {
+                var search = new AABB(x - 0.45D, y, z - 0.45D, x + 0.45D, top, z + 0.45D);
+                double ceiling = Double.NaN;
+                for (var shape : level().getBlockCollisions(RewardDropEntity.this, search)) {
+                    double bottom = shape.min(Direction.Axis.Y);
+                    if (!Double.isFinite(ceiling) || bottom < ceiling) ceiling = bottom;
+                }
+                return ceiling;
+            }
+
+            @Override
+            public boolean clear(double x, double y, double z, double radius, double height) {
+                var bounds = new AABB(x - radius, y + 0.001D, z - radius,
+                        x + radius, y + height, z + radius);
+                return loaded(bounds) && level().getWorldBorder().isWithinBounds(bounds)
+                        && !level().getBlockCollisions(RewardDropEntity.this, bounds).iterator().hasNext()
+                        && !level().containsAnyLiquid(bounds);
+            }
+        };
+    }
+
+    private boolean loaded(AABB bounds) {
+        return bounds.minY >= level().getMinY() && bounds.maxY < level().getMaxY()
+                && level().hasChunksAt(BlockPos.containing(bounds.minX, bounds.minY, bounds.minZ),
+                BlockPos.containing(bounds.maxX, bounds.maxY, bounds.maxZ));
+    }
+
+    private void tryDelivery() {
+        var plan = DeliveryArrival.find(deliveryTarget.getX(), deliveryTarget.getY(), deliveryTarget.getZ(),
+                level().getMaxY() - 1.0D, deliverySpace());
+        if (plan == null) {
+            if (!deliveryWaitingNotified && level() instanceof ServerLevel serverLevel && recipient != null) {
+                var player = serverLevel.getServer().getPlayerList().getPlayer(recipient);
+                if (player != null) player.sendSystemMessage(Component.literal("Antazon delivery waiting for a clear landing space nearby.").withStyle(ChatFormatting.GOLD));
+                deliveryWaitingNotified = true;
+            }
+            return;
+        }
+        deliveryFloorY = plan.floorY();
+        deliveryFlightTicks = 0;
+        setPos(plan.x(), plan.spawnY(), plan.z());
+        entityData.set(PORTAL_Y, (float) (plan.spawnY() + 0.85D));
+        entityData.set(PORTAL_TICKS, plan.portal() ? 1 : 0);
+        entityData.set(DELIVERY_HIDDEN, plan.portal());
+        setInvisible(plan.portal());
+        setDeltaMovement(0.0D, plan.portal() ? 0.0D : -0.12D, 0.0D);
+        if (plan.portal()) ((ServerLevel) level()).playSound(null, blockPosition(), SoundEvents.PORTAL_TRIGGER,
+                SoundSource.NEUTRAL, 0.35F, 1.6F);
+    }
+
+    private void waitForDelivery() {
+        entityData.set(PORTAL_TICKS, 0);
+        entityData.set(DELIVERY_HIDDEN, true);
+        setInvisible(true);
+        setDeltaMovement(Vec3.ZERO);
+        setPos(deliveryTarget.getX() + 0.5D, deliveryTarget.getY(), deliveryTarget.getZ() + 0.5D);
+    }
+
+    private boolean tickDelivery() {
+        int ticks = entityData.get(PORTAL_TICKS);
+        if (ticks > 0) {
+            if (ticks == DeliveryArrival.OPEN_TICKS) {
+                var space = deliverySpace();
+                double floor = space.floor(Mth.floor(getX()), deliveryTarget.getY(), Mth.floor(getZ()));
+                if (!Double.isFinite(floor) || Math.abs(floor - deliveryFloorY) > 0.01D
+                        || !space.clear(getX(), deliveryFloorY, getZ(), 0.45D, getY() - deliveryFloorY + 0.85D)
+                        || !space.clear(getX(), entityData.get(PORTAL_Y) - 0.08D, getZ(), DeliveryArrival.PORTAL_RADIUS, 0.1D)) {
+                    waitForDelivery();
+                    return true;
+                }
+                entityData.set(DELIVERY_HIDDEN, false);
+                setInvisible(false);
+                setDeltaMovement(0.0D, -0.12D, 0.0D);
+                ((ServerLevel) level()).playSound(null, blockPosition(), SoundEvents.ENDERMAN_TELEPORT,
+                        SoundSource.NEUTRAL, 0.55F, 1.25F);
+            }
+            entityData.set(PORTAL_TICKS, ticks >= DeliveryArrival.OPEN_TICKS + DeliveryArrival.CLOSE_TICKS ? 0 : ticks + 1);
+            if (ticks < DeliveryArrival.OPEN_TICKS) return true;
+        }
+        if (deliveryHidden()) {
+            if (tickCount % 40 == 0) tryDelivery();
+            return true;
+        }
+        deliveryFlightTicks++;
+        if (deliveryFlightTicks > 200 || getY() < deliveryFloorY - 0.75D) {
+            waitForDelivery();
+            return true;
+        }
+        return false;
+    }
+
+    private void portalParticles() {
+        int ticks = entityData.get(PORTAL_TICKS);
+        if (ticks == 0) return;
+        double size = Math.min(1.0D, ticks / 8.0D) * Math.min(1.0D,
+                (DeliveryArrival.OPEN_TICKS + DeliveryArrival.CLOSE_TICKS - ticks + 1) / 8.0D);
+        double y = entityData.get(PORTAL_Y);
+        for (int i = 0; i < 24; i++) {
+            double angle = i * Math.PI / 12.0D + ticks * 0.22D;
+            double radius = DeliveryArrival.PORTAL_RADIUS * size;
+            level().addParticle(ParticleTypes.REVERSE_PORTAL, getX() + Math.cos(angle) * radius, y,
+                    getZ() + Math.sin(angle) * radius, 0.0D, 0.0D, 0.0D);
+            if (i % 2 == 0) {
+                double inner = Math.sqrt(random.nextDouble()) * radius * 0.85D;
+                level().addParticle(ParticleTypes.PORTAL, getX() + Math.cos(angle) * inner, y - 0.02D,
+                        getZ() + Math.sin(angle) * inner, 0.0D, -0.005D, 0.0D);
+            }
+        }
     }
 
     public static void announceIncoming(ServerPlayer recipient) {
@@ -95,14 +259,26 @@ public final class RewardDropEntity extends Entity {
     }
 
     @Override
-    protected void defineSynchedData(SynchedEntityData.Builder builder) { }
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        builder.define(DELIVERY_HIDDEN, false);
+        builder.define(PORTAL_TICKS, 0);
+        builder.define(PORTAL_Y, 0.0F);
+    }
 
     @Override
     public void tick() {
         super.tick();
-        if (isRemoved() || impacted) return;
+        if (isRemoved()) return;
         if (level().isClientSide()) {
-            if (onGround()) impactParticles();
+            portalParticles();
+            if (!impacted && !deliveryHidden() && onGround()) impactParticles();
+            return;
+        }
+        if (impacted) {
+            int portalTicks = entityData.get(PORTAL_TICKS);
+            if (portalTicks > 0 && portalTicks < DeliveryArrival.OPEN_TICKS + DeliveryArrival.CLOSE_TICKS) {
+                entityData.set(PORTAL_TICKS, portalTicks + 1);
+            } else discard();
             return;
         }
         if (shipping) {
@@ -115,6 +291,7 @@ public final class RewardDropEntity extends Entity {
             if (getY() >= shippingTargetY || tickCount > 100) completeShipping((ServerLevel) level());
             return;
         }
+        if (deliveryTarget != null && tickDelivery()) return;
         Vec3 velocity = getDeltaMovement();
         setDeltaMovement(velocity.x * 0.98D, Math.max(-0.9D, velocity.y - 0.04D), velocity.z * 0.98D);
         move(MoverType.SELF, getDeltaMovement());
@@ -122,7 +299,14 @@ public final class RewardDropEntity extends Entity {
             ((ServerLevel) level()).playSound(null, blockPosition(), SoundEvents.ELYTRA_FLYING,
                     SoundSource.NEUTRAL, 0.75F, 0.9F + random.nextFloat() * 0.2F);
         }
-        if (onGround() || tickCount > 200) impactServer();
+        if (deliveryTarget != null) {
+            if (onGround()) {
+                double floor = deliverySpace().floor(Mth.floor(getX()), deliveryTarget.getY(), Mth.floor(getZ()));
+                if (!Double.isFinite(floor) || Math.abs(getY() - deliveryFloorY) > 0.75D
+                        || !deliverySpace().clear(getX(), getY(), getZ(), 0.45D, 0.85D)) waitForDelivery();
+                else impactServer();
+            }
+        } else if (onGround() || tickCount > 200) impactServer();
     }
 
     private void impactServer() {
@@ -145,13 +329,16 @@ public final class RewardDropEntity extends Entity {
             serverLevel.addFreshEntity(item);
         }
         rewards.clear();
-        discard();
+        if (entityData.get(PORTAL_TICKS) > 0) {
+            entityData.set(DELIVERY_HIDDEN, true);
+            setInvisible(true);
+        } else discard();
     }
 
     private void impactParticles() {
         if (impacted || !level().isClientSide()) return;
         impacted = true;
-        var state = net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState();
+        var state = Blocks.CHEST.defaultBlockState();
         for (int i = 0; i < 28; i++) {
             double vx = (random.nextDouble() - 0.5D) * 0.28D;
             double vy = random.nextDouble() * 0.22D;
@@ -179,6 +366,13 @@ public final class RewardDropEntity extends Entity {
         output.putDouble("ShippingTargetY", shippingTargetY);
         output.putBoolean("Impacted", impacted);
         output.putBoolean("Shipping", shipping);
+        if (deliveryTarget != null) output.putLong("DeliveryTarget", deliveryTarget.asLong());
+        output.putDouble("DeliveryFloorY", deliveryFloorY);
+        output.putInt("DeliveryFlightTicks", deliveryFlightTicks);
+        output.putBoolean("DeliveryWaitingNotified", deliveryWaitingNotified);
+        output.putBoolean("DeliveryHidden", deliveryHidden());
+        output.putInt("PortalTicks", entityData.get(PORTAL_TICKS));
+        output.putFloat("PortalY", entityData.get(PORTAL_Y));
     }
 
     @Override
@@ -194,6 +388,14 @@ public final class RewardDropEntity extends Entity {
         shippingTargetY = input.getDoubleOr("ShippingTargetY", getY() + 64.0D);
         impacted = input.getBooleanOr("Impacted", false);
         shipping = input.getBooleanOr("Shipping", false);
+        deliveryTarget = input.getLong("DeliveryTarget").isPresent() ? BlockPos.of(input.getLongOr("DeliveryTarget", 0L)) : null;
+        deliveryFloorY = input.getDoubleOr("DeliveryFloorY", getY());
+        deliveryFlightTicks = input.getIntOr("DeliveryFlightTicks", 0);
+        deliveryWaitingNotified = input.getBooleanOr("DeliveryWaitingNotified", false);
+        entityData.set(DELIVERY_HIDDEN, input.getBooleanOr("DeliveryHidden", false));
+        entityData.set(PORTAL_TICKS, Math.max(0, Math.min(DeliveryArrival.OPEN_TICKS + DeliveryArrival.CLOSE_TICKS, input.getIntOr("PortalTicks", 0))));
+        entityData.set(PORTAL_Y, input.getFloatOr("PortalY", 0.0F));
+        setInvisible(deliveryHidden());
     }
 
     @Override

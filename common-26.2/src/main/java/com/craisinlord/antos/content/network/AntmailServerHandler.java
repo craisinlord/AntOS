@@ -301,6 +301,7 @@ public final class AntmailServerHandler {
             boolean changed = payload.read() ? mailbox.markRead(id) : markUnread(mailbox, id);
             if (newlyRead && message != null && !message.definitionId().isBlank()) {
                 try {
+                    unlockArchivePages(player, computer, message);
                     com.craisinlord.antos.content.computer.ComputerTasks.recordEvent(player, computer, "mail_read", net.minecraft.resources.Identifier.parse(message.definitionId()));
                     ComputerAccessHandler.sendArchive(player, computer);
                 } catch (RuntimeException ignored) { }
@@ -553,6 +554,20 @@ public final class AntmailServerHandler {
             return;
         }
         resultSender.accept(player, new AntmailAnternetResultPayload(status, address, messageId, detail, data, version));
+    }
+
+    private static void unlockArchivePages(ServerPlayer player, ComputerWorkspace computer, AntmailMessage message) {
+        boolean changed = false;
+        for (com.craisinlord.antos.content.antmail.AntmailAttachment attachment : message.attachments()) {
+            if (!(attachment instanceof com.craisinlord.antos.content.antmail.AntmailAttachment.Render render) || !render.kind().equals("archive")) continue;
+            net.minecraft.resources.Identifier entryId = net.minecraft.resources.Identifier.tryParse(render.resourceId());
+            if (entryId == null || com.craisinlord.antos.content.guide.ComputerGuideData.entry(entryId) == null) continue;
+            changed |= computer.taskProgress().unlockArchiveEntry(entryId);
+        }
+        if (!changed) return;
+        computer.saveWorkspaceProgress();
+        var account = AnternetAccountHandler.session(player);
+        if (account != null) com.craisinlord.antos.content.computer.ComputerWorkspaceData.access(player.level().getServer()).mergeTeamProgress(account.accountId(), computer.taskProgress());
     }
 }
 

@@ -4,6 +4,11 @@ import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntOSPlayerText;
+import com.craisinlord.antos.content.client.ComputerTasksClientState;
+import com.craisinlord.antos.content.client.TaskTrackerHud;
+import com.craisinlord.antos.content.computer.ComputerWorkspaceData;
+import com.craisinlord.antos.content.computer.ComputerTasks;
+import com.google.gson.JsonObject;
 import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.guide.TaskAppearance;
 import com.craisinlord.antos.content.guide.TaskMarkup;
@@ -27,8 +32,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.WIDTH;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 
 final class TasksApp extends ComputerApp {
     private static final int NODE_SIZE = 32;
@@ -45,6 +48,10 @@ final class TasksApp extends ComputerApp {
     private static final float CHROME_SCALE = 0.8F;
     private static final int CHROME_BUTTON_HEIGHT = 12;
     private static final int TEAM_BUTTON_WIDTH = 48;
+    private static final int CONTROLS_PANEL_HEIGHT = 103;
+    private static final int PICKER_CARD_HEIGHT = 44;
+    private static final String PINNED_GROUP = "@pinned";
+    private static final Map<String, JsonObject> REMEMBERED = new HashMap<>();
 
     int refreshTicks;
     int mapScrollX;
@@ -135,6 +142,30 @@ final class TasksApp extends ComputerApp {
     private final Map<String, String> translations = new HashMap<>();
     private String searchCacheQuery;
     private List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> searchCacheResults = List.of();
+    private boolean restoreChecked;
+    private int viewClaimableCount;
+    private int[] claimAllBounds = new int[4];
+    private int[] pinBounds = new int[4];
+    private String pinTooltip = "";
+    private boolean claimPending;
+    private long claimPendingSince;
+    private static final long CLAIM_TIMEOUT_MS = 10000L;
+    private boolean pinPending;
+    private long seenClaimSequence;
+    private long seenPinSequence;
+    private ComputerTasksClientState.ClaimSummary shownSummary;
+    private long summaryUntil;
+    private int[] summaryBounds = new int[4];
+    private ClaimPicker claimPicker;
+    private int pickerScroll;
+    private int pickerMaximumScroll;
+    private int[] pickerBodyBounds = new int[4];
+    private int[] pickerBackButton = new int[4];
+    private int[] pickerSkipButton = new int[4];
+    private int[] pickerNextButton = new int[4];
+    private int[] pickerCloseButton = new int[4];
+    private int[] pickerReadyButton = new int[4];
+    private final List<PoolChoiceButton> pickerButtons = new ArrayList<>();
 
     void tick(boolean windowOpen) {
         if (windowOpen && (!windowWasOpen || --refreshTicks <= 0)) {
@@ -146,18 +177,23 @@ final class TasksApp extends ComputerApp {
 
     void opened() {
         resetSidebar();
-        refreshTicks = 0;
-        selectedTaskId = "";
-        selectedCategory = "";
-        mapScrollX = 0;
-        mapScrollY = 0;
-        categoryScroll = 0;
+        ensureRestored();
         windowWasOpen = true;
         refreshTicks = 40;
         ComputerNetworking.requestTasks(com.craisinlord.antos.content.client.ComputerTasksClientState.requestToken());
     }
 
+    boolean typing() { return searchFocused; }
+
     void select(String taskId) {
+        ensureRestored();
+        ensureView();
+        var row = viewRowsById.get(taskId);
+        if (row != null && !row.category().equals(selectedCategory)) {
+            selectedCategory = row.category();
+            mapScrollX = 0;
+            mapScrollY = 0;
+        }
         selectedTaskId = taskId;
         detailScroll = 0;
     }
@@ -179,7 +215,60 @@ final class TasksApp extends ComputerApp {
         panMoved = false;
     }
 
+    void remember() {
+        if (!restoreChecked) return;
+        REMEMBERED.put(com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of(), saveResume());
+    }
+
+    static JsonObject rememberedResume() {
+        JsonObject remembered = REMEMBERED.get(com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of());
+        return remembered == null ? new JsonObject() : remembered.deepCopy();
+    }
+
+    static void restoreResume(JsonObject json) {
+        if (json != null && json.size() > 0) REMEMBERED.put(com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of(), json.deepCopy());
+    }
+
+    JsonObject saveResume() {
+        JsonObject json = new JsonObject();
+        json.addProperty("category", selectedCategory);
+        json.addProperty("task", selectedTaskId);
+        json.addProperty("scroll_x", mapScrollX);
+        json.addProperty("scroll_y", mapScrollY);
+        json.addProperty("zoom", mapZoom);
+        json.addProperty("detail_scroll", detailScroll);
+        return json;
+    }
+
+    void loadResume(JsonObject json) {
+        selectedCategory = ComputerResume.string(json, "category");
+        selectedTaskId = ComputerResume.string(json, "task");
+        mapScrollX = ComputerResume.number(json, "scroll_x");
+        mapScrollY = ComputerResume.number(json, "scroll_y");
+        detailScroll = Math.max(0, ComputerResume.number(json, "detail_scroll"));
+        try {
+            if (json.has("zoom")) mapZoom = Math.max(0.55F, Math.min(1.6F, json.get("zoom").getAsFloat()));
+        } catch (RuntimeException ignored) { }
+    }
+
+    private void ensureRestored() {
+        if (restoreChecked) return;
+        restoreChecked = true;
+        JsonObject remembered = REMEMBERED.get(com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of());
+        if (remembered != null) loadResume(remembered);
+    }
+
     void render(ThemedGraphics g, int x, int y, int w, int h) {
+        ensureRestored();
+        claimAllBounds = new int[4];
+        pinBounds = new int[4];
+        pinTooltip = "";
+        pollResults();
+        renderContent(g, x, y, w, h);
+        if (claimPicker != null) renderClaimPicker(g, x, y, w, h);
+    }
+
+    private void renderContent(ThemedGraphics g, int x, int y, int w, int h) {
         archiveButtons.clear();
         claimButtons.clear();
         itemButtons.clear();
@@ -248,11 +337,14 @@ final class TasksApp extends ComputerApp {
         int categoryY = bodyY + 24;
         for (int rowIndex = categoryScroll; sidebarWidth > 0 && rowIndex < sidebarRows.size() && rowIndex < categoryScroll + categoriesVisible; rowIndex++) {
             SidebarRow sidebarRow = sidebarRows.get(rowIndex);
-            boolean header = sidebarRow.category().isBlank();
-            boolean selected = !header && sidebarRow.category().equals(selectedCategory);
+            boolean header = sidebarRow.category().isBlank() && sidebarRow.taskId().isBlank();
+            boolean selected = !header && (sidebarRow.taskId().isBlank() ? sidebarRow.category().equals(selectedCategory)
+                    : sidebarRow.taskId().equals(selectedTaskId));
             boolean rowHovered = screen.hovered(x + 2, categoryY - 2, sidebarWidth - 4, sidebarRowHeight());
             if (selected || rowHovered) g.fill(x + 2, categoryY - 2, sidebarRight - 2, categoryY - 2 + sidebarRowHeight(), Ui.HOVER);
             int iconLeft = x + 4 + sidebarRow.indent();
+            boolean pinnedHeader = header && sidebarRow.group().equals(PINNED_GROUP);
+            if (pinnedHeader) TaskTrackerHud.drawPin(g, iconLeft + 5, categoryY + 1, Ui.ACCENT);
             boolean hasIcon = !sidebarRow.iconItem().isBlank() || !sidebarRow.iconEntity().isBlank();
             if (hasIcon) {
         boolean previousTint = screen.archiveGreenTint;
@@ -263,7 +355,7 @@ final class TasksApp extends ComputerApp {
                     screen.archiveGreenTint = previousTint;
                 }
             }
-            int labelX = hasIcon ? iconLeft + 15 : iconLeft + 2;
+            int labelX = hasIcon ? iconLeft + 15 : pinnedHeader ? iconLeft + 12 : iconLeft + 2;
             SidebarCount sidebarCount = viewSidebarCounts.getOrDefault(sidebarKey(sidebarRow), new SidebarCount("0/0", false));
             String count = AntOSSettings.preferences().taskSidebarCounts ? sidebarCount.label() : "";
             boolean rowHasClaimable = sidebarCount.claimable();
@@ -290,6 +382,7 @@ final class TasksApp extends ComputerApp {
         }
         if (selectedTask != null) {
             renderDetail(g, selectedTask, x + contentOffset, bodyY, w - contentOffset, bodyHeight, unlockedArchiveIds(selectedTask));
+            renderNotice(g, x + contentOffset, bodyY + 18, w - contentOffset);
             renderSidebarTooltip(g, hoveredSidebarLabel, x, bodyY, sidebarWidth, w);
             renderTeamOverlay(g, x, y, w, h);
             renderJumpConfirm(g, x + contentOffset, bodyY, w - contentOffset, bodyHeight);
@@ -317,20 +410,29 @@ final class TasksApp extends ComputerApp {
                 + (claimableCount > 0 ? (searchFocused ? " !" : "  //  READY ") + claimableCount : "");
         String categoryLabel = categoryLabel(selectedCategory).toUpperCase(Locale.ROOT);
         int searchControlWidth = searchControlWidth();
-        String visibleCategoryLabel = screen.trimToWidth(categoryLabel, Math.max(1, mapW - chromeTextWidth(progressLabel) - searchControlWidth - 12));
+        String claimAllLabel = viewClaimableCount > 0 && !searchFocused ? tr("claim_all", viewClaimableCount) : "";
+        int claimAllWidth = claimAllLabel.isEmpty() ? 0 : chromeTextWidth(claimAllLabel) + 12;
+        int headerReserved = searchControlWidth + (claimAllWidth > 0 ? claimAllWidth + 4 : 0);
+        String visibleCategoryLabel = screen.trimToWidth(categoryLabel, Math.max(1, mapW - chromeTextWidth(progressLabel) - headerReserved - 12));
         int searchLeft = mapX + mapW - searchControlWidth;
+        int claimAllLeft = searchLeft - claimAllWidth - (claimAllWidth > 0 ? 4 : 0);
         String visibleProgressLabel = screen.trimToWidth(progressLabel,
-                Math.max(1, Math.round((mapW - font.width(visibleCategoryLabel) - searchControlWidth - 12) / CHROME_SCALE)));
-        int progressLeft = searchLeft - chromeTextWidth(visibleProgressLabel) - 5;
+                Math.max(1, Math.round((mapW - font.width(visibleCategoryLabel) - headerReserved - 12) / CHROME_SCALE)));
+        int progressRight = claimAllWidth > 0 ? claimAllLeft : searchLeft;
+        int progressLeft = progressRight - chromeTextWidth(visibleProgressLabel) - 5;
         int[] categoryChip = {mapX - 4, bodyY, mapX + font.width(visibleCategoryLabel) + 4, bodyY + 19};
-        int[] progressChip = {progressLeft - 4, bodyY + 1, searchLeft - 1, bodyY + 1 + CHROME_BUTTON_HEIGHT};
+        int[] progressChip = {progressLeft - 4, bodyY + 1, progressRight - 1, bodyY + 1 + CHROME_BUTTON_HEIGHT};
+        if (claimAllWidth > 0) {
+            claimAllBounds = new int[] {claimAllLeft, bodyY + 1, claimAllWidth, CHROME_BUTTON_HEIGHT};
+            chromeAreas.add(new int[] {claimAllLeft - 1, bodyY, claimAllLeft + claimAllWidth + 1, bodyY + 2 + CHROME_BUTTON_HEIGHT});
+        }
         chromeAreas.add(categoryChip);
         chromeAreas.add(progressChip);
         chromeAreas.add(new int[] {searchLeft, bodyY + 1, mapX + mapW, bodyY + 1 + CHROME_BUTTON_HEIGHT});
         chromeAreas.addAll(List.of(controlChips(mapX, bodyY, mapW, bodyHeight)));
         chromeAreas.add(teamChip(x, y, w, h));
         if (sidebarWidth == 0) chromeAreas.add(new int[] {x, bodyY + 1, x + 20, bodyY + 19});
-        if (controlsOpen) chromeAreas.add(new int[] {controlsPanelX(mapX, mapW), bodyY + 22, mapX + mapW, bodyY + 114});
+        if (controlsOpen) chromeAreas.add(new int[] {controlsPanelX(mapX, mapW), bodyY + 22, mapX + mapW, bodyY + 22 + CONTROLS_PANEL_HEIGHT});
         if (teamMenuOpen) chromeAreas.add(new int[] {x + w - 232, y + h - 17 - teamMenuHeight(), x + w - 4, y + h - 17});
         double pointerX = screen.session.mouseX;
         double pointerY = screen.session.mouseY;
@@ -377,6 +479,10 @@ final class TasksApp extends ComputerApp {
                 int[] badge = badgeBounds(node);
                 occupied.add(new Occupied(badge[0], badge[1], badge[2], badge[3], node));
             }
+            if (ComputerTasksClientState.isPinned(node.task().id())) {
+                int[] pin = pinMarkerBounds(node);
+                occupied.add(new Occupied(pin[0], pin[1], pin[2], pin[3], node));
+            }
         }
         for (Node node : onScreen) renderNode(g, node);
         screen.beginLayer(g);
@@ -390,6 +496,13 @@ final class TasksApp extends ComputerApp {
         g.fill(progressChip[0], progressChip[1], progressChip[2], progressChip[3], fade(Ui.alpha(Ui.PANEL, 0xCC)));
         float chromeTextY = bodyY + 1 + CHROME_BUTTON_HEIGHT / 2.0F;
         drawChromeText(g, visibleProgressLabel, progressLeft, chromeTextY, fade(claimableCount > 0 ? Ui.TEXT : Ui.ACCENT), false);
+        if (claimAllWidth > 0) {
+            boolean claimHovered = screen.hovered(claimAllLeft, bodyY + 1, claimAllWidth, CHROME_BUTTON_HEIGHT);
+            g.fill(claimAllLeft, bodyY + 1, claimAllLeft + claimAllWidth, bodyY + 1 + CHROME_BUTTON_HEIGHT, fade(claimHovered ? Ui.HOVER : Ui.alpha(Ui.PANEL, 0xCC)));
+            screen.box(g, claimAllLeft, bodyY + 1, claimAllLeft + claimAllWidth, bodyY + 1 + CHROME_BUTTON_HEIGHT,
+                    fade(claimPending ? Ui.BORDER_STRONG : Ui.ACCENT));
+            drawChromeText(g, claimAllLabel, claimAllLeft + claimAllWidth / 2.0F, chromeTextY, fade(claimPending ? Ui.TEXT_SOFT : Ui.TEXT_STRONG), true);
+        }
         if (searchFocused) {
             int searchBottom = bodyY + 1 + CHROME_BUTTON_HEIGHT;
             g.fill(searchLeft, bodyY + 1, mapX + mapW, searchBottom, fade(Ui.PANEL));
@@ -404,6 +517,7 @@ final class TasksApp extends ComputerApp {
         renderMapControls(g, mapX, bodyY, mapW, bodyHeight);
         renderSearchResults(g, mapX, mapY, mapW);
         renderNotice(g, mapX, mapY, mapW);
+        renderClaimSummary(g, mapX, mapY, mapW);
     }
 
     private static int[] mapClip(int x, int bodyY, int w, int bodyHeight, int sidebarWidth) {
@@ -617,9 +731,9 @@ final class TasksApp extends ComputerApp {
             int panelW = controlsPanelWidth(mapW);
             int panelX = controlsPanelX(mapX, mapW);
             int panelY = bodyY + 22;
-            g.fill(panelX, panelY, panelX + panelW, panelY + 92, Ui.PANEL);
-            screen.box(g, panelX, panelY, panelX + panelW, panelY + 92, Ui.BORDER_STRONG);
-            String[] hints = {"DRAG // MOVE MAP", "WHEEL // SCROLL", "SHIFT + WHEEL // SIDEWAYS", "CTRL + WHEEL // ZOOM", "- / + // ZOOM", "CENTER // FRAME CATEGORY", "! // REWARD READY", "CTRL + F // FIND TASK"};
+            g.fill(panelX, panelY, panelX + panelW, panelY + CONTROLS_PANEL_HEIGHT, Ui.PANEL);
+            screen.box(g, panelX, panelY, panelX + panelW, panelY + CONTROLS_PANEL_HEIGHT, Ui.BORDER_STRONG);
+            String[] hints = {"DRAG // MOVE MAP", "WHEEL // SCROLL", "SHIFT + WHEEL // SIDEWAYS", "CTRL + WHEEL // ZOOM", "- / + // ZOOM", "CENTER // FRAME CATEGORY", "! // REWARD READY", "CTRL + F // FIND TASK", tr("hint_pin")};
             for (int i = 0; i < hints.length; i++) {
                 g.drawString(font, Component.literal(screen.trimToWidth(hints[i], panelW - 10)), panelX + 5, panelY + 5 + i * 11, i == 0 ? Ui.TEXT : Ui.ACCENT, false);
             }
@@ -780,6 +894,20 @@ final class TasksApp extends ComputerApp {
         String taskState = task.complete() ? "COMPLETE" : task.available() ? "AVAILABLE" : "LOCKED";
         g.drawString(font, Component.literal(taskState), x + w - font.width(taskState), y + 3,
                 task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.TEXT_DIM, false);
+        boolean pinned = ComputerTasksClientState.isPinned(task.id());
+        if (pinned || canPin(task)) {
+            String pinLabel = tr(pinned ? "pinned" : "pin");
+            int chipW = font.width(pinLabel) + 18;
+            int chipX = x + w - font.width(taskState) - 8 - chipW;
+            boolean pinHovered = screen.hovered(chipX, y + 1, chipW, 14);
+            g.fill(chipX, y + 1, chipX + chipW, y + 15, pinned ? Ui.alpha(Ui.ACCENT, 0x30) : pinHovered ? Ui.HOVER : Ui.PANEL);
+            screen.box(g, chipX, y + 1, chipX + chipW, y + 15, pinned || pinHovered ? Ui.ACCENT : Ui.BORDER_STRONG);
+            TaskTrackerHud.drawPin(g, chipX + 7, y + 4, pinned ? Ui.ACCENT : Ui.TEXT);
+            g.drawString(font, Component.literal(pinLabel), chipX + 13, y + 4, pinned ? Ui.ACCENT : Ui.TEXT, false);
+            pinBounds = new int[] {chipX, y + 1, chipW, 14};
+            if (pinHovered) pinTooltip = tr(pinned ? "unpin_tip" : ComputerTasksClientState.pinned().size() >= ComputerWorkspaceData.MAX_PINNED_TASKS
+                    ? "pin_full_tip" : "pin_tip", ComputerWorkspaceData.MAX_PINNED_TASKS);
+        }
         g.fill(x, y + 17, x + w, y + 19, Ui.BORDER_STRONG);
         screen.enableComputerScissor(g, x, y + 19, x + w, y + h - 17);
         detailViewTop = y + 19;
@@ -787,7 +915,23 @@ final class TasksApp extends ComputerApp {
         int line = y + 25 - detailScroll;
         line = detailRichText(g, text(task.title()), x, line, w, task.complete() ? Ui.TEXT : Ui.ACCENT, task.renderMobFromSpawnEgg()) + 2;
         line = detailRichText(g, text(task.description()), x, line, w, Ui.TEXT, task.renderMobFromSpawnEgg()) + 3;
-        for (String part : task.showcase()) line = renderShowcasePart(g, part, x, line, w);
+        int contentIndex = 0;
+        List<String> showcase = task.showcase();
+        for (int partIndex = 0; partIndex < showcase.size(); partIndex++) {
+            String part = showcase.get(partIndex);
+            if (part.equals("@beside")) { contentIndex++; continue; }
+            if (part.startsWith("@display:")) {
+                List<String> group = new ArrayList<>();
+                group.add(part.substring(9));
+                while (partIndex + 1 < showcase.size() && showcase.get(partIndex + 1).startsWith("@display:")) { partIndex++; contentIndex++; group.add(showcase.get(partIndex).substring(9)); }
+                line = group.size() == 1 ? screen.displays.render(g, group.get(0), "task/" + task.id() + "/" + contentIndex, x, line, w, detailViewTop, detailViewBottom)
+                        : screen.displays.renderTabs(g, group, "task/" + task.id() + "/tabs/" + contentIndex, x, line, w, detailViewTop, detailViewBottom);
+                line += 3;
+            }
+            else if (part.startsWith("@")) line = renderShowcasePart(g, part, x, line, w);
+            else line = detailRichText(g, text(part), x, line, w, Ui.TEXT, task.renderMobFromSpawnEgg()) + 4;
+            contentIndex++;
+        }
         g.drawString(font, Component.literal(task.total() == 0 ? "PROGRESS // COMPLETE" : "PROGRESS " + task.done() + "/" + task.total()), x, line, Ui.TEXT_STRONG, false);
         line += 11;
         if (task.total() > 0) {
@@ -967,6 +1111,15 @@ final class TasksApp extends ComputerApp {
         detailScroll = Math.max(0, Math.min(detailScroll, maximumScroll));
         if (maximumScroll > 0) g.drawString(font, Component.literal("SCROLL FOR DETAILS"), x + 2, y + h - 12, Ui.TEXT, false);
         screen.archiveGreenTint = previousTint;
+        if (!pinTooltip.isEmpty()) {
+            int tipWidth = Math.min(font.width(pinTooltip) + 10, Math.max(20, w));
+            int tipX = Math.max(x, pinBounds[0] + pinBounds[2] - tipWidth);
+            int tipY = y + 18;
+            screen.beginLayer(g);
+            g.fill(tipX, tipY, tipX + tipWidth, tipY + 14, Ui.PANEL);
+            screen.box(g, tipX, tipY, tipX + tipWidth, tipY + 14, Ui.BORDER_STRONG);
+            g.drawString(font, Component.literal(screen.trimToWidth(pinTooltip, tipWidth - 10)), tipX + 5, tipY + 3, Ui.TEXT, false);
+        }
     }
 
     private boolean detailRowVisible(int top, int bottom) {
@@ -1105,6 +1258,7 @@ final class TasksApp extends ComputerApp {
     }
 
     private static String sidebarKey(SidebarRow row) {
+        if (!row.taskId().isBlank()) return "task:" + row.taskId();
         return row.category().isBlank() ? "group:" + row.group() : "category:" + row.category();
     }
 
@@ -1140,6 +1294,7 @@ final class TasksApp extends ComputerApp {
             if (row.complete()) count[1]++;
             if (row.claimable()) count[2]++;
         }
+        viewClaimableCount = (int) viewVisibleRows.stream().filter(row -> !row.isLink() && row.claimable()).count();
         byCategory.replaceAll((category, rows) -> List.copyOf(rows));
         viewRowsById = byId;
         viewRowsByCategory = byCategory;
@@ -1147,6 +1302,17 @@ final class TasksApp extends ComputerApp {
         viewSidebarRows = sidebarRows(viewVisibleRows);
         viewSidebarCounts.clear();
         for (SidebarRow row : viewSidebarRows) {
+            if (!row.taskId().isBlank()) {
+                var task = byId.get(row.taskId());
+                String label = task == null ? "" : task.claimable() ? "!" : task.complete() ? "DONE" : task.total() > 0 ? task.done() + "/" + task.total() : "";
+                viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label, task != null && task.claimable()));
+                continue;
+            }
+            if (row.group().equals(PINNED_GROUP)) {
+                String label = (groupCollapsed(PINNED_GROUP) ? "+ " : "- ") + ComputerTasksClientState.pinned().size() + "/" + ComputerWorkspaceData.MAX_PINNED_TASKS;
+                viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label, false));
+                continue;
+            }
             int[] count = new int[3];
             if (row.category().isBlank()) {
                 for (String category : viewCategories) {
@@ -1166,7 +1332,12 @@ final class TasksApp extends ComputerApp {
 
     private record Cell(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task, int column, int row) { }
 
-    private record SidebarRow(String group, String category, String label, String iconItem, String iconEntity, int indent, boolean greenTint, boolean renderMobFromSpawnEgg) { }
+    private record SidebarRow(String group, String category, String label, String iconItem, String iconEntity, int indent, boolean greenTint, boolean renderMobFromSpawnEgg,
+                              String taskId) {
+        SidebarRow(String group, String category, String label, String iconItem, String iconEntity, int indent, boolean greenTint, boolean renderMobFromSpawnEgg) {
+            this(group, category, label, iconItem, iconEntity, indent, greenTint, renderMobFromSpawnEgg, "");
+        }
+    }
 
     private void renderSidebarTooltip(ThemedGraphics g, String label, int x, int y, int width, int availableWidth) {
         boolean onToggle = screen.hovered(x, y + 1, 20, 19);
@@ -1255,6 +1426,16 @@ final class TasksApp extends ComputerApp {
     private List<SidebarRow> sidebarRows(List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> rows) {
         var groups = com.craisinlord.antos.content.client.ComputerTasksClientState.groups();
         List<SidebarRow> result = new ArrayList<>();
+        Map<String, com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> visibleById = new HashMap<>();
+        for (var row : rows) visibleById.put(row.id(), row);
+        List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> pinnedRows = ComputerTasksClientState.pinned().stream()
+                .map(visibleById::get).filter(row -> row != null && !row.isLink()).toList();
+        if (!pinnedRows.isEmpty()) {
+            result.add(new SidebarRow(PINNED_GROUP, "", tr("sidebar_pinned"), "", "", 0, false, false));
+            if (!groupCollapsed(PINNED_GROUP)) for (var row : pinnedRows) {
+                result.add(new SidebarRow("", "", plain(row.title()), row.iconItem(), row.iconEntity(), 8, row.greenTint(), row.renderMobFromSpawnEgg(), row.id()));
+            }
+        }
         for (SidebarEntry entry : sidebarEntries(rows)) {
             if (entry.group().isBlank()) {
                 result.add(categorySidebarRow(entry.category(), 0));
@@ -1488,6 +1669,16 @@ final class TasksApp extends ComputerApp {
         mapScrollY = Math.max(limits[2], Math.min(limits[3], centerY - (mapY + mapH / 2)));
     }
 
+    void openDisplayTask(String id) {
+        ensureRestored();
+        ensureView();
+        var target = viewRowsById.get(id);
+        if (target != null && target.visible() && !target.isLink()) {
+            openSearchResult(target);
+            screen.open("TASKS");
+        }
+    }
+
     private void openSearchResult(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task) {
         selectedCategory = task.category();
         selectedTaskId = task.id();
@@ -1499,8 +1690,8 @@ final class TasksApp extends ComputerApp {
         controlsOpen = false;
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> categoryRows = rowsFor(task.category());
         if (screen.activeWindow == null || !screen.activeWindow.type.equals("TASKS")) return;
-        int sidebarX = -WIDTH / 2 + screen.windowLocalX(screen.activeWindow) + 8;
-        int sidebarY = -HEIGHT / 2 + screen.windowLocalY(screen.activeWindow) + 28;
+        int sidebarX = -screen.desktopWidth() / 2 + screen.windowLocalX(screen.activeWindow) + 8;
+        int sidebarY = -screen.desktopHeight() / 2 + screen.windowLocalY(screen.activeWindow) + 28;
         int contentWidth = screen.windowWidth(screen.activeWindow) - 16;
         int contentHeight = screen.windowHeight(screen.activeWindow) - 34;
         boolean sidebarShown = sidebarPinned() || sidebarHoverOpen;
@@ -1512,8 +1703,8 @@ final class TasksApp extends ComputerApp {
     private void centerCurrentMap() {
         if (screen.activeWindow == null || !screen.activeWindow.type.equals("TASKS")) return;
         List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> categoryRows = rowsFor(selectedCategory);
-        int sidebarX = -WIDTH / 2 + screen.windowLocalX(screen.activeWindow) + 8;
-        int sidebarY = -HEIGHT / 2 + screen.windowLocalY(screen.activeWindow) + 28;
+        int sidebarX = -screen.desktopWidth() / 2 + screen.windowLocalX(screen.activeWindow) + 8;
+        int sidebarY = -screen.desktopHeight() / 2 + screen.windowLocalY(screen.activeWindow) + 28;
         int contentWidth = screen.windowWidth(screen.activeWindow) - 16;
         int contentHeight = screen.windowHeight(screen.activeWindow) - 34;
         boolean sidebarShown = sidebarPinned() || sidebarClickOpen || sidebarHoverOpen;
@@ -1588,12 +1779,19 @@ final class TasksApp extends ComputerApp {
         return new int[] {badgeX - 9, badgeY, badgeX + 2, badgeY + 11};
     }
 
+    private int[] pinMarkerBounds(Node node) {
+        int[] badge = badgeBounds(node);
+        int right = node.left() + node.right() - badge[0];
+        return new int[] {right - 11, badge[1], right, badge[1] + 12};
+    }
+
     private record Occupied(int left, int top, int right, int bottom, Node owner) { }
 
     private void renderNode(ThemedGraphics g, Node node) {
         var task = node.task();
         int nodeSize = node.right() - node.left();
         int border = task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.LOCKED;
+        boolean pinned = ComputerTasksClientState.isPinned(task.id());
         boolean isHovered = mapPointerFree && node.contains(screen.session.mouseX, screen.session.mouseY);
         TaskShapeRenderer.draw(g, task.appearance().shape(), node.shapeLeft(), node.shapeTop(), node.shapeSize(),
                 task.available() ? Ui.PANEL_ALT : Ui.DEEP, border, task.available() ? Ui.ACCENT : Ui.TEXT_DIM, isHovered);
@@ -1604,6 +1802,12 @@ final class TasksApp extends ComputerApp {
             int[] badge = badgeBounds(node);
             g.fill(badge[0], badge[1], badge[2], badge[3], Ui.TEXT);
             g.drawCenteredString(font, Component.literal("!"), badge[0] + 5, badge[1] + 1, Ui.PANEL);
+        }
+        if (pinned) {
+            int[] pin = pinMarkerBounds(node);
+            g.fill(pin[0], pin[1], pin[2], pin[3], Ui.PANEL);
+            screen.box(g, pin[0], pin[1], pin[2], pin[3], Ui.ACCENT);
+            TaskTrackerHud.drawPin(g, pin[0] + 5, pin[1] + 2, Ui.ACCENT);
         }
         int labelTop = node.bottom() + 3;
         if (task.available() || task.complete()) {
@@ -1689,6 +1893,497 @@ final class TasksApp extends ComputerApp {
         }
     }
 
+    private String tr(String key, Object... arguments) {
+        return Component.translatable("computer.antos.tasks." + key, arguments).getString();
+    }
+
+    private void showNotice(String text) {
+        notice = text;
+        noticeUntil = System.currentTimeMillis() + 2500L;
+    }
+
+    private void pollResults() {
+        var summary = ComputerTasksClientState.claimSummary();
+        if (summary != null && summary.sequence() != seenClaimSequence) {
+            seenClaimSequence = summary.sequence();
+            if (claimPending) {
+                claimPending = false;
+                if (summary.claimed() > 0) {
+                    shownSummary = summary;
+                    summaryUntil = System.currentTimeMillis() + 8000L;
+                }
+                if (summary.error().equals("busy")) showNotice(tr("busy"));
+                else if (!summary.failedIds().isEmpty()) showNotice(failedClaimNotice(summary.failedIds()));
+                else if (summary.claimed() == 0) showNotice(tr("claim_failed"));
+            }
+        }
+        if (claimPending && System.currentTimeMillis() - claimPendingSince >= CLAIM_TIMEOUT_MS) {
+            claimPending = false;
+            showNotice(tr("claim_no_reply"));
+        }
+        var pin = ComputerTasksClientState.pinNotice();
+        if (pin != null && pin.sequence() != seenPinSequence) {
+            seenPinSequence = pin.sequence();
+            if (pinPending) {
+                pinPending = false;
+                switch (pin.status()) {
+                    case "full" -> showNotice(tr("pin_full", ComputerWorkspaceData.MAX_PINNED_TASKS));
+                    case "busy" -> showNotice(tr("busy"));
+                    case "pinned", "unpinned" -> { }
+                    default -> showNotice(tr("pin_failed"));
+                }
+            }
+        }
+    }
+
+    private String failedClaimNotice(List<String> failedIds) {
+        var task = viewRowsById.get(failedIds.get(0));
+        String title = task == null ? failedIds.get(0) : plain(task.title());
+        return failedIds.size() == 1 ? tr("claim_failed_one", title) : tr("claim_failed_many", title, failedIds.size() - 1);
+    }
+
+    private static boolean canPin(ComputerTasksClientState.TaskRow task) {
+        return !task.isLink() && !(task.complete() && !task.claimable());
+    }
+
+    private void togglePin(ComputerTasksClientState.TaskRow task) {
+        Identifier id = Identifier.tryParse(task.id());
+        if (id == null || task.isLink()) return;
+        boolean pinned = ComputerTasksClientState.isPinned(task.id());
+        if (!pinned && !canPin(task)) {
+            showNotice(tr("pin_done"));
+            return;
+        }
+        if (!pinned && ComputerTasksClientState.pinned().size() >= ComputerWorkspaceData.MAX_PINNED_TASKS) {
+            showNotice(tr("pin_full", ComputerWorkspaceData.MAX_PINNED_TASKS));
+            return;
+        }
+        ComputerNetworking.setTaskPinned(id, !pinned);
+        ComputerTasksClientState.setPinnedLocally(task.id(), !pinned);
+        pinPending = true;
+        String title = plain(task.title());
+        showNotice(pinned ? tr("unpinned_notice", title)
+                : tr(AntOSSettings.preferences().taskTracker ? "pinned_notice" : "pinned_hidden_notice", title));
+    }
+
+    private List<ComputerTasksClientState.TaskRow> claimableTasks() {
+        ensureView();
+        List<ComputerTasksClientState.TaskRow> result = new ArrayList<>();
+        for (String category : viewCategories) {
+            for (var row : rowsFor(category)) if (!row.isLink() && row.claimable()) result.add(row);
+        }
+        return result;
+    }
+
+    private static List<Integer> choiceRewardIndices(ComputerTasksClientState.TaskRow task) {
+        List<Integer> result = new ArrayList<>();
+        for (int index = 0; index < task.rewards().size(); index++) {
+            var reward = task.rewards().get(index);
+            if (reward.type().equals("choice") || reward.type().equals("item_pool") && reward.mode().equals("choice")) result.add(index);
+        }
+        return result;
+    }
+
+    private boolean needsChoice(ComputerTasksClientState.TaskRow task) {
+        Map<Integer, String> selected = poolSelections.getOrDefault(task.id(), Map.of());
+        for (int index : choiceRewardIndices(task)) if (!selected.containsKey(index)) return true;
+        return false;
+    }
+
+    private void startClaimAll() {
+        if (claimPending) return;
+        List<ComputerTasksClientState.TaskRow> claimable = claimableTasks();
+        if (claimable.isEmpty()) return;
+        List<String> choices = new ArrayList<>();
+        List<String> ready = new ArrayList<>();
+        for (var task : claimable) (needsChoice(task) ? choices : ready).add(task.id());
+        searchFocused = false;
+        controlsOpen = false;
+        teamMenuOpen = false;
+        if (choices.isEmpty()) sendClaim(ready);
+        else {
+            claimPicker = new ClaimPicker(choices, ready);
+            pickerScroll = 0;
+        }
+    }
+
+    private void sendClaim(List<String> taskIds) {
+        Map<Identifier, Map<Integer, String>> requests = new LinkedHashMap<>();
+        for (String taskId : taskIds) {
+            if (requests.size() >= ComputerTasks.MAX_CLAIM_ALL) break;
+            Identifier id = Identifier.tryParse(taskId);
+            if (id != null) requests.put(id, Map.copyOf(poolSelections.getOrDefault(taskId, Map.of())));
+        }
+        if (requests.isEmpty()) return;
+        ComputerNetworking.claimAllTaskRewards(requests);
+        ComputerNetworking.requestAntazonWallet();
+        claimPending = true;
+        claimPendingSince = System.currentTimeMillis();
+        shownSummary = null;
+        showNotice(tr("claiming", requests.size()));
+    }
+
+    private static final class ClaimPicker {
+        private final List<String> choiceTasks;
+        private final List<String> readyTasks;
+        private final Set<String> skipped = new HashSet<>();
+        private int page;
+
+        private ClaimPicker(List<String> choiceTasks, List<String> readyTasks) {
+            this.choiceTasks = new ArrayList<>(choiceTasks);
+            this.readyTasks = new ArrayList<>(readyTasks);
+        }
+    }
+
+    private record PickerOption(String path, String icon, String title, String detail) { }
+
+    private List<PickerOption> pickerOptions(ComputerTasksClientState.TaskReward reward) {
+        List<PickerOption> result = new ArrayList<>();
+        if (reward.type().equals("choice")) {
+            for (int index = 0; index < reward.options().size(); index++) {
+                var option = reward.options().get(index);
+                result.add(new PickerOption("option:" + index, choiceOptionIcon(option),
+                        Component.translatable(option.title()).getString(), choiceOptionSummary(option)));
+            }
+        } else {
+            for (PoolOutcome outcome : poolOutcomes(reward.pool(), "", 1, 0)) {
+                result.add(new PickerOption(outcome.path(), outcome.item(), outcome.count() + "x " + itemName(outcome.item()), ""));
+            }
+        }
+        return result;
+    }
+
+    private ComputerTasksClientState.TaskRow currentPickerTask() {
+        while (claimPicker != null && claimPicker.page < claimPicker.choiceTasks.size()) {
+            var task = viewRowsById.get(claimPicker.choiceTasks.get(claimPicker.page));
+            if (task != null && task.claimable()) return task;
+            claimPicker.choiceTasks.remove(claimPicker.page);
+        }
+        if (claimPicker != null) {
+            if (claimPicker.choiceTasks.isEmpty()) claimPicker = null;
+            else claimPicker.page = claimPicker.choiceTasks.size() - 1;
+        }
+        return claimPicker == null ? null : viewRowsById.get(claimPicker.choiceTasks.get(claimPicker.page));
+    }
+
+    private int pickerClaimCount() {
+        int count = claimPicker.readyTasks.size();
+        for (String taskId : claimPicker.choiceTasks) {
+            var task = viewRowsById.get(taskId);
+            if (task != null && !claimPicker.skipped.contains(taskId) && !needsChoice(task)) count++;
+        }
+        return count;
+    }
+
+    private boolean lastPickerPage() {
+        return claimPicker.page >= claimPicker.choiceTasks.size() - 1;
+    }
+
+    private void renderClaimPicker(ThemedGraphics g, int x, int y, int w, int h) {
+        pickerButtons.clear();
+        ensureView();
+        var task = currentPickerTask();
+        if (task == null || claimPicker == null) return;
+        screen.beginLayer(g);
+        g.pose().pushPose();
+        g.pose().translate(0.0D, 0.0D, 320.0D);
+        g.fill(x, y, x + w, y + h, Ui.alpha(Ui.SHADOW, 0xAA));
+        int panelW = Math.max(150, Math.min(w - 16, 300));
+        int panelH = Math.max(120, Math.min(h - 12, 236));
+        int panelX = x + (w - panelW) / 2;
+        int panelY = y + (h - panelH) / 2;
+        g.fill(panelX, panelY, panelX + panelW, panelY + panelH, Ui.PANEL);
+        screen.box(g, panelX, panelY, panelX + panelW, panelY + panelH, Ui.BORDER_STRONG);
+        String pageLabel = (claimPicker.page + 1) + " / " + claimPicker.choiceTasks.size();
+        pickerCloseButton = new int[] {panelX + panelW - 16, panelY + 3, 13, 13};
+        boolean closeHovered = screen.hovered(pickerCloseButton[0], pickerCloseButton[1], pickerCloseButton[2], pickerCloseButton[3]);
+        if (closeHovered) g.fill(pickerCloseButton[0], pickerCloseButton[1], pickerCloseButton[0] + 13, pickerCloseButton[1] + 13, Ui.HOVER);
+        g.drawCenteredString(font, Component.literal("X"), pickerCloseButton[0] + 7, panelY + 6, closeHovered ? Ui.TEXT_STRONG : Ui.TEXT_SOFT);
+        int pageX = pickerCloseButton[0] - 6 - font.width(pageLabel);
+        g.drawString(font, Component.literal(pageLabel), pageX, panelY + 6, Ui.TEXT_SOFT, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("picker.title"), pageX - panelX - 14)), panelX + 7, panelY + 6, Ui.TEXT_STRONG, false);
+        g.fill(panelX + 1, panelY + 18, panelX + panelW - 1, panelY + 19, Ui.BORDER_STRONG);
+        renderIcon(g, task, panelX + 15, panelY + 31, 14);
+        g.drawString(font, Component.literal(screen.trimToWidth(plain(task.title()), panelW - 34)), panelX + 27, panelY + 24, Ui.ACCENT, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(categoryLabel(task.category()).toUpperCase(Locale.ROOT), panelW - 34)),
+                panelX + 27, panelY + 34, Ui.TEXT_DIM, false);
+        int bodyTop = panelY + 46;
+        int bodyBottom = panelY + panelH - 42;
+        int bodyX = panelX + 8;
+        int bodyW = panelW - 16;
+        pickerBodyBounds = new int[] {panelX + 1, bodyTop, panelW - 2, Math.max(1, bodyBottom - bodyTop)};
+        List<Integer> choiceIndices = choiceRewardIndices(task);
+        Map<Integer, String> selections = poolSelections.getOrDefault(task.id(), Map.of());
+        int keyedReward = choiceIndices.stream().filter(index -> !selections.containsKey(index)).findFirst()
+                .orElse(choiceIndices.isEmpty() ? -1 : choiceIndices.get(0));
+        screen.enableComputerScissor(g, panelX + 1, bodyTop, panelX + panelW - 1, bodyBottom);
+        int line = bodyTop + 2 - pickerScroll;
+        for (int rewardIndex : choiceIndices) {
+            var reward = task.rewards().get(rewardIndex);
+            g.drawString(font, Component.literal(screen.trimToWidth(rewardText(reward).toUpperCase(Locale.ROOT), bodyW)), bodyX, line, Ui.TEXT_SOFT, false);
+            line += 12;
+            List<PickerOption> options = pickerOptions(reward);
+            if (options.isEmpty()) {
+                g.drawString(font, Component.literal(tr("picker.no_options")), bodyX, line, Ui.TEXT_DIM, false);
+                line += 14;
+                continue;
+            }
+            String selectedPath = selections.get(rewardIndex);
+            int columns = Math.max(1, Math.min(options.size(), (bodyW + 4) / 88));
+            int cardW = (bodyW - (columns - 1) * 4) / columns;
+            for (int optionIndex = 0; optionIndex < options.size(); optionIndex++) {
+                PickerOption option = options.get(optionIndex);
+                int cardX = bodyX + optionIndex % columns * (cardW + 4);
+                int cardTop = line + optionIndex / columns * (PICKER_CARD_HEIGHT + 4);
+                int cardBottom = cardTop + PICKER_CARD_HEIGHT;
+                if (cardBottom <= bodyTop || cardTop >= bodyBottom) continue;
+                boolean selected = option.path().equals(selectedPath);
+                boolean cardHovered = screen.hovered(cardX, Math.max(cardTop, bodyTop), cardW, Math.min(cardBottom, bodyBottom) - Math.max(cardTop, bodyTop));
+                g.fill(cardX, cardTop, cardX + cardW, cardBottom, selected ? Ui.alpha(Ui.ACCENT, 0x26) : Ui.PANEL_ALT);
+                if (cardHovered && !selected) screen.drawHover(g, cardX, cardTop, cardW, PICKER_CARD_HEIGHT);
+                screen.box(g, cardX, cardTop, cardX + cardW, cardBottom, selected ? Ui.ACCENT : cardHovered ? Ui.BORDER_STRONG : Ui.SURFACE);
+                if (selected) screen.box(g, cardX + 1, cardTop + 1, cardX + cardW - 1, cardBottom - 1, Ui.ACCENT);
+                int centerX = cardX + cardW / 2;
+                if (!option.icon().isBlank()) {
+                    screen.renderArchiveAsset(g, option.icon(), "", "", "", centerX, cardTop + 11, 14, 0, 0.8F, task.renderMobFromSpawnEgg());
+                } else {
+                    g.fill(centerX - 7, cardTop + 4, centerX + 8, cardTop + 19, Ui.TASK_ICON_FILL);
+                    g.drawCenteredString(font, Component.literal(AntOSPlayerText.currencySymbol()), centerX, cardTop + 8, Ui.TEXT);
+                }
+                if (rewardIndex == keyedReward && optionIndex < 9)
+                    g.drawString(font, Component.literal(Integer.toString(optionIndex + 1)), cardX + 3, cardTop + 3, selected ? Ui.ACCENT : Ui.TEXT_DIM, false);
+                String title = screen.trimToWidth(option.title(), cardW - 6);
+                g.drawString(font, Component.literal(title), centerX - font.width(title) / 2, cardTop + 22, selected ? Ui.TEXT_STRONG : Ui.ACCENT, false);
+                if (!option.detail().isBlank()) {
+                    String detail = screen.trimToWidth(option.detail(), cardW - 6);
+                    g.drawString(font, Component.literal(detail), centerX - font.width(detail) / 2, cardTop + 32, Ui.TEXT_SOFT, false);
+                }
+                pickerButtons.add(new PoolChoiceButton(task.id(), rewardIndex, option.path(), cardX, Math.max(cardTop, bodyTop),
+                        cardX + cardW, Math.min(cardBottom, bodyBottom)));
+            }
+            line += (options.size() + columns - 1) / columns * (PICKER_CARD_HEIGHT + 4) + 6;
+        }
+        g.disableScissor();
+        pickerMaximumScroll = Math.max(0, line + pickerScroll - bodyBottom);
+        pickerScroll = Math.min(pickerScroll, pickerMaximumScroll);
+        if (pickerMaximumScroll > 0 && pickerScroll < pickerMaximumScroll)
+            g.drawCenteredString(font, Component.literal("v"), panelX + panelW - 10, bodyBottom - 10, Ui.TEXT_SOFT);
+        int footerTop = panelY + panelH - 40;
+        g.fill(panelX + 1, footerTop, panelX + panelW - 1, footerTop + 1, Ui.BORDER_STRONG);
+        int readyCount = claimPicker.readyTasks.size();
+        pickerReadyButton = new int[4];
+        String readyLink = claimPicker.page == 0 && readyCount > 0 ? tr("picker.claim_ready", readyCount) : "";
+        int readyLinkWidth = readyLink.isEmpty() ? 0 : font.width(readyLink) + 6;
+        String note = readyCount > 0 ? tr("picker.ready_note", readyCount)
+                : claimPicker.skipped.isEmpty() ? tr("picker.choose_note") : tr("picker.skipped_note", claimPicker.skipped.size());
+        g.drawString(font, Component.literal(screen.trimToWidth(note, panelW - 16 - readyLinkWidth)), panelX + 8, footerTop + 6, Ui.TEXT_SOFT, false);
+        if (!readyLink.isEmpty()) {
+            int linkX = panelX + panelW - 8 - font.width(readyLink);
+            boolean linkHovered = screen.hovered(linkX - 3, footerTop + 3, readyLinkWidth, 13);
+            if (linkHovered) g.fill(linkX - 3, footerTop + 3, linkX - 3 + readyLinkWidth, footerTop + 16, Ui.HOVER);
+            g.drawString(font, Component.literal(readyLink), linkX, footerTop + 6, linkHovered ? Ui.TEXT_STRONG : Ui.ACCENT, false);
+            pickerReadyButton = new int[] {linkX - 3, footerTop + 3, readyLinkWidth, 13};
+        }
+        int buttonY = panelY + panelH - 20;
+        pickerBackButton = new int[4];
+        if (claimPicker.page > 0) {
+            pickerBackButton = new int[] {panelX + 6, buttonY, 52, 15};
+            drawPickerButton(g, pickerBackButton, tr("picker.back"), false, false);
+        }
+        int claimCount = pickerClaimCount();
+        String nextLabel = !lastPickerPage() ? tr("picker.next") : claimCount > 0 ? tr("picker.claim", claimCount) : tr("picker.close");
+        int nextW = Math.max(60, font.width(nextLabel) + 14);
+        pickerNextButton = new int[] {panelX + panelW - 6 - nextW, buttonY, nextW, 15};
+        boolean nextDisabled = !lastPickerPage() && needsChoice(task);
+        drawPickerButton(g, pickerNextButton, nextLabel, nextDisabled, !nextDisabled);
+        String skipLabel = tr("picker.skip");
+        int skipW = Math.max(44, font.width(skipLabel) + 12);
+        pickerSkipButton = new int[] {pickerNextButton[0] - 4 - skipW, buttonY, skipW, 15};
+        drawPickerButton(g, pickerSkipButton, skipLabel, false, false);
+        g.flush();
+        g.pose().popPose();
+    }
+
+    private void drawPickerButton(ThemedGraphics g, int[] bounds, String label, boolean disabled, boolean primary) {
+        drawTeamButton(g, bounds[0], bounds[1], bounds[2], label, disabled);
+        boolean hovered = !disabled && screen.hovered(bounds[0], bounds[1], bounds[2], bounds[3]);
+        if (primary || hovered) screen.box(g, bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3], hovered ? Ui.TEXT_STRONG : Ui.ACCENT);
+    }
+
+    private boolean insideBounds(int[] bounds, double mouseX, double mouseY) {
+        return bounds[2] > 0 && screen.inside(bounds[0], bounds[1], bounds[2], bounds[3], mouseX, mouseY);
+    }
+
+    private void clickClaimPicker(double mouseX, double mouseY) {
+        var task = currentPickerTask();
+        if (task == null || claimPicker == null) return;
+        if (insideBounds(pickerCloseButton, mouseX, mouseY)) {
+            claimPicker = null;
+            return;
+        }
+        if (insideBounds(pickerReadyButton, mouseX, mouseY)) {
+            sendClaim(claimPicker.readyTasks);
+            claimPicker.readyTasks.clear();
+            return;
+        }
+        if (insideBounds(pickerBackButton, mouseX, mouseY)) {
+            pickerBack();
+            return;
+        }
+        if (insideBounds(pickerSkipButton, mouseX, mouseY)) {
+            claimPicker.skipped.add(task.id());
+            pickerForward();
+            return;
+        }
+        if (insideBounds(pickerNextButton, mouseX, mouseY)) {
+            if (lastPickerPage() || !needsChoice(task)) pickerForward();
+            return;
+        }
+        if (!insideBounds(pickerBodyBounds, mouseX, mouseY)) return;
+        for (PoolChoiceButton choice : pickerButtons) {
+            if (!screen.inside(choice.left(), choice.top(), choice.right() - choice.left(), choice.bottom() - choice.top(), mouseX, mouseY)) continue;
+            selectPickerChoice(choice.taskId(), choice.rewardIndex(), choice.path());
+            return;
+        }
+    }
+
+    private void selectPickerChoice(String taskId, int rewardIndex, String path) {
+        poolSelections.computeIfAbsent(taskId, ignored -> new HashMap<>()).put(rewardIndex, path);
+        if (claimPicker != null) claimPicker.skipped.remove(taskId);
+    }
+
+    private void pickerBack() {
+        if (claimPicker == null || claimPicker.page == 0) return;
+        claimPicker.page--;
+        claimPicker.skipped.remove(claimPicker.choiceTasks.get(claimPicker.page));
+        pickerScroll = 0;
+    }
+
+    private void pickerForward() {
+        if (claimPicker == null) return;
+        if (lastPickerPage()) {
+            finishPicker();
+            return;
+        }
+        claimPicker.page++;
+        pickerScroll = 0;
+    }
+
+    private void finishPicker() {
+        ClaimPicker picker = claimPicker;
+        claimPicker = null;
+        if (picker == null) return;
+        List<String> claim = new ArrayList<>(picker.readyTasks);
+        for (String taskId : picker.choiceTasks) {
+            var task = viewRowsById.get(taskId);
+            if (task != null && task.claimable() && !picker.skipped.contains(taskId) && !needsChoice(task)) claim.add(taskId);
+        }
+        sendClaim(claim);
+    }
+
+    private boolean keyClaimPicker(int keyCode) {
+        var task = currentPickerTask();
+        if (task == null || claimPicker == null) return true;
+        switch (keyCode) {
+            case InputConstants.KEY_ESCAPE -> claimPicker = null;
+            case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER, InputConstants.KEY_RIGHT -> {
+                if (lastPickerPage() || !needsChoice(task)) pickerForward();
+            }
+            case InputConstants.KEY_LEFT -> pickerBack();
+            default -> {
+                int number = keyCode >= InputConstants.KEY_1 && keyCode <= InputConstants.KEY_9 ? keyCode - InputConstants.KEY_1
+                        : keyCode >= InputConstants.KEY_NUMPAD1 && keyCode <= InputConstants.KEY_NUMPAD9 ? keyCode - InputConstants.KEY_NUMPAD1 : -1;
+                if (number < 0) return true;
+                Map<Integer, String> selections = poolSelections.getOrDefault(task.id(), Map.of());
+                List<Integer> choiceIndices = choiceRewardIndices(task);
+                int rewardIndex = choiceIndices.stream().filter(index -> !selections.containsKey(index)).findFirst()
+                        .orElse(choiceIndices.isEmpty() ? -1 : choiceIndices.get(0));
+                if (rewardIndex < 0) return true;
+                List<PickerOption> options = pickerOptions(task.rewards().get(rewardIndex));
+                if (number < options.size()) selectPickerChoice(task.id(), rewardIndex, options.get(number).path());
+            }
+        }
+        return true;
+    }
+
+    private void renderClaimSummary(ThemedGraphics g, int mapX, int mapY, int mapW) {
+        summaryBounds = new int[4];
+        var summary = shownSummary;
+        if (summary == null) return;
+        if (System.currentTimeMillis() >= summaryUntil) {
+            shownSummary = null;
+            return;
+        }
+        List<String> lines = new ArrayList<>();
+        List<Integer> colors = new ArrayList<>();
+        if (summary.itemCount() > 0) {
+            lines.add(tr(summary.crates() == 1 ? "summary.items_one_crate" : "summary.items", summary.itemCount(), summary.crates()));
+            colors.add(Ui.TEXT);
+        }
+        if (summary.antcoins() > 0) {
+            lines.add(String.format(Locale.ROOT, "+%,d ", summary.antcoins()) + AntOSPlayerText.currencyName().toUpperCase(Locale.ROOT));
+            colors.add(Ui.TEXT);
+        }
+        if (summary.levels() > 0) {
+            lines.add(tr("summary.levels", summary.levels()));
+            colors.add(Ui.TEXT);
+        }
+        if (summary.experience() > 0) {
+            lines.add(tr("summary.experience", summary.experience()));
+            colors.add(Ui.TEXT);
+        }
+        if (summary.other() > 0) {
+            lines.add(tr("summary.other", summary.other()));
+            colors.add(Ui.TEXT);
+        }
+        if (summary.failed() > 0) {
+            lines.add(tr("summary.failed", summary.failed()));
+            colors.add(Ui.TEXT_DIM);
+        }
+        int width = Math.max(60, Math.min(mapW - 8, 220));
+        List<Map.Entry<String, Integer>> items = new ArrayList<>(summary.items().entrySet());
+        int iconSlots = Math.max(1, (width - 12) / 20);
+        boolean showIcons = !items.isEmpty();
+        int height = 20 + (showIcons ? 22 : 0) + lines.size() * 11 + 4;
+        int left = mapX + (mapW - width) / 2;
+        int top = mapY + 20;
+        screen.beginLayer(g);
+        g.pose().pushPose();
+        g.pose().translate(0.0D, 0.0D, 180.0D);
+        g.fill(left, top, left + width, top + height, Ui.PANEL);
+        screen.box(g, left, top, left + width, top + height, Ui.ACCENT);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr(summary.claimed() == 1 ? "summary.title_one" : "summary.title", summary.claimed()), width - 22)), left + 6, top + 6, Ui.ACCENT, false);
+        g.drawString(font, Component.literal("X"), left + width - 11, top + 6, Ui.TEXT_SOFT, false);
+        int line = top + 19;
+        if (showIcons) {
+            int shown = Math.min(items.size(), items.size() > iconSlots ? iconSlots - 1 : iconSlots);
+            for (int index = 0; index < shown; index++) {
+                var entry = items.get(index);
+                int iconX = left + 6 + index * 20;
+                Identifier itemId = Identifier.tryParse(entry.getKey());
+                var item = itemId == null ? null : BuiltInRegistries.ITEM.getOptional(itemId).orElse(null);
+                if (item != null) g.renderItem(new net.minecraft.world.item.ItemStack(item), iconX, line);
+                String count = entry.getValue() > 999 ? entry.getValue() / 1000 + "K" : Integer.toString(entry.getValue());
+                g.pose().pushPose();
+                g.pose().translate(0.0D, 0.0D, 200.0D);
+                g.drawString(font, count, iconX + 17 - font.width(count), line + 9, Ui.TEXT_STRONG, true);
+                g.pose().popPose();
+            }
+            if (shown < items.size()) g.drawString(font, Component.literal("+" + (items.size() - shown)), left + 8 + shown * 20, line + 5, Ui.TEXT_SOFT, false);
+            line += 22;
+        }
+        for (int index = 0; index < lines.size(); index++) {
+            g.drawString(font, Component.literal(screen.trimToWidth(lines.get(index), width - 12)), left + 6, line, colors.get(index), false);
+            line += 11;
+        }
+        g.flush();
+        g.pose().popPose();
+        summaryBounds = new int[] {left, top, width, height};
+        chromeAreas.add(new int[] {left, top, left + width, top + height});
+    }
+
+
+
     private record ArchiveButton(Identifier entryId, int left, int top, int right, int bottom) { }
 
     private record ClaimButton(String taskId, int left, int top, int right, int bottom) { }
@@ -1704,6 +2399,21 @@ final class TasksApp extends ComputerApp {
         int contentW = w - 16;
         int contentH = h - 34;
         if (button != 0) return true;
+        if (claimPicker != null) {
+            clickClaimPicker(mouseX, mouseY);
+            return true;
+        }
+        if (shownSummary != null && summaryBounds[2] > 0
+                && screen.inside(summaryBounds[0], summaryBounds[1], summaryBounds[2], summaryBounds[3], mouseX, mouseY)) {
+            shownSummary = null;
+            return true;
+        }
+        if (pinBounds[2] > 0 && !selectedTaskId.isBlank()
+                && screen.inside(pinBounds[0], pinBounds[1], pinBounds[2], pinBounds[3], mouseX, mouseY)) {
+            var task = viewRowsById.get(selectedTaskId);
+            if (task != null) togglePin(task);
+            return true;
+        }
         if (!pendingJumpTaskId.isBlank()) {
             if (screen.inside(jumpConfirmButton[0], jumpConfirmButton[1], jumpConfirmButton[2], jumpConfirmButton[3], mouseX, mouseY)) confirmJump();
             else pendingJumpTaskId = "";
@@ -1811,6 +2521,15 @@ final class TasksApp extends ComputerApp {
             if (categoryOffset >= 0 && visibleIndex < visibleCategories
                     && categoryIndex >= 0 && categoryIndex < sidebarRows.size()) {
                 SidebarRow sidebarRow = sidebarRows.get(categoryIndex);
+                if (!sidebarRow.taskId().isBlank()) {
+                    var pinnedTask = viewRowsById.get(sidebarRow.taskId());
+                    if (pinnedTask != null && pinnedTask.visible()) {
+                        openSearchResult(pinnedTask);
+                        sidebarHoverOpen = false;
+                        sidebarHoverDismissed = true;
+                    }
+                    return true;
+                }
                 if (sidebarRow.category().isBlank()) {
                     AntOSSettings.setTaskGroupCollapsed(sidebarRow.group(), !groupCollapsed(sidebarRow.group()));
                     viewDirty = true;
@@ -1842,6 +2561,8 @@ final class TasksApp extends ComputerApp {
             for (ItemButton itemButton : itemButtons) {
                 if (!screen.inside(itemButton.left(), itemButton.top(), itemButton.right() - itemButton.left(),
                         itemButton.bottom() - itemButton.top(), mouseX, mouseY)) continue;
+                if (!recipeItem.equals(itemButton.itemId()) && !screen.hasTaskItemRecipe(itemButton.itemId())
+                        && screen.openInJei(itemButton.itemId(), false)) return true;
                 recipeItem = recipeItem.equals(itemButton.itemId()) ? "" : itemButton.itemId();
                 detailScroll = 0;
                 return true;
@@ -1895,6 +2616,10 @@ final class TasksApp extends ComputerApp {
             int buttonWidth = controls.buttonWidth();
             int searchControlWidth = searchControlWidth();
             int searchLeft = mapX + mapW - searchControlWidth;
+            if (claimAllBounds[2] > 0 && screen.inside(claimAllBounds[0], claimAllBounds[1], claimAllBounds[2], claimAllBounds[3], mouseX, mouseY)) {
+                startClaimAll();
+                return true;
+            }
             if (screen.inside(searchLeft, bodyY + 1, searchControlWidth, CHROME_BUTTON_HEIGHT, mouseX, mouseY)) {
                 if (searchFocused && mouseX >= mapX + mapW - 14) {
                     searchText = "";
@@ -1926,7 +2651,7 @@ final class TasksApp extends ComputerApp {
                 return true;
             }
             if (controlsOpen && screen.inside(controlsPanelX(mapX, mapW), bodyY + 22,
-                    controlsPanelWidth(mapW), 92, mouseX, mouseY)) return true;
+                    controlsPanelWidth(mapW), CONTROLS_PANEL_HEIGHT, mouseX, mouseY)) return true;
             if (screen.inside(controls.zoomOutX(), controlY, buttonWidth, CHROME_BUTTON_HEIGHT, mouseX, mouseY)) {
                 mapZoom = Math.max(0.55F, mapZoom - 0.1F);
                 centerMapOn(categoryRowsForSelected(), mapX, mapY, mapW, mapH, "");
@@ -1960,6 +2685,10 @@ final class TasksApp extends ComputerApp {
                             openLink(node.task());
                             return true;
                         }
+                        if (Minecraft.getInstance().hasShiftDown()) {
+                            togglePin(node.task());
+                            return true;
+                        }
                         selectedTaskId = node.task().id(); recipeItem = ""; sidebarClickOpen = false;
                         detailScroll = 0; detailMaximumScroll = 0; return true;
                     }
@@ -1983,9 +2712,13 @@ final class TasksApp extends ComputerApp {
     }
 
     boolean scroll(Window window, double mouseX, double mouseY, double scrollY) {
+        if (claimPicker != null) {
+            pickerScroll = Math.max(0, Math.min(pickerMaximumScroll, pickerScroll - (int) Math.signum(scrollY) * 16));
+            return true;
+        }
         float scale = screen.uiScale();
         double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
-        int windowX = -WIDTH / 2 + screen.windowLocalX(window), windowY = -HEIGHT / 2 + screen.windowLocalY(window);
+        int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
         int sidebarX = windowX + 8, sidebarY = windowY + 28, contentHeight = screen.windowHeight(window) - 34;
         int contentWidth = screen.windowWidth(window) - 16;
         int menuY = sidebarY + contentHeight - 17 - teamMenuHeight();
@@ -2007,7 +2740,7 @@ final class TasksApp extends ComputerApp {
             int mapX = sidebarX + contentOffset, mapY = bodyY + 18;
             int mapW = contentWidth - contentOffset, mapH = Math.max(1, bodyHeight - 36);
             if (controlsOpen && screen.inside(controlsPanelX(mapX, mapW), bodyY + 22,
-                    controlsPanelWidth(mapW), 92, localX, localY)) return true;
+                    controlsPanelWidth(mapW), CONTROLS_PANEL_HEIGHT, localX, localY)) return true;
             if (searchFocused && !searchText.isBlank()
                     && screen.inside(mapX + 2, mapY + 2, Math.min(mapW - 4, 192), Math.max(25, 21 + Math.min(5,
                     searchResults().size()) * 18), localX, localY)) {
@@ -2034,6 +2767,7 @@ final class TasksApp extends ComputerApp {
     }
 
     boolean type(Window window, char codePoint, int modifiers) {
+        if (claimPicker != null) return true;
         if (searchFocused && !teamInviteFocused
                 && codePoint >= 32 && searchText.length() < 64) {
             searchText += codePoint;
@@ -2048,6 +2782,7 @@ final class TasksApp extends ComputerApp {
     }
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
+        if (claimPicker != null) return keyClaimPicker(keyCode);
         if (!pendingJumpTaskId.isBlank()) {
             if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) confirmJump();
             else if (keyCode == InputConstants.KEY_ESCAPE) pendingJumpTaskId = "";

@@ -18,6 +18,9 @@ public final class MerchantCommands {
                             MerchantService.resume(EntityArgument.getPlayer(context, "player"));
                             return "MERCHANT recovery completed.";
                         }))))
+                        .then(Commands.literal("discard").then(Commands.argument("player", net.minecraft.commands.arguments.UuidArgument.uuid()).executes(context -> perform(context.getSource(), () ->
+                                "MERCHANT discarded " + MerchantService.discardRecovery(context.getSource().getServer(), net.minecraft.commands.arguments.UuidArgument.getUuid(context, "player"))
+                                        + " interrupted trade(s). Inventory changes were not applied."))))
                         .then(Commands.literal("return").then(Commands.argument("listing", StringArgumentType.word()).executes(context -> perform(context.getSource(), () -> {
                             MerchantService.returnListing(context.getSource().getServer(), StringArgumentType.getString(context, "listing"));
                             return "Unsold stock returned to the seller's delivery queue.";

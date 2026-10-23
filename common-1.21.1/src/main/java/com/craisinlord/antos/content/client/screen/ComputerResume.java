@@ -41,6 +41,7 @@ final class ComputerResume {
         apps.add("antazon", session.antazon.saveResume());
         apps.add("antmail", session.antmail.saveResume());
         apps.add("settings", session.settings.saveResume());
+        apps.add("tasks", TasksApp.rememberedResume());
         JsonObject games = new JsonObject();
         games.addProperty("gallery", session.gamesGallery);
         apps.add("games", games);
@@ -66,6 +67,7 @@ final class ComputerResume {
             session.antazon.loadResume(object(apps, "antazon"));
             session.antmail.loadResume(object(apps, "antmail"));
             session.settings.loadResume(object(apps, "settings"));
+            TasksApp.restoreResume(object(apps, "tasks"));
             JsonObject games = object(apps, "games");
             if (games.has("gallery")) session.gamesGallery = games.get("gallery").getAsBoolean();
         } catch (RuntimeException ignored) {

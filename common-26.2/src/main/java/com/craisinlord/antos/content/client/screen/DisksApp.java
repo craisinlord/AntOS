@@ -1,6 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
 import com.craisinlord.antos.content.client.palette.Ui;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.api.client.game.ComputerGameRegistry;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState;
@@ -477,7 +478,7 @@ final class DisksApp extends ComputerApp {
         g.fill(x, y, x + w, y + h, active || hover ? Ui.HOVER : Ui.PANEL);
         screen.box(g, x, y, x + w, y + h, active || hover ? Ui.ACCENT : Ui.BORDER);
         g.drawString(font, screen.trimToWidth(label, w - 8), x + 4, y + (h - 8) / 2, enabled ? active || hover ? Ui.ACCENT : Ui.TEXT : Ui.TEXT_MUTED, false);
-        if (enabled) hits.add(new Hit(x, y, w, h, action));
+        if (enabled) hits.add(new Hit(x, y, w, h, () -> AntOSUiSounds.action(action)));
     }
 
     private static String count(List<ComputerGuideData.Disk> disks, Set<Identifier> collected) {

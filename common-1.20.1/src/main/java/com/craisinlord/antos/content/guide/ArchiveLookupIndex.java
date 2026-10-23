@@ -18,6 +18,10 @@ public final class ArchiveLookupIndex {
     private ArchiveLookupIndex() { }
 
     public static Map<String, Match> build(Collection<ComputerGuideData.Entry> all, List<ComputerGuideData.Entry> accessible) {
+        return build(all, accessible, ArchiveRecipeOutputs.EMPTY);
+    }
+
+    public static Map<String, Match> build(Collection<ComputerGuideData.Entry> all, List<ComputerGuideData.Entry> accessible, ArchiveRecipeOutputs outputs) {
         Map<String, Set<ResourceLocation>> covers = new HashMap<>();
         Map<String, Set<ResourceLocation>> galleries = new HashMap<>();
         for (ComputerGuideData.Entry entry : all) {
@@ -47,7 +51,36 @@ public final class ArchiveLookupIndex {
                 index.putIfAbsent(item.id(), new Match(entry, "gallery"));
             }
         }
+        Map<String, Set<ComputerGuideData.Entry>> stations = new HashMap<>();
+        for (ComputerGuideData.Entry entry : all) {
+            for (String type : entry.lookupRecipes()) stations.computeIfAbsent(type, ignored -> new HashSet<>()).add(entry);
+        }
+        if (stations.isEmpty()) return index;
+        Set<ResourceLocation> open = new HashSet<>();
+        for (ComputerGuideData.Entry entry : accessible) open.add(entry.id());
+        for (String item : outputs.items()) {
+            if (index.containsKey(item) || item.startsWith("minecraft:")) continue;
+            List<Set<String>> producers = outputs.producers(item);
+            ComputerGuideData.Entry station = station(stations, producers);
+            if (station == null || !open.contains(station.id())) continue;
+            String type = producers.get(0).stream().filter(station.lookupRecipes()::contains).findFirst().orElse("");
+            index.put(item, new Match(station, "lookup_recipes " + type));
+        }
         return index;
+    }
+
+    private static ComputerGuideData.Entry station(Map<String, Set<ComputerGuideData.Entry>> stations, List<Set<String>> producers) {
+        ComputerGuideData.Entry found = null;
+        for (Set<String> keys : producers) {
+            for (String key : keys) {
+                for (ComputerGuideData.Entry owner : stations.getOrDefault(key, Set.of())) {
+                    if (found != null && !found.id().equals(owner.id())) return null;
+                    found = owner;
+                }
+            }
+            if (found == null || keys.stream().noneMatch(stations::containsKey)) return null;
+        }
+        return found;
     }
 
     private static List<String> tagItems(String id) {

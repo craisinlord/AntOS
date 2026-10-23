@@ -1,6 +1,7 @@
 package com.craisinlord.antos.content.client.screen;
 
 import com.craisinlord.antos.content.client.palette.Ui;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntConsumer;
@@ -81,7 +82,7 @@ final class AppKit {
 
     boolean activateFocused() {
         if (!keyboardFocus || focusIndex < 0 || focusIndex >= hits.size()) return false;
-        hits.get(focusIndex).action().run();
+        AntOSUiSounds.action(hits.get(focusIndex).action());
         return true;
     }
 
@@ -184,8 +185,8 @@ final class AppKit {
         } finally {
             g.pose().popPose();
         }
-        if (hover && !tip.isEmpty()) tooltip = tip;
-        if (enabled) hit(x, y, w, h, action);
+        if (hovered(x, y, w, h) && !tip.isEmpty()) tooltip = tip;
+        if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 
     void iconButton(ThemedGraphics g, int x, int y, int size, Identifier icon, boolean active, boolean enabled, String tip, Runnable action) {
@@ -194,7 +195,7 @@ final class AppKit {
         outline(g, x, y, size, size, active ? Ui.FOCUS : hover ? Ui.ACCENT : Ui.BORDER);
         icon(g, icon, x + (size - 16) / 2, y + (size - 16) / 2, 16, enabled);
         if (!suppressHover && app.screen.hovered(x, y, size, size) && !tip.isEmpty()) tooltip = tip;
-        if (enabled) hit(x, y, size, size, action);
+        if (enabled) hit(x, y, size, size, () -> AntOSUiSounds.action(action));
     }
 
     void icon(ThemedGraphics g, Identifier texture, int x, int y, int size, boolean enabled) {
@@ -219,8 +220,9 @@ final class AppKit {
 
     void drawTooltip(ThemedGraphics g, int left, int top, int right, int bottom) {
         if (tooltip.isEmpty()) return;
+        String hint = app.screen.lookupHint();
         int availableWidth = Math.max(1, right - left - 10);
-        var lines = app.font.split(Component.literal(tooltip), availableWidth);
+        var lines = app.font.split(Component.literal(hint.isEmpty() ? tooltip : tooltip + "\n" + hint), availableWidth);
         int count = Math.min(lines.size(), Math.max(1, (bottom - top - 6) / 11));
         int width = Math.min(right - left, lines.stream().limit(count).mapToInt(app.font::width).max().orElse(0) + 10);
         int height = count * 11 + 6;

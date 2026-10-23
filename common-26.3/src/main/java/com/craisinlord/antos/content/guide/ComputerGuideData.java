@@ -397,7 +397,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public record ArchiveDefinitions(String json, String hash) { }
 
     private record ArchiveDefinitionsCache(Map<Identifier, Entry> entries, Map<Identifier, Disk> disks, Map<Identifier, DiskCategory> categories,
-                                           Map<Identifier, Wallpaper> wallpapers, Map<Identifier, ArchiveFolder> folders, ArchiveDefinitions value) { }
+                                           Map<Identifier, Wallpaper> wallpapers, Map<Identifier, ArchiveFolder> folders, long displayRevision, ArchiveDefinitions value) { }
 
     public static ArchiveDefinitions archiveDefinitions() {
         Map<Identifier, Entry> currentEntries = allEntries();
@@ -405,14 +405,15 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         Map<Identifier, DiskCategory> currentCategories = categories;
         Map<Identifier, Wallpaper> currentWallpapers = wallpapers;
         Map<Identifier, ArchiveFolder> currentFolders = archiveFolders;
+        long displayRevision = CustomDisplays.revision();
         ArchiveDefinitionsCache cached = archiveDefinitionsCache;
         if (cached != null && cached.entries() == currentEntries && cached.disks() == currentDisks
-                && cached.categories() == currentCategories && cached.wallpapers() == currentWallpapers && cached.folders() == currentFolders) {
+                && cached.categories() == currentCategories && cached.wallpapers() == currentWallpapers && cached.folders() == currentFolders && cached.displayRevision() == displayRevision) {
             return cached.value();
         }
         String json = encodeDefinitions(currentEntries, currentDisks, currentCategories, currentWallpapers, currentFolders).toString();
         ArchiveDefinitions value = new ArchiveDefinitions(json, hash(json));
-        archiveDefinitionsCache = new ArchiveDefinitionsCache(currentEntries, currentDisks, currentCategories, currentWallpapers, currentFolders, value);
+        archiveDefinitionsCache = new ArchiveDefinitionsCache(currentEntries, currentDisks, currentCategories, currentWallpapers, currentFolders, displayRevision, value);
         return value;
     }
 
@@ -484,6 +485,16 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 object.add("gallery", gallery);
             }
             addIfPresent(object, "gallery_title", entry.galleryTitleKey());
+            if (!entry.lookup().isEmpty()) {
+                JsonArray lookup = new JsonArray();
+                entry.lookup().forEach(lookup::add);
+                object.add("lookup", lookup);
+            }
+            if (!entry.lookupRecipes().isEmpty()) {
+                JsonArray lookupRecipes = new JsonArray();
+                entry.lookupRecipes().forEach(lookupRecipes::add);
+                object.add("lookup_recipes", lookupRecipes);
+            }
             entryArray.add(object);
         });
         root.add("entries", entryArray);
@@ -549,6 +560,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     public static void applyNetworkSnapshot(String json) {
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            Map<Identifier, JsonObject> loadedDisplays = root.has("displays") ? CustomDisplays.decode(root.get("displays")) : null;
             Map<Identifier, Entry> loadedEntries = new HashMap<>();
             Map<Identifier, ArchiveFolder> loadedFolders = new HashMap<>();
             Map<Identifier, Disk> loadedDisks = new HashMap<>();
@@ -597,6 +609,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 return true;
             });
             entries = Map.copyOf(loadedEntries);
+            if (loadedDisplays != null) CustomDisplays.apply(loadedDisplays);
             archiveFolders = normalizeArchiveFolders(loadedFolders);
             fieldGuideEntries = Map.copyOf(loadedFieldGuideEntries);
             disks = Map.copyOf(loadedDisks);
@@ -727,10 +740,11 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             }).toList();
             return new Disk(disk.id(), disk.category(), disk.titleKey(), disk.entries(), disk.wallpaper(), disk.tasks(), disk.descriptionKey(), disk.hidden(), rewards, disk.features());
         });
+        int displayBudget = CustomDisplays.MAX_TOTAL_CHARS;
         LoadedData data = new LoadedData(normalizeArchiveFolders(loadedFolders), Map.copyOf(loadedEntries), Map.copyOf(loadedDisks), Map.copyOf(loadedCategories), Map.copyOf(loadedWallpapers), Map.copyOf(loadedTasks), Map.copyOf(loadedRewardPools),
                 Map.copyOf(loadedTaskCategories), Map.copyOf(loadedTaskGroups), Map.copyOf(loadedTaskLinks), com.craisinlord.antos.content.computer.ComputerDiskFiles.load(resourceManager),
                 com.craisinlord.antos.content.computer.ComputerProgramData.load(resourceManager),
-                com.craisinlord.antos.content.computer.terminal.TerminalCommandData.load(resourceManager, loadedRewardPools));
+                com.craisinlord.antos.content.computer.terminal.TerminalCommandData.load(resourceManager, loadedRewardPools), CustomDisplays.load(resourceManager, displayBudget));
         validateLoadedData(data, resourceManager);
         Map<Identifier, Entry> snapshotEntries = new LinkedHashMap<>(fieldGuideEntries);
         snapshotEntries.putAll(data.entries());
@@ -754,6 +768,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
 
     @Override
     protected void apply(LoadedData data, ResourceManager resourceManager, ProfilerFiller profiler) {
+        CustomDisplays.apply(data.displays());
         entries = data.entries();
         archiveFolders = data.archiveFolders();
         disks = data.disks();
@@ -773,7 +788,17 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 entries.size(), disks.size(), wallpapers.size(), tasks.size(), taskLinks.size(), taskCategories.size(), taskGroups.size(), data.terminalCommands().size());
     }
 
+    private static void validateDisplayReferences(Identifier owner, List<String> content, Map<Identifier, JsonObject> displays) {
+        for (String part : content) {
+            if (!part.startsWith("@display:")) continue;
+            Identifier id = Identifier.tryParse(part.substring(9));
+            if (id == null || !displays.containsKey(id) && !CustomDisplays.pending(id)) AntOS.LOGGER.warn("AntOS content {} refers to missing display {}", owner, part.substring(9));
+        }
+    }
+
     private static void validateLoadedData(LoadedData data, ResourceManager resourceManager) {
+        for (Entry entry : data.entries().values()) validateDisplayReferences(entry.id(), entry.descriptionKeys(), data.displays());
+        for (Task task : data.tasks().values()) validateDisplayReferences(task.id(), task.showcase(), data.displays());
         for (Entry entry : data.entries().values()) {
             if (entry.folder() != null && !data.archiveFolders().containsKey(entry.folder()))
                 AntOS.LOGGER.warn("Archive entry {} refers to missing folder {}; it is shown at the Archive root", entry.id(), entry.folder());
@@ -888,6 +913,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         }
         for (TaskGroup group : data.taskGroups().values()) warnMissingIcon("task group", group.id(), group.iconItem(), group.iconEntity());
         warnTaskCycles(data.tasks());
+        validateLookups(data.entries());
     }
 
     private static void warnMissingIcon(String kind, Identifier id, String iconItem, String iconEntity) {
@@ -988,7 +1014,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             AntOS.LOGGER.warn("Archive entry {} has invalid folder {}; it is shown at the Archive root", id, folderValue);
         String title = string(object, "title", "guide.antos.missing_title");
         String subtitle = string(object, "subtitle", "");
-        List<String> description = strings(object.get("description"));
+        List<String> description = object.has("content") ? CustomDisplays.content(object.get("content")) : strings(object.get("description"));
         String item = string(object, "item", "");
         String entity = string(object, "entity", "");
         String enchantment = string(object, "enchantment", "");
@@ -1013,7 +1039,59 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 && object.get("unlocked_by_default").getAsBoolean();
         target.put(id, new Entry(id, type, category, title, subtitle, description, item, entity, enchantment, recipe, structure, structureTag, dimension, searchRadius, locator,
                 coverItem, coverEntity, coverPotion, rotation, renderScale, greenTint, unlockedByDefault, gallery(object.get("gallery")),
-                string(object, "gallery_title", ""), folder, boundedSortOrder(object)));
+                string(object, "gallery_title", ""), folder, boundedSortOrder(object), lookupIds(object.get("lookup")),
+                recipeTypeIds(object.get("lookup_recipes"))));
+    }
+
+    private static List<String> recipeTypeIds(JsonElement element) {
+        List<String> result = new ArrayList<>();
+        for (String value : strings(element)) {
+            String trimmed = value.trim();
+            if (!trimmed.isEmpty() && Identifier.tryParse(trimmed) != null && !result.contains(trimmed)) result.add(trimmed);
+        }
+        return result;
+    }
+
+    private static List<String> lookupIds(JsonElement element) {
+        List<String> result = new ArrayList<>();
+        for (String value : strings(element)) {
+            String trimmed = value.trim();
+            String id = trimmed.startsWith("#") ? trimmed.substring(1) : trimmed;
+            if (!id.isEmpty() && Identifier.tryParse(id) != null && !result.contains(trimmed)) result.add(trimmed);
+        }
+        return result;
+    }
+
+    public static java.util.Collection<Entry> archiveEntries() {
+        return allEntries().values();
+    }
+
+    private static void validateLookups(Map<Identifier, Entry> entries) {
+        Map<String, Identifier> claimed = new HashMap<>();
+        for (Entry entry : entries.values()) {
+            for (String id : entry.lookup()) {
+                if (!id.startsWith("#")) {
+                    Identifier item = Identifier.tryParse(id);
+                    if (item == null || !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(item))
+                        AntOS.LOGGER.warn("Archive entry {} looks up missing item {}", entry.id(), id);
+                }
+                Identifier previous = claimed.putIfAbsent(id, entry.id());
+                if (previous != null && !previous.equals(entry.id()))
+                    AntOS.LOGGER.warn("Archive entries {} and {} both look up {}; {} wins", previous, entry.id(), id, previous);
+            }
+        }
+        Map<String, Identifier> stations = new HashMap<>();
+        for (Entry entry : entries.values()) {
+            for (String type : entry.lookupRecipes()) {
+                Identifier id = Identifier.tryParse(type);
+                if (id == null || !net.minecraft.core.registries.BuiltInRegistries.RECIPE_TYPE.containsKey(id)
+                        && !net.minecraft.core.registries.BuiltInRegistries.RECIPE_SERIALIZER.containsKey(id))
+                    AntOS.LOGGER.warn("Archive entry {} looks up recipes of missing type {}", entry.id(), type);
+                Identifier previous = stations.putIfAbsent(type, entry.id());
+                if (previous != null && !previous.equals(entry.id()))
+                    AntOS.LOGGER.warn("Archive entries {} and {} both look up {} recipes; their shared outputs open neither", previous, entry.id(), type);
+            }
+        }
     }
 
     private static List<GalleryItem> gallery(JsonElement element) {
@@ -1206,7 +1284,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 object.has("hide_until_dependencies_complete") && object.get("hide_until_dependencies_complete").getAsBoolean(),
                 object.has("invisible_until_completed") && object.get("invisible_until_completed").getAsBoolean(), greenTint,
                 string(object, "icon", ""), string(object, "icon_entity", ""), renderMobFromSpawnEgg, TaskAppearance.parse(object), resourceIds(object.get("connects")),
-                List.copyOf(strings(object.get("showcase"))), resourceIds(object.get("requires_any"))));
+                object.has("content") ? CustomDisplays.content(object.get("content")) : List.copyOf(strings(object.get("showcase"))), resourceIds(object.get("requires_any"))));
     }
 
     private static boolean isTaskLink(JsonElement element) {
@@ -1623,7 +1701,31 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                          List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
                          String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
                          String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
-                         boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, Identifier folder, int sortOrder) {
+                         boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, Identifier folder, int sortOrder,
+                         List<String> lookup, List<String> lookupRecipes) {
+        public Entry {
+            lookup = lookup == null ? List.of() : List.copyOf(lookup);
+            lookupRecipes = lookupRecipes == null ? List.of() : List.copyOf(lookupRecipes);
+        }
+        public Entry(Identifier id, String type, String category, String titleKey, String subtitleKey,
+                     List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
+                     String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
+                     String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
+                     boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, Identifier folder, int sortOrder,
+                     List<String> lookup) {
+            this(id, type, category, titleKey, subtitleKey, descriptionKeys, itemId, entityId, enchantmentId, recipeId, structureId, structureTagId,
+                    dimensionId, searchRadius, locatorId, coverItemId, coverEntityId, coverPotionId, rotation, renderScale, greenTint, unlockedByDefault,
+                    gallery, galleryTitleKey, folder, sortOrder, lookup, List.of());
+        }
+        public Entry(Identifier id, String type, String category, String titleKey, String subtitleKey,
+                     List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
+                     String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
+                     String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
+                     boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, Identifier folder, int sortOrder) {
+            this(id, type, category, titleKey, subtitleKey, descriptionKeys, itemId, entityId, enchantmentId, recipeId, structureId, structureTagId,
+                    dimensionId, searchRadius, locatorId, coverItemId, coverEntityId, coverPotionId, rotation, renderScale, greenTint, unlockedByDefault,
+                    gallery, galleryTitleKey, folder, sortOrder, List.of(), List.of());
+        }
         public Entry(Identifier id, String type, String category, String titleKey, String subtitleKey,
                      List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
                      String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
@@ -1722,7 +1824,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     record LoadedData(Map<Identifier, ArchiveFolder> archiveFolders, Map<Identifier, Entry> entries, Map<Identifier, Disk> disks, Map<Identifier, DiskCategory> categories, Map<Identifier, Wallpaper> wallpapers, Map<Identifier, Task> tasks, Map<Identifier, RewardPool> rewardPools,
                       Map<Identifier, TaskCategory> taskCategories, Map<Identifier, TaskGroup> taskGroups, Map<Identifier, TaskLink> taskLinks,
                       Map<Identifier, String> diskFiles, Map<Identifier, com.craisinlord.antos.content.computer.ComputerProgramData.Program> programs,
-                      Map<Identifier, com.craisinlord.antos.content.computer.terminal.TerminalCommandData.Definition> terminalCommands) {
+                      Map<Identifier, com.craisinlord.antos.content.computer.terminal.TerminalCommandData.Definition> terminalCommands,
+                      Map<Identifier, JsonObject> displays) {
     }
 }
 

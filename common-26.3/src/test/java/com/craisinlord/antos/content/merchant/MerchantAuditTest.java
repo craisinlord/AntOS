@@ -28,6 +28,14 @@ public final class MerchantAuditTest {
         JsonObject badView = buy.deepCopy();
         badView.addProperty("view", "missing");
         rejects(() -> MerchantProtocol.parse(badView.toString()));
+        for (int size : new int[]{0, 25}) {
+            JsonObject badSize = buy.deepCopy();
+            badSize.addProperty("size", size);
+            rejects(() -> MerchantProtocol.parse(badSize.toString()));
+        }
+        JsonObject sized = buy.deepCopy();
+        sized.addProperty("size", 7);
+        check(MerchantProtocol.parse(sized.toString()).equals(sized), "Clients may request a page size that fits their window");
         JsonObject failure = MerchantProtocol.failure(buy.toString(), "busy");
         check(MerchantProtocol.matches(failure, "request", buy.get("request").getAsString()), "Busy/error replies must identify the mutation they rejected");
         check(!MerchantProtocol.matches(failure, "request", UUID.randomUUID().toString()), "An unrelated failure must not dismiss a pending trade");

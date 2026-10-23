@@ -83,7 +83,9 @@ public final class AntOSForgeClient {
     }
 
     private static void onClientTick(net.minecraftforge.event.TickEvent.ClientTickEvent event) {
-        if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) com.craisinlord.antos.content.client.ArchiveLookup.tick();
+        if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
+        com.craisinlord.antos.content.client.ArchiveLookup.tick();
+        com.craisinlord.antos.content.client.TaskTrackerHud.tick();
     }
 
     @SubscribeEvent
@@ -91,5 +93,11 @@ public final class AntOSForgeClient {
         net.minecraft.client.KeyMapping key = com.craisinlord.antos.content.client.ArchiveLookup.create(org.lwjgl.glfw.GLFW.GLFW_KEY_W);
         key.setKeyConflictContext(net.minecraftforge.client.settings.KeyConflictContext.GUI);
         event.register(key);
+        event.register(com.craisinlord.antos.content.client.TaskTrackerHud.createKey());
+    }
+
+    @SubscribeEvent
+    public static void registerOverlays(net.minecraftforge.client.event.RegisterGuiOverlaysEvent event) {
+        event.registerAboveAll("task_tracker", (gui, graphics, partialTick, width, height) -> com.craisinlord.antos.content.client.TaskTrackerHud.render(graphics));
     }
 }

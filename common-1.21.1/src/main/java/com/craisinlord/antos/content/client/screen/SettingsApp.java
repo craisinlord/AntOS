@@ -54,6 +54,9 @@ final class SettingsApp extends ComputerApp {
     private final Field displayName = new Field(32, false);
     private final Field iconItem = new Field(64, false);
     private final Field search = new Field(32, false);
+    private final Field settingsSearch = new Field(64, false);
+    private String revealTarget = "";
+    private int revealY = -1;
     private final Field currentPassword = new Field(128, true);
     private final Field newPassword = new Field(128, true);
     private final Field confirmPassword = new Field(128, true);
@@ -107,8 +110,20 @@ final class SettingsApp extends ComputerApp {
         kit.begin();
         scaleTrackVisible = false;
         kit.suppressHover(passwordDialog);
+        if (!passwordDialog) {
+            kit.field(g, x, y, w - 22, 17, settingsSearch.shown(), settingsSearch.cursor,
+                    focused == settingsSearch, tr("search.placeholder"));
+            kit.hit(x, y, w - 22, 17, () -> focus(settingsSearch));
+            kit.button(g, x + w - 19, y, 19, 17, "×", false, !settingsSearch.value.isEmpty(), () -> {
+                settingsSearch.set("");
+                state.scroll = 0;
+                focused = settingsSearch;
+            });
+        }
+        y += 22;
+        h -= 22;
         boolean narrow = w < 300;
-        if (narrow && state.showList) {
+        if (narrow && state.showList && settingsSearch.value.isBlank()) {
             renderCategoryList(g, x, y, w, h);
         } else {
             int left = x;
@@ -130,14 +145,15 @@ final class SettingsApp extends ComputerApp {
         g.drawString(font, Component.literal(tr("title")), x + 6, y + 5, Ui.TEXT_STRONG, false);
         g.fill(x + 4, y + 16, x + SIDEBAR - 4, y + 17, Ui.SURFACE);
         int rowY = y + 21;
+        int spacing = Math.min(21, Math.max(16, (h - 21) / CATEGORIES.length));
         for (String category : CATEGORIES) {
             boolean selected = state.category.equals(category);
-            boolean hover = kit.hovered(x + 2, rowY, SIDEBAR - 4, 19);
-            if (selected || hover) g.fill(x + 2, rowY, x + SIDEBAR - 2, rowY + 19, selected ? Ui.SELECTED_FILL : Ui.HOVER);
-            if (selected) g.fill(x + 2, rowY, x + 4, rowY + 19, Ui.ACCENT);
-            g.drawString(font, Component.literal(screen.trimToWidth(tr("category." + category), SIDEBAR - 14)), x + 8, rowY + 6, selected ? Ui.TEXT : Ui.ACCENT, false);
-            kit.hit(x + 2, rowY, SIDEBAR - 4, 19, () -> select(category));
-            rowY += 21;
+            boolean hover = kit.hovered(x + 2, rowY, SIDEBAR - 4, spacing - 2);
+            if (selected || hover) g.fill(x + 2, rowY, x + SIDEBAR - 2, rowY + spacing - 2, selected ? Ui.SELECTED_FILL : Ui.HOVER);
+            if (selected) g.fill(x + 2, rowY, x + 4, rowY + spacing - 2, Ui.ACCENT);
+            g.drawString(font, Component.literal(screen.trimToWidth(tr("category." + category), SIDEBAR - 14)), x + 8, rowY + (spacing - 10) / 2, selected ? Ui.TEXT : Ui.ACCENT, false);
+            kit.hit(x + 2, rowY, SIDEBAR - 4, spacing - 2, () -> select(category));
+            rowY += spacing;
         }
     }
 
@@ -145,17 +161,25 @@ final class SettingsApp extends ComputerApp {
         g.drawString(font, Component.literal(tr("title")), x, y + 3, Ui.TEXT_STRONG, false);
         g.fill(x, y + 14, x + w, y + 15, Ui.SURFACE);
         int rowY = y + 19;
+        int spacing = Math.min(22, Math.max(18, (h - 19) / CATEGORIES.length));
         for (String category : CATEGORIES) {
-            boolean hover = kit.hovered(x, rowY, w, 20);
-            g.fill(x, rowY, x + w, rowY + 20, hover ? Ui.HOVER : Ui.PANEL);
-            g.drawString(font, Component.literal(tr("category." + category)), x + 6, rowY + 6, hover ? Ui.ACCENT : Ui.TEXT, false);
-            g.drawString(font, Component.literal(">"), x + w - 10, rowY + 6, Ui.TEXT_MUTED, false);
-            kit.hit(x, rowY, w, 20, () -> select(category));
-            rowY += 22;
+            boolean hover = kit.hovered(x, rowY, w, spacing - 2);
+            g.fill(x, rowY, x + w, rowY + spacing - 2, hover ? Ui.HOVER : Ui.PANEL);
+            g.drawString(font, Component.literal(tr("category." + category)), x + 6, rowY + (spacing - 10) / 2, hover ? Ui.ACCENT : Ui.TEXT, false);
+            g.drawString(font, Component.literal(">"), x + w - 10, rowY + (spacing - 10) / 2, Ui.TEXT_MUTED, false);
+            kit.hit(x, rowY, w, spacing - 2, () -> select(category));
+            rowY += spacing;
         }
     }
 
+    void openNotifications() {
+        settingsSearch.set("");
+        select("notifications");
+    }
+
     private void select(String category) {
+        settingsSearch.set("");
+        revealTarget = "";
         draggingScale = false;
         scaleTrackVisible = false;
         state.category = category;
@@ -170,10 +194,15 @@ final class SettingsApp extends ComputerApp {
         int titleX = x;
         if (narrow) {
             int backWidth = kit.labelWidth("<");
-            kit.button(g, x, y, backWidth, 15, "<", false, true, tr("tip.back"), () -> state.showList = true);
+            kit.button(g, x, y, backWidth, 15, "<", false, true, tr("tip.back"), () -> {
+                state.showList = true;
+                settingsSearch.set("");
+                state.scroll = 0;
+                focused = null;
+            });
             titleX += backWidth + 6;
         }
-        g.drawString(font, Component.literal(tr("category." + state.category)), titleX, y + 4, Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal((settingsSearch.value.isBlank() ? tr("category." + state.category) : tr("search.title"))), titleX, y + 4, Ui.TEXT_STRONG, false);
         if (System.currentTimeMillis() < noticeUntil) {
             String shown = screen.trimToWidth(notice, Math.max(10, w / 2));
             g.drawString(font, Component.literal(shown), x + w - font.width(shown), y + 4, Ui.TEXT, false);
@@ -186,7 +215,9 @@ final class SettingsApp extends ComputerApp {
         kit.clip(x, contentTop, w, viewHeight);
         cursorY = contentTop + 2 - state.scroll;
         try {
-            switch (state.category) {
+            revealY = -1;
+            if (!settingsSearch.value.isBlank()) renderSearchResults(g);
+            else switch (state.category) {
                 case "account" -> renderAccount(g);
                 case "personalize" -> renderPersonalize(g);
                 case "accessibility" -> renderAccessibility(g);
@@ -202,8 +233,134 @@ final class SettingsApp extends ComputerApp {
         }
         int contentHeight = cursorY + state.scroll - contentTop;
         state.maximumScroll = Math.max(0, contentHeight - viewHeight);
+        if (revealY >= 0) {
+            state.scroll = Math.max(0, Math.min(state.maximumScroll, revealY));
+            revealTarget = "";
+        }
         state.scroll = Math.max(0, Math.min(state.maximumScroll, state.scroll));
         kit.scrollbar(g, x + w - 3, contentTop, viewHeight, viewHeight, contentHeight, state.scroll, state.maximumScroll, value -> state.scroll = value);
+    }
+
+    private static final String[][] SEARCH_SETTINGS = {
+            {"account", "account.signed_in"},
+            {"account", "account.username"},
+            {"account", "account.profile"},
+            {"account", "account.display_name"},
+            {"account", "account.icon_item"},
+            {"account", "account.security"},
+            {"account", "account.password"},
+            {"account", "account.hint"},
+            {"account", "face_id.label"},
+            {"account", "account.session"},
+            {"account", "account.log_out_hint"},
+            {"personalize", "accessibility.look"},
+            {"personalize", "accessibility.icons"},
+            {"personalize", "accessibility.wallpaper"},
+            {"personalize", "personalize.theme"},
+            {"personalize", "personalize.wallpaper"},
+            {"personalize", "personalize.reset_hint"},
+            {"accessibility", "accessibility.display"},
+            {"accessibility", "accessibility.brightness"},
+            {"accessibility", "accessibility.fullscreen"},
+            {"accessibility", "accessibility.layout_hint"},
+            {"accessibility", "accessibility.comfort"},
+            {"accessibility", "accessibility.reduce_effects"},
+            {"accessibility", "accessibility.resume"},
+            {"accessibility", "accessibility.gameplay"},
+            {"accessibility", "accessibility.pause"},
+            {"accessibility", "accessibility.preview"},
+            {"accessibility", "accessibility.reset_hint"},
+            {"apps", "apps.text"},
+            {"apps", "apps.line_numbers"},
+            {"apps", "apps.paint"},
+            {"apps", "apps.paint_grid"},
+            {"apps", "apps.paint_brush"},
+            {"apps", "apps.terminal"},
+            {"apps", "apps.terminal_history"},
+            {"apps", "apps.terminal_clear_hint"},
+            {"apps", "apps.archive"},
+            {"apps", "apps.archive_text"},
+            {"apps", "apps.archive_clear_recent_hint"},
+            {"apps", "apps.tasks"},
+            {"apps", "apps.tasks_zoom"},
+            {"apps", "apps.tasks_sidebar_behavior"},
+            {"apps", "apps.tasks_sidebar_width"},
+            {"apps", "apps.tasks_sidebar_text"},
+            {"apps", "apps.tasks_sidebar_spacing"},
+            {"apps", "apps.tasks_sidebar_counts"},
+            {"apps", "apps.tasks_sidebar_reset_hint"},
+            {"apps", "apps.tasks_tracker"},
+            {"apps", "apps.tasks_tracker_show"},
+            {"apps", "apps.tasks_tracker_position"},
+            {"apps", "apps.tasks_tracker_style"},
+            {"apps", "apps.tasks_tracker_opacity"},
+            {"apps", "apps.tasks_auto_unpin"},
+            {"apps", "apps.files"},
+            {"apps", "apps.files_places"},
+            {"apps", "apps.files_sort"},
+            {"notifications", "notifications.panel_hint"},
+            {"notifications", "notifications.quiet"},
+            {"notifications", "notifications.interface"},
+            {"notifications", "notifications.interface_sounds"},
+            {"notifications", "notifications.interface_volume"},
+            {"notifications", "notifications.interface_preview_hint"},
+            {"notifications", "notifications.mail"},
+            {"notifications", "notifications.style"},
+            {"notifications", "notifications.sound"},
+            {"notifications", "notifications.test_hint"},
+            {"notifications", "notifications.tasks"},
+            {"storage", "storage.usage"},
+            {"storage", "storage.used"},
+            {"storage", "storage.items"},
+            {"storage", "storage.breakdown"},
+            {"storage", "storage.manage_hint"},
+            {"help", "help.tours"},
+            {"help", "help.antos_tour"},
+            {"help", "help.antazon_tour"},
+            {"help", "help.shortcuts"},
+            {"help", "help.search"},
+            {"about", "about.system"},
+            {"about", "about.version"},
+            {"about", "about.account"},
+            {"about", "about.theme"},
+            {"about", "about.stats"},
+            {"about", "about.files"},
+            {"about", "about.disks"},
+            {"about", "about.tasks"},
+            {"about", "about.antcoins"},
+            {"accessibility", "accessibility.ui_size"}
+    };
+
+    private void reveal(String label) {
+        if (!revealTarget.isEmpty() && revealTarget.equals(label) && revealY < 0) revealY = cursorY + state.scroll - contentTop;
+    }
+
+    private void renderSearchResults(GuiGraphics g) {
+        String query = settingsSearch.value.toLowerCase(Locale.ROOT).trim();
+        String[] words = query.split("\\s+");
+        int shown = 0;
+        for (String[] item : SEARCH_SETTINGS) {
+            if (item[1].equals("accessibility.brightness") && !AntOSSettings.preferences().displayLook.equals("terminal")) continue;
+            String category = tr("category." + item[0]);
+            String title = tr(item[1]);
+            String text = (category + " " + title).toLowerCase(Locale.ROOT);
+            boolean matches = true;
+            for (String word : words) if (!text.contains(word)) { matches = false; break; }
+            if (!matches) continue;
+            int rowY = cursorY;
+            int width = innerWidth();
+            boolean hover = kit.hovered(paneX, rowY, width, 31);
+            g.fill(paneX, rowY, paneX + width, rowY + 31, hover ? Ui.HOVER : Ui.PANEL);
+            g.drawString(font, Component.literal(screen.trimToWidth(title, width - 12)), paneX + 5, rowY + 4, Ui.TEXT, false);
+            g.drawString(font, Component.literal(category), paneX + 5, rowY + 17, Ui.TEXT_MUTED, false);
+            kit.hit(paneX, rowY, width, 31, () -> {
+                select(item[0]);
+                revealTarget = title;
+            });
+            cursorY += 35;
+            shown++;
+        }
+        if (shown == 0) label(g, tr("search.empty"), Ui.TEXT_MUTED);
     }
 
     private int innerWidth() {
@@ -211,6 +368,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void heading(GuiGraphics g, String key) {
+        reveal(tr(key));
         cursorY += 4;
         g.drawString(font, Component.literal(tr(key)), paneX, cursorY, Ui.TEXT_MUTED, false);
         g.fill(paneX, cursorY + 10, paneX + innerWidth(), cursorY + 11, Ui.SURFACE);
@@ -225,6 +383,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void valueRow(GuiGraphics g, String label, String value) {
+        reveal(label);
         int valueWidth = Math.min(font.width(value), innerWidth() / 2);
         String shown = screen.trimToWidth(value, valueWidth);
         g.drawString(font, Component.literal(screen.trimToWidth(label, innerWidth() - valueWidth - 8)), paneX, cursorY + 4, Ui.TEXT, false);
@@ -233,6 +392,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void toggleRow(GuiGraphics g, String label, boolean value, Consumer<Boolean> change) {
+        reveal(label);
         int width = innerWidth();
         boolean hover = kit.hovered(paneX, cursorY, width, ROW - 2);
         if (hover) g.fill(paneX, cursorY, paneX + width, cursorY + ROW - 2, Ui.HOVER);
@@ -248,6 +408,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void choiceRow(GuiGraphics g, String label, String[] values, String prefix, String selected, Consumer<String> change) {
+        reveal(label);
         int width = innerWidth();
         int[] widths = new int[values.length];
         int total = 0;
@@ -270,6 +431,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void buttonRow(GuiGraphics g, String label, String button, boolean danger, Runnable action) {
+        reveal(label);
         int width = innerWidth();
         int buttonWidth = Math.max(56, kit.labelWidth(button));
         g.drawString(font, Component.literal(screen.trimToWidth(label, width - buttonWidth - 8)), paneX + 3, cursorY + 5, danger ? Ui.ERROR : Ui.TEXT, false);
@@ -278,6 +440,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void field(GuiGraphics g, String label, Field field, String placeholder) {
+        reveal(label);
         g.drawString(font, Component.literal(label), paneX + 3, cursorY, Ui.TEXT_MUTED, false);
         cursorY += 10;
         kit.field(g, paneX, cursorY, innerWidth(), 18, field.shown(), field.cursor, focused == field, placeholder);
@@ -404,6 +567,10 @@ final class SettingsApp extends ComputerApp {
                     value -> AntOSSettings.updatePreferences(p -> p.displayBrightness = value));
             label(g, tr("accessibility.brightness_hint_" + preferences.displayBrightness), Ui.TEXT_MUTED);
         }
+        toggleRow(g, tr("accessibility.fullscreen"), preferences.fullscreenDesktop,
+                value -> AntOSSettings.updatePreferences(p -> p.fullscreenDesktop = value));
+        label(g, tr("accessibility.fullscreen_hint"), Ui.TEXT_MUTED);
+        buttonRow(g, tr("accessibility.layout_hint"), tr("accessibility.layout_reset"), false, screen::resetWindowLayout);
         heading(g, "accessibility.comfort");
         renderScaleSlider(g);
         toggleRow(g, tr("accessibility.reduce_effects"), preferences.reduceEffects,
@@ -425,10 +592,12 @@ final class SettingsApp extends ComputerApp {
                     p.uiScalePercent = 100;
                     p.reduceEffects = false;
                     p.resumeSession = true;
+                    p.fullscreenDesktop = false;
                 }));
     }
 
     private void renderScaleSlider(GuiGraphics g) {
+        reveal(tr("accessibility.ui_size"));
         scaleTrackVisible = true;
         int value = draggingScale ? pendingScale : AntOSSettings.uiScalePercent();
         int width = innerWidth();
@@ -586,6 +755,11 @@ final class SettingsApp extends ComputerApp {
         heading(g, "apps.archive");
         choiceRow(g, tr("apps.archive_text"), new String[]{"small", "normal", "large"}, "choice.sidebar_", preferences.archiveText,
                 value -> AntOSSettings.updatePreferences(p -> p.archiveText = value));
+        buttonRow(g, tr("apps.archive_clear_recent_hint"), tr("apps.archive_clear_recent"), false, () -> {
+            com.craisinlord.antos.config.AntOSSettings.clearRecentArchiveEntries(
+                    com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of());
+            notice(tr("apps.archive_clear_recent"));
+        });
         heading(g, "apps.tasks");
         choiceRow(g, tr("apps.tasks_zoom"), AntOSSettings.Preferences.TASK_MAP_ZOOMS.toArray(String[]::new), "choice.zoom_", preferences.taskMapZoom, value -> {
             AntOSSettings.updatePreferences(p -> p.taskMapZoom = value);
@@ -619,6 +793,18 @@ final class SettingsApp extends ComputerApp {
             });
             screen.tasks.resetSidebar();
         });
+        heading(g, "apps.tasks_tracker");
+        toggleRow(g, tr("apps.tasks_tracker_show"), preferences.taskTracker,
+                value -> AntOSSettings.updatePreferences(p -> p.taskTracker = value));
+        choiceRow(g, tr("apps.tasks_tracker_position"), AntOSSettings.Preferences.TASK_TRACKER_POSITIONS.toArray(String[]::new), "choice.tracker_",
+                preferences.taskTrackerPosition, value -> AntOSSettings.updatePreferences(p -> p.taskTrackerPosition = value));
+        choiceRow(g, tr("apps.tasks_tracker_style"), new String[]{"detailed", "compact"}, "choice.tracker_", preferences.taskTrackerStyle,
+                value -> AntOSSettings.updatePreferences(p -> p.taskTrackerStyle = value));
+        choiceRow(g, tr("apps.tasks_tracker_opacity"), AntOSSettings.Preferences.TASK_TRACKER_OPACITIES.toArray(String[]::new), "choice.opacity_",
+                preferences.taskTrackerOpacity, value -> AntOSSettings.updatePreferences(p -> p.taskTrackerOpacity = value));
+        toggleRow(g, tr("apps.tasks_auto_unpin"), preferences.taskAutoUnpin,
+                value -> AntOSSettings.updatePreferences(p -> p.taskAutoUnpin = value));
+        label(g, tr("apps.tasks_tracker_hint"), Ui.TEXT_MUTED);
         heading(g, "apps.files");
         toggleRow(g, tr("apps.files_places"), preferences.explorerPlaces, value -> {
             AntOSSettings.updatePreferences(p -> p.explorerPlaces = value);
@@ -633,6 +819,10 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void renderNotifications(GuiGraphics g) {
+        buttonRow(g, tr("notifications.panel_hint"), tr("notifications.panel_open"), false, screen::openNotifications);
+        toggleRow(g, tr("notifications.quiet"), AntOSSettings.preferences().quietNotifications,
+                value -> AntOSSettings.updatePreferences(p -> p.quietNotifications = value));
+        label(g, tr("notifications.quiet_hint"), Ui.TEXT_MUTED);
         var preferences = AntOSSettings.preferences();
         heading(g, "notifications.interface");
         toggleRow(g, tr("notifications.interface_sounds"), preferences.interfaceSounds,
@@ -714,6 +904,7 @@ final class SettingsApp extends ComputerApp {
         heading(g, "help.tours");
         buttonRow(g, tr("help.antos_tour"), tr("help.replay"), false, this::replayTour);
         if (AntOSSettings.appEnabled("ANTAZON")) buttonRow(g, tr("help.antazon_tour"), tr("help.replay"), false, this::replayAntazon);
+        if (AntOSSettings.appEnabled("MERCHANT")) buttonRow(g, tr("help.merchant_tour"), tr("help.replay"), false, this::replayMerchant);
         heading(g, "help.shortcuts");
         field(g, tr("help.search"), search, tr("help.search_placeholder"));
         String query = search.value.toLowerCase(Locale.ROOT).trim();
@@ -947,6 +1138,8 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void logout() {
+        screen.session.text.checkpoint();
+        screen.session.paint.checkpoint();
         AntOSUiSounds.play(Cue.CLOSE);
         ComputerNetworking.logout();
         AnternetAccountNetworking.logout();
@@ -972,6 +1165,11 @@ final class SettingsApp extends ComputerApp {
         ComputerNetworking.resetAntazonOnboarding();
         AntazonClientState.clear();
         screen.open("ANTAZON");
+    }
+
+    private void replayMerchant() {
+        screen.session.merchant.replayTour();
+        screen.open("MERCHANT");
     }
 
     private void confirm(String action) {
@@ -1028,7 +1226,7 @@ final class SettingsApp extends ComputerApp {
     boolean type(Window window, char codePoint, int modifiers) {
         if (focused == null) return false;
         focused.type(codePoint);
-        if (focused == search) state.scroll = 0;
+        if (focused == search || focused == settingsSearch) state.scroll = 0;
         return true;
     }
 
@@ -1054,8 +1252,18 @@ final class SettingsApp extends ComputerApp {
             } else if (focused != null) focused.key(keyCode, control);
             return true;
         }
+        if (control && keyCode == GLFW.GLFW_KEY_F) {
+            focused = settingsSearch;
+            return true;
+        }
+        if (focused == null && keyCode == GLFW.GLFW_KEY_ESCAPE && !settingsSearch.value.isEmpty()) {
+            settingsSearch.set("");
+            state.scroll = 0;
+            return true;
+        }
         if (focused == null) return false;
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            if (focused == settingsSearch) { settingsSearch.set(""); state.scroll = 0; }
             focused = null;
             return true;
         }
@@ -1069,7 +1277,7 @@ final class SettingsApp extends ComputerApp {
             return true;
         }
         focused.key(keyCode, control);
-        if (focused == search) state.scroll = 0;
+        if (focused == search || focused == settingsSearch) state.scroll = 0;
         return true;
     }
 

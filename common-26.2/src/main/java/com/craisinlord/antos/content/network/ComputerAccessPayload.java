@@ -65,7 +65,10 @@ public record ComputerAccessPayload(int action, String value) implements CustomP
     public static final int ANTAZON_REVIEWS = 60;
     public static final int ANTAZON_BOOTSTRAP = 61;
     public static final int GAME_REWARD = 62;
+    public static final int DISPLAY_PREVIEW = 63;
     public static final int MERCHANT = 64;
+    public static final int TASK_CLAIM_ALL = 65;
+    public static final int TASK_PIN = 66;
     public static final int MAX_VALUE_CHARS = 65536;
     public static final int BOOTSTRAP_STATE = 1;
     public static final int BOOTSTRAP_WALLET = 2;

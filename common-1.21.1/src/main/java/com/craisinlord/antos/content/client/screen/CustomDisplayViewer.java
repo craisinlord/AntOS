@@ -1676,7 +1676,7 @@ final class CustomDisplayViewer {
             hits.clear(); scenes.clear(); scrolls.clear(); overlay = true;
             g.pose().pushPose();
             g.pose().translate(0, 0, 500);
-            int x = -ComputerScreen.WIDTH / 2 + 12, y = -ComputerScreen.HEIGHT / 2 + 25, w = ComputerScreen.WIDTH - 24, h = ComputerScreen.HEIGHT - 40;
+            int x = -screen.desktopWidth() / 2 + 12, y = -screen.desktopHeight() / 2 + 25, w = screen.desktopWidth() - 24, h = screen.desktopHeight() - 40;
             clipLeft = x; clipRight = x + w; clipTop = y; clipBottom = y + h;
             try {
                 panel(g, x, y, w, h);
@@ -1746,10 +1746,10 @@ final class CustomDisplayViewer {
             g.pose().translate(0, 0, 700);
             try {
                 var wrapped = font().split(Component.literal(tooltip), 180);
-                var lines = wrapped.subList(0, Math.min(wrapped.size(), (ComputerScreen.HEIGHT - 16) / 10));
+                var lines = wrapped.subList(0, Math.min(wrapped.size(), (screen.desktopHeight() - 16) / 10));
                 int w = lines.stream().mapToInt(font()::width).max().orElse(0) + 8, h = lines.size() * 10 + 6;
-                int x = Math.max(-ComputerScreen.WIDTH / 2 + 2, Math.min(ComputerScreen.WIDTH / 2 - w - 2, screen.session.mouseX + 7));
-                int y = Math.max(-ComputerScreen.HEIGHT / 2 + 2, Math.min(ComputerScreen.HEIGHT / 2 - h - 2, screen.session.mouseY + 12));
+                int x = Math.max(-screen.desktopWidth() / 2 + 2, Math.min(screen.desktopWidth() / 2 - w - 2, screen.session.mouseX + 7));
+                int y = Math.max(-screen.desktopHeight() / 2 + 2, Math.min(screen.desktopHeight() / 2 - h - 2, screen.session.mouseY + 12));
                 panel(g, x, y, w, h);
                 for (int i = 0; i < lines.size(); i++) g.drawString(font(), lines.get(i), x + 4, y + 4 + i * 10, Ui.TEXT, false);
             } finally { g.pose().popPose(); }

@@ -12,9 +12,13 @@ public final class AntOSClientHooks {
     public static void clearConnectionState() {
         AnternetAccountClientState.clear();
         AntmailClientState.clear();
+        ComputerNotificationClientState.clearConnection();
         com.craisinlord.antos.config.AntOSSettings.clearNetworkSettings();
         ArchiveRecipeClientState.clear();
+        ArchiveLookup.clear();
         JeiClientState.clear();
+        DisplaySyncClientState.clear();
+        TaskTrackerHud.clear();
     }
 }
 

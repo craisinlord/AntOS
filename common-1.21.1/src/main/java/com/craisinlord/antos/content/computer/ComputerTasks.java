@@ -88,28 +88,63 @@ public final class ComputerTasks {
         return progress.isComplete(taskId);
     }
 
+    public static final int MAX_CLAIM_ALL = 256;
+    public static final int CRATE_ITEM_LIMIT = 108;
+
+    public record ClaimAllResult(List<ResourceLocation> claimed, List<ResourceLocation> failed,
+                                 List<ComputerGuideData.TaskReward> receipt, int crates) { }
+
     public static boolean claimTaskRewards(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId, Map<Integer, String> choices) {
-        if (player == null || computer == null || taskId == null) return false;
-        var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
-        if (account == null) return false;
+        List<ItemStack> stacks = new java.util.ArrayList<>();
+        if (claimTask(player, computer, taskId, choices, stacks) == null) return false;
+        dropRewardCrates(player, stacks);
+        computer.saveWorkspaceProgress();
+        return true;
+    }
+
+    public static ClaimAllResult claimAllTaskRewards(ServerPlayer player, ComputerWorkspace computer,
+                                                     Map<ResourceLocation, Map<Integer, String>> requests) {
+        List<ResourceLocation> claimed = new java.util.ArrayList<>();
+        List<ResourceLocation> failed = new java.util.ArrayList<>();
+        List<ComputerGuideData.TaskReward> receipt = new java.util.ArrayList<>();
+        List<ItemStack> stacks = new java.util.ArrayList<>();
+        if (player == null || computer == null || requests == null) return new ClaimAllResult(List.of(), List.of(), List.of(), 0);
+        int processed = 0;
+        for (Map.Entry<ResourceLocation, Map<Integer, String>> request : requests.entrySet()) {
+            if (processed++ >= MAX_CLAIM_ALL) break;
+            List<ComputerGuideData.TaskReward> taskReceipt = claimTask(player, computer, request.getKey(), request.getValue(), stacks);
+            if (taskReceipt == null) failed.add(request.getKey());
+            else {
+                claimed.add(request.getKey());
+                receipt.addAll(taskReceipt);
+            }
+        }
+        int crates = dropRewardCrates(player, stacks);
+        if (!claimed.isEmpty()) computer.saveWorkspaceProgress();
+        return new ClaimAllResult(List.copyOf(claimed), List.copyOf(failed), List.copyOf(receipt), crates);
+    }
+
+    private static List<ComputerGuideData.TaskReward> claimTask(ServerPlayer player, ComputerWorkspace computer, ResourceLocation taskId,
+                                                               Map<Integer, String> choices, List<ItemStack> stacks) {
+        if (player == null || computer == null || taskId == null) return null;
+        var account = accountForProgress(player);
+        if (account == null) return null;
         ComputerGuideData.Task task = task(taskId);
-        if (task == null || !hasClaimableRewards(task) || !isTaskComplete(player, computer, taskId)) return false;
+        if (task == null || !hasClaimableRewards(task) || !isTaskComplete(player, computer, taskId)) return null;
         Map<Integer, String> selectedChoices = choices == null ? Map.of() : choices;
         for (int index = 0; index < task.rewards().size(); index++) {
             ComputerGuideData.TaskReward reward = task.rewards().get(index);
             if (reward.type().equals("item_pool") && reward.mode().equals("choice")
-                    && !validPoolChoice(reward.poolId(), selectedChoices.get(index), 0)) return false;
+                    && !validPoolChoice(reward.poolId(), selectedChoices.get(index), 0)) return null;
             if (reward.type().equals("choice")) {
                 int optionIndex = selectedChoiceIndex(selectedChoices.get(index));
-                if (optionIndex < 0 || optionIndex >= reward.options().size()) return false;
+                if (optionIndex < 0 || optionIndex >= reward.options().size()) return null;
             }
         }
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
-        if (data.hasClaimedTaskReward(account.accountId(), taskId)) return false;
-        if (!data.markTaskRewardClaimed(account.accountId(), taskId)) return false;
-        deliverRewards(player, computer, task, selectedChoices);
-        computer.saveWorkspaceProgress();
-        return true;
+        if (data.hasClaimedTaskReward(account.accountId(), taskId)) return null;
+        if (!data.markTaskRewardClaimed(account.accountId(), taskId)) return null;
+        return grantRewards(player, task.id(), task.rewards(), selectedChoices, stacks);
     }
 
     public static boolean hasClaimableRewards(ComputerGuideData.Task task) {
@@ -165,6 +200,10 @@ public final class ComputerTasks {
             computer.saveWorkspaceProgress();
         }
         return changed;
+    }
+
+    public static boolean taskExists(ResourceLocation id) {
+        return task(id) != null;
     }
 
     private static ComputerGuideData.Task task(ResourceLocation id) {
@@ -524,16 +563,16 @@ public final class ComputerTasks {
 
     private record EncodedState(List<ComputerGuideData.Task> tasks, java.util.UUID workspaceId, java.util.UUID accountId,
                                 ComputerTaskProgress progress, ComputerWorkspaceData.TeamInfo team,
-                                List<ComputerWorkspaceData.TeamInviteInfo> invites, java.util.BitSet claimed,
+                                List<ComputerWorkspaceData.TeamInviteInfo> invites, java.util.BitSet claimed, List<ResourceLocation> pinned,
                                 Map<Item, Integer> inventory, long tagEpoch, String state, String hash) {
         boolean matches(List<ComputerGuideData.Task> currentTasks, java.util.UUID currentWorkspace, java.util.UUID currentAccount,
                         ComputerTaskProgress currentProgress, ComputerWorkspaceData.TeamInfo currentTeam,
                         List<ComputerWorkspaceData.TeamInviteInfo> currentInvites, java.util.BitSet currentClaimed,
-                        Map<Item, Integer> currentInventory, long currentTagEpoch) {
+                        List<ResourceLocation> currentPinned, Map<Item, Integer> currentInventory, long currentTagEpoch) {
             return tasks == currentTasks && tagEpoch == currentTagEpoch && java.util.Objects.equals(workspaceId, currentWorkspace)
                     && java.util.Objects.equals(accountId, currentAccount) && java.util.Objects.equals(team, currentTeam)
-                    && invites.equals(currentInvites) && claimed.equals(currentClaimed) && inventory.equals(currentInventory)
-                    && progress.sameContent(currentProgress);
+                    && invites.equals(currentInvites) && claimed.equals(currentClaimed) && pinned.equals(currentPinned)
+                    && inventory.equals(currentInventory) && progress.sameContent(currentProgress);
         }
     }
 
@@ -549,6 +588,7 @@ public final class ComputerTasks {
             ComputerGuideData.Task task = tasks.get(index);
             if (hasClaimableRewards(task) && accountData.hasClaimedTaskReward(account.accountId(), task.id())) claimedTasks.set(index);
         }
+        List<ResourceLocation> pinnedTasks = account == null ? List.of() : accountData.pinnedTasks(account.accountId());
         ItemCounts counts = new ItemCounts(player);
         Map<Item, Integer> inventory = counts.snapshot();
         validateTagCache(player);
@@ -556,18 +596,19 @@ public final class ComputerTasks {
         java.util.UUID workspaceId = computer.workspaceId();
         EncodedState cached;
         synchronized (ENCODED_STATES) { cached = ENCODED_STATES.get(player); }
-        if (cached != null && cached.matches(tasks, workspaceId, accountId, progress, team, invitations, claimedTasks, inventory, tagEpoch)
+        if (cached != null && cached.matches(tasks, workspaceId, accountId, progress, team, invitations, claimedTasks, pinnedTasks, inventory, tagEpoch)
                 && tagEpoch == TAG_EPOCH.get()) return cached;
-        String state = encodeState(player, progress, tasks, account, team, invitations, claimedTasks, counts);
+        String state = encodeState(player, progress, tasks, account, team, invitations, claimedTasks, pinnedTasks, counts);
         EncodedState result = new EncodedState(tasks, workspaceId, accountId, progress.copy(), team, List.copyOf(invitations), claimedTasks,
-                inventory, TAG_EPOCH.get() == tagEpoch ? tagEpoch : -1L, state, hash(state));
+                pinnedTasks, inventory, TAG_EPOCH.get() == tagEpoch ? tagEpoch : -1L, state, hash(state));
         synchronized (ENCODED_STATES) { ENCODED_STATES.put(player, result); }
         return result;
     }
 
     private static String encodeState(ServerPlayer player, ComputerTaskProgress progress, List<ComputerGuideData.Task> tasks,
                                       ComputerWorkspaceData.AccountInfo account, ComputerWorkspaceData.TeamInfo team,
-                                      List<ComputerWorkspaceData.TeamInviteInfo> invitations, java.util.BitSet claimedTasks, ItemCounts counts) {
+                                      List<ComputerWorkspaceData.TeamInviteInfo> invitations, java.util.BitSet claimedTasks,
+                                      List<ResourceLocation> pinnedTasks, ItemCounts counts) {
         JsonObject root = new JsonObject(); JsonArray rows = new JsonArray();
         if (team == null) root.add("team", com.google.gson.JsonNull.INSTANCE);
         else {
@@ -587,6 +628,9 @@ public final class ComputerTasks {
             invites.add(inviteRow);
         }
         root.add("team_invites", invites);
+        JsonArray pinned = new JsonArray();
+        for (ResourceLocation pinnedTask : pinnedTasks) pinned.add(pinnedTask.toString());
+        root.add("pinned", pinned);
         for (int taskIndex = 0; taskIndex < tasks.size(); taskIndex++) {
             ComputerGuideData.Task task = tasks.get(taskIndex);
             JsonObject row = new JsonObject(); row.addProperty("id", task.id().toString());
@@ -775,10 +819,15 @@ public final class ComputerTasks {
         }
     }
 
-    private static void deliverRewards(ServerPlayer player, ComputerWorkspace computer, ComputerGuideData.Task task, Map<Integer, String> choices) {
-        deliverRewards(player, task.id(), task.rewards(), choices);
-    }
     public static List<ComputerGuideData.TaskReward> deliverRewards(ServerPlayer player, ResourceLocation sourceId, List<ComputerGuideData.TaskReward> rewards, Map<Integer, String> choices) {
+        List<ItemStack> stacks = new java.util.ArrayList<>();
+        List<ComputerGuideData.TaskReward> receipt = grantRewards(player, sourceId, rewards, choices, stacks);
+        dropRewardCrates(player, stacks);
+        return receipt;
+    }
+
+    private static List<ComputerGuideData.TaskReward> grantRewards(ServerPlayer player, ResourceLocation sourceId, List<ComputerGuideData.TaskReward> rewards,
+                                                                   Map<Integer, String> choices, List<ItemStack> output) {
         if (rewards.isEmpty()) return List.of();
         List<ComputerGuideData.TaskReward> receipt = new java.util.ArrayList<>();
         List<ItemStack> stacks = new java.util.ArrayList<>();
@@ -791,7 +840,7 @@ public final class ComputerTasks {
                 case "experience" -> { player.giveExperiencePoints(reward.experiencePoints()); receipt.add(reward); }
                 case "experience_levels" -> { player.giveExperienceLevels(reward.count()); receipt.add(reward); }
                 case "antcoins" -> {
-                    var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+                    var account = accountForProgress(player);
                     if (account != null) {
                         com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server).credit(account.accountId(), reward.antcoins());
                         receipt.add(reward);
@@ -839,9 +888,38 @@ public final class ComputerTasks {
             Map<ResourceLocation, Integer> items = new java.util.LinkedHashMap<>();
             for (ItemStack stack : stacks) items.merge(BuiltInRegistries.ITEM.getKey(stack.getItem()), stack.getCount(), Integer::sum);
             items.forEach((item, count) -> receipt.add(new ComputerGuideData.TaskReward("item", item, count, 0, null, "", "", "", 0, 0, null, "", 0L)));
-            dropRewardCrate(player, stacks);
+            output.addAll(stacks);
         }
         return List.copyOf(receipt);
+    }
+
+    public static int dropRewardCrates(ServerPlayer player, List<ItemStack> stacks) {
+        List<List<ItemStack>> crates = packRewardCrates(stacks);
+        for (List<ItemStack> crate : crates) dropRewardCrate(player, crate);
+        return crates.size();
+    }
+
+    public static List<List<ItemStack>> packRewardCrates(List<ItemStack> stacks) {
+        List<List<ItemStack>> crates = new java.util.ArrayList<>();
+        if (stacks == null || stacks.isEmpty()) return crates;
+        List<ItemStack> current = new java.util.ArrayList<>();
+        int count = 0;
+        for (ItemStack stack : stacks) {
+            if (stack.isEmpty()) continue;
+            ItemStack remaining = stack.copy();
+            while (!remaining.isEmpty()) {
+                if (count >= CRATE_ITEM_LIMIT) {
+                    crates.add(current);
+                    current = new java.util.ArrayList<>();
+                    count = 0;
+                }
+                int amount = Math.min(remaining.getCount(), CRATE_ITEM_LIMIT - count);
+                current.add(remaining.split(amount));
+                count += amount;
+            }
+        }
+        if (!current.isEmpty()) crates.add(current);
+        return crates;
     }
 
     private static int selectedChoiceIndex(String selection) {
@@ -855,7 +933,7 @@ public final class ComputerTasks {
             switch (reward.type()) {
                 case "item" -> addRewardItem(reward.itemId(), reward.count(), stacks, 108);
                 case "antcoins" -> {
-                    var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+                    var account = accountForProgress(player);
                     if (account != null) com.craisinlord.antos.content.antazon.AntazonServerData.access(player.server)
                             .credit(account.accountId(), reward.antcoins());
                 }
@@ -944,8 +1022,8 @@ public final class ComputerTasks {
         BlockPos landing = rewardLandingSpots(player, 1).stream().findFirst()
                 .orElse(player.blockPosition().relative(player.getDirection(), 1));
         RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
-        drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
         drop.setRewards(stacks, player);
+        drop.prepareDelivery(landing);
         RewardDropEntity.announceIncoming(player);
         level.addFreshEntity(drop);
     }

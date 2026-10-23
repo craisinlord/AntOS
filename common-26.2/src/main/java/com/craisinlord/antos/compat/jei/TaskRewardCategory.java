@@ -65,10 +65,16 @@ final class TaskRewardCategory implements IRecipeCategory<JeiRecipes.TaskRecipe>
     }
 
     @Override
+    public void createRecipeExtras(mezz.jei.api.gui.widgets.IRecipeExtrasBuilder builder, JeiRecipes.TaskRecipe recipe, IFocusGroup focuses) {
+        builder.addGuiEventListener(new JeiOpenButton(getWidth(), new com.craisinlord.antos.content.client.ArchiveLookup.Target("task", recipe.task().id())));
+    }
+
+    @Override
     public void draw(JeiRecipes.TaskRecipe recipe, IRecipeSlotsView slots, GuiGraphicsExtractor g, double mouseX, double mouseY) {
         JeiClientState.Task task = recipe.task();
         JeiDrawing.panel(g, getWidth(), HEIGHT);
-        JeiDrawing.text(g, Component.translatable(task.title()), 5, 5, getWidth() - 10, Ui.TEXT_STRONG);
+        JeiDrawing.text(g, Component.translatable(task.title()), 5, 5, JeiOpenButton.titleWidth(getWidth()), Ui.TEXT_STRONG);
+        JeiOpenButton.draw(g, getWidth(), mouseX, mouseY);
         if (!task.category().isBlank()) JeiDrawing.text(g, Component.translatable(task.category()), 5, 15, getWidth() - 10, Ui.TEXT_MUTED);
         int count = slots.getSlotViews(RecipeIngredientRole.OUTPUT).size();
         for (int index = 0; index < count; index++) JeiDrawing.slot(g, 5 + index % COLUMNS * 19, GRID_TOP + index / COLUMNS * 19);
@@ -93,6 +99,7 @@ final class TaskRewardCategory implements IRecipeCategory<JeiRecipes.TaskRecipe>
 
     @Override
     public void getTooltip(ITooltipBuilder tooltip, JeiRecipes.TaskRecipe recipe, IRecipeSlotsView slots, double mouseX, double mouseY) {
+        if (JeiOpenButton.tooltip(tooltip, getWidth(), mouseX, mouseY)) return;
         if (recipe.task().antcoins() > 0L && JeiDrawing.inside(mouseX, mouseY, 4, EXTRAS_TOP - 1, 60, 10)) {
             tooltip.add(JeiDrawing.currency(recipe.task().antcoins()));
             return;

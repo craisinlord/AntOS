@@ -14,6 +14,11 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 
 public final class MerchantStore {
+    public static final int MAX_ACTIVE_LISTINGS = 50;
+    public static final int MAX_REQUESTS = 2000;
+    public static final long SOLD_OUT_RETENTION = 7L * 24 * 60 * 60 * 1000;
+    public static final long SHIPMENT_RETENTION = 30L * 24 * 60 * 60 * 1000;
+    public static final long TRADE_RETENTION = 90L * 24 * 60 * 60 * 1000;
     private final Path path;
     private JsonObject state;
 
@@ -42,6 +47,7 @@ public final class MerchantStore {
     public synchronized boolean hasPending() { return state.has("pending"); }
 
     public synchronized void commit(JsonObject next) throws IOException {
+        prune(next, System.currentTimeMillis());
         Files.createDirectories(path.getParent());
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         byte[] bytes = next.toString().getBytes(StandardCharsets.UTF_8);
@@ -56,6 +62,39 @@ public final class MerchantStore {
             throw new IOException("MERCHANT requires atomic file replacement", exception);
         }
         state = next.deepCopy();
+    }
+
+    public static void prune(JsonObject root, long now) {
+        root.getAsJsonArray("listings").asList().removeIf(element -> {
+            JsonObject row = element.getAsJsonObject();
+            return row.has("lots") && row.get("lots").getAsInt() < 1 && created(row) < now - SOLD_OUT_RETENTION;
+        });
+        root.getAsJsonArray("shipments").asList().removeIf(element -> {
+            JsonObject row = element.getAsJsonObject();
+            return row.has("status") && !row.get("status").getAsString().equals("pending") && created(row) < now - SHIPMENT_RETENTION;
+        });
+        root.getAsJsonArray("trades").asList().removeIf(element -> created(element.getAsJsonObject()) < now - TRADE_RETENTION);
+        JsonArray requests = root.getAsJsonArray("requests");
+        while (requests.size() > MAX_REQUESTS) requests.remove(0);
+    }
+
+    private static long created(JsonObject row) {
+        return row.has("created") ? row.get("created").getAsLong() : Long.MAX_VALUE;
+    }
+
+    public synchronized boolean hasDeferred(String player) {
+        if (!state.has("deferred")) return false;
+        for (var element : state.getAsJsonArray("deferred")) if (element.getAsJsonObject().get("player").getAsString().equals(player)) return true;
+        return false;
+    }
+
+    public static int activeListings(JsonObject root, String owner) {
+        int count = 0;
+        for (var element : root.getAsJsonArray("listings")) {
+            JsonObject row = element.getAsJsonObject();
+            if (row.get("owner").getAsString().equals(owner) && row.get("lots").getAsInt() > 0) count++;
+        }
+        return count;
     }
 
     public static long total(int perLot, int lots) {

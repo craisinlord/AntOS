@@ -185,7 +185,7 @@ final class AppKit {
         } finally {
             g.pose().popPose();
         }
-        if (hover && !tip.isEmpty()) tooltip = tip;
+        if (hovered(x, y, w, h) && !tip.isEmpty()) tooltip = tip;
         if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 

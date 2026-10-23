@@ -49,7 +49,7 @@ public final class ComputerNetworking {
 
     private static boolean profileActionAllowed(int action) {
         return switch (action) {
-            case ComputerAccessPayload.MERCHANT, ComputerAccessPayload.DECRYPT_DISK, ComputerAccessPayload.PROGRAM_START, ComputerAccessPayload.PROGRAM_ACTION, ComputerAccessPayload.PROGRAM_STATE,
+            case ComputerAccessPayload.MERCHANT, ComputerAccessPayload.DISPLAY_PREVIEW, ComputerAccessPayload.DECRYPT_DISK, ComputerAccessPayload.PROGRAM_START, ComputerAccessPayload.PROGRAM_ACTION, ComputerAccessPayload.PROGRAM_STATE,
                     ComputerAccessPayload.OPEN, ComputerAccessPayload.CLOSE, ComputerAccessPayload.LOGOUT, ComputerAccessPayload.EJECT,
                     ComputerAccessPayload.FILE_LIST, ComputerAccessPayload.FILE_OPEN, ComputerAccessPayload.FILE_CREATE,
                     ComputerAccessPayload.FILE_SAVE, ComputerAccessPayload.FILE_DELETE, ComputerAccessPayload.FILE_MOVE,
@@ -71,10 +71,12 @@ public final class ComputerNetworking {
                     ComputerAccessPayload.TASK_CLAIM_REWARD, ComputerAccessPayload.TEAM_CREATE,
                     ComputerAccessPayload.TEAM_INVITE, ComputerAccessPayload.TEAM_ACCEPT_INVITE,
                     ComputerAccessPayload.TEAM_DECLINE_INVITE, ComputerAccessPayload.TEAM_LEAVE,
-                    ComputerAccessPayload.TEAM_DISBAND -> true;
+                    ComputerAccessPayload.TEAM_DISBAND, ComputerAccessPayload.TASK_CLAIM_ALL, ComputerAccessPayload.TASK_PIN -> true;
             default -> false;
         };
     }
+
+    public static void previewDisplay(String id) { send(ComputerAccessPayload.DISPLAY_PREVIEW, id); }
 
     public static void open() {
         send(ComputerAccessPayload.OPEN, "");
@@ -173,6 +175,28 @@ public final class ComputerNetworking {
         choices.forEach((index, path) -> selected.addProperty(Integer.toString(index), path));
         request.add("choices", selected);
         send(ComputerAccessPayload.TASK_CLAIM_REWARD, request.toString());
+    }
+
+    public static void claimAllTaskRewards(java.util.Map<Identifier, java.util.Map<Integer, String>> requests) {
+        com.google.gson.JsonObject request = new com.google.gson.JsonObject();
+        com.google.gson.JsonArray tasks = new com.google.gson.JsonArray();
+        requests.forEach((taskId, choices) -> {
+            com.google.gson.JsonObject row = new com.google.gson.JsonObject();
+            row.addProperty("task", taskId.toString());
+            com.google.gson.JsonObject selected = new com.google.gson.JsonObject();
+            choices.forEach((index, path) -> selected.addProperty(Integer.toString(index), path));
+            row.add("choices", selected);
+            tasks.add(row);
+        });
+        request.add("tasks", tasks);
+        send(ComputerAccessPayload.TASK_CLAIM_ALL, request.toString());
+    }
+
+    public static void setTaskPinned(Identifier taskId, boolean pinned) {
+        com.google.gson.JsonObject request = new com.google.gson.JsonObject();
+        request.addProperty("task", taskId.toString());
+        request.addProperty("pinned", pinned);
+        send(ComputerAccessPayload.TASK_PIN, request.toString());
     }
 
     public static void createTeam() { send(ComputerAccessPayload.TEAM_CREATE, ""); }

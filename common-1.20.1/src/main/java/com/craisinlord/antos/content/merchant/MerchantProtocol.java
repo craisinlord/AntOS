@@ -19,6 +19,7 @@ public final class MerchantProtocol {
             if (request.has("sort") && !List.of("newest", "name", "price").contains(string(request, "sort", 16))) invalid();
             for (String key : List.of("search", "currency", "selected")) if (request.has(key)) string(request, key, 256);
             if (request.has("page") && integer(request, "page") < 0) invalid();
+            if (request.has("size") && (integer(request, "size") < 1 || integer(request, "size") > 24)) invalid();
             for (String key : List.of("affordable", "showDispatched")) {
                 if (request.has(key) && (!request.get(key).isJsonPrimitive() || !request.getAsJsonPrimitive(key).isBoolean())) invalid();
             }

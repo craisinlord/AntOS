@@ -251,6 +251,60 @@ public final class AntOSSettings {
         saveState();
     }
 
+    public static synchronized String editorDraft(String workspace, String app) {
+        return state.editorDrafts.get(workspace + "|" + app);
+    }
+
+    public static synchronized void setEditorDraft(String workspace, String app, String draft) {
+        if (workspace == null || workspace.equals("workspace:unbound")) return;
+        String key = workspace + "|" + app;
+        if (draft == null) state.editorDrafts.remove(key);
+        else state.editorDrafts.put(key, draft);
+        saveState();
+    }
+
+    public static synchronized String notificationHistory(String workspace) {
+        return state.notificationHistories.get(workspace);
+    }
+
+    public static synchronized void setNotificationHistory(String workspace, String history) {
+        if (workspace == null || workspace.isBlank() || workspace.equals("workspace:unbound")) return;
+        state.notificationHistories.put(workspace, history);
+        saveState();
+    }
+
+    public static synchronized Set<String> archiveBookmarks(String workspace) {
+        Set<String> bookmarks = state.archiveBookmarks.get(workspace);
+        return bookmarks == null ? Set.of() : bookmarks.stream().filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    public static synchronized void toggleArchiveBookmark(String workspace, String id) {
+        if (workspace == null || workspace.equals("workspace:unbound") || id == null) return;
+        Set<String> bookmarks = state.archiveBookmarks.computeIfAbsent(workspace, ignored -> new HashSet<>());
+        if (!bookmarks.remove(id)) bookmarks.add(id);
+        saveState();
+    }
+
+    public static synchronized List<String> recentArchiveEntries(String workspace) {
+        List<String> recent = state.recentArchiveEntries.get(workspace);
+        return recent == null ? List.of() : recent.stream().filter(java.util.Objects::nonNull).distinct().limit(20).toList();
+    }
+
+    public static synchronized void recordArchiveEntry(String workspace, String id) {
+        if (workspace == null || workspace.equals("workspace:unbound") || id == null) return;
+        List<String> recent = new java.util.ArrayList<>(recentArchiveEntries(workspace));
+        recent.remove(id);
+        recent.addFirst(id);
+        while (recent.size() > 20) recent.removeLast();
+        state.recentArchiveEntries.put(workspace, recent);
+        saveState();
+    }
+
+    public static synchronized void clearRecentArchiveEntries(String workspace) {
+        state.recentArchiveEntries.remove(workspace);
+        saveState();
+    }
+
     public static synchronized Boolean taskGroupCollapsed(String groupId) {
         return state.taskGroupCollapsed.get(groupId);
     }
@@ -273,12 +327,28 @@ public final class AntOSSettings {
         return state.preferences.reduceEffects;
     }
 
+    public static final int MIN_UI_SCALE = 50;
+    public static final int MAX_UI_SCALE = 150;
+    public static final int UI_SCALE_STEP = 5;
+
+    public static int normalizeUiScale(int percentage) {
+        int clamped = Math.max(MIN_UI_SCALE, Math.min(MAX_UI_SCALE, percentage));
+        return Math.round(clamped / (float) UI_SCALE_STEP) * UI_SCALE_STEP;
+    }
+
+    private static int legacyUiScale(String size) {
+        if ("large".equals(size)) return 115;
+        if ("largest".equals(size)) return 130;
+        return 100;
+    }
+
+    public static synchronized int uiScalePercent() {
+        Integer percentage = state.preferences.uiScalePercent;
+        return percentage == null ? legacyUiScale(state.preferences.uiSize) : normalizeUiScale(percentage);
+    }
+
     public static synchronized float antosUiScale() {
-        return switch (state.preferences.uiSize) {
-            case "large" -> 1.15F;
-            case "largest" -> 1.30F;
-            default -> 1.0F;
-        };
+        return uiScalePercent() / 100.0F;
     }
 
     public static synchronized void updatePreferences(java.util.function.Consumer<Preferences> change) {
@@ -310,6 +380,10 @@ public final class AntOSSettings {
 
     public static boolean unlockAllGameEntries() {
         return pack.unlockAllGameEntries;
+    }
+
+    public static boolean archiveLookupRequiresPhone() {
+        return shared().archiveLookupRequiresPhone;
     }
 
     public static boolean showIntroductionEntry() {
@@ -398,6 +472,7 @@ public final class AntOSSettings {
         private boolean unlockAllArchiveEntries;
         private boolean unlockAllGameEntries;
         private boolean showIntroductionEntry = true;
+        private boolean archiveLookupRequiresPhone = true;
         private boolean sendAntazonUnlockEmail = true;
         private int passwordHintAfterFailures = 3;
         private long blockleDailyAntcoinReward = 10L;
@@ -461,6 +536,7 @@ public final class AntOSSettings {
 
     private static final class SharedSettings {
         private long blockleDailyAntcoinReward = 10L;
+        private boolean archiveLookupRequiresPhone = true;
         private BuiltInGames builtInGames = new BuiltInGames();
         private GameRewards gameRewards = new GameRewards();
         private DesktopApps desktopApps = new DesktopApps();
@@ -468,6 +544,7 @@ public final class AntOSSettings {
         private static SharedSettings of(PackConfig config) {
             SharedSettings settings = new SharedSettings();
             settings.blockleDailyAntcoinReward = config.blockleDailyAntcoinReward;
+            settings.archiveLookupRequiresPhone = config.archiveLookupRequiresPhone;
             settings.builtInGames = config.builtInGames;
             settings.gameRewards = config.gameRewards;
             settings.desktopApps = config.desktopApps;
@@ -491,6 +568,10 @@ public final class AntOSSettings {
         private Set<String> completedMerchantTours = new HashSet<>();
         private Map<String, Boolean> taskGroupCollapsed = new HashMap<>();
         private Map<String, String> resumeSnapshots = new HashMap<>();
+        private Map<String, String> notificationHistories = new HashMap<>();
+        private Map<String, String> editorDrafts = new HashMap<>();
+        private Map<String, Set<String>> archiveBookmarks = new HashMap<>();
+        private Map<String, List<String>> recentArchiveEntries = new HashMap<>();
         private Map<String, List<String>> terminalHistory = new HashMap<>();
 
         private ClientState withDefaults() {
@@ -502,6 +583,10 @@ public final class AntOSSettings {
             if (completedMerchantTours == null) completedMerchantTours = new HashSet<>();
             if (taskGroupCollapsed == null) taskGroupCollapsed = new HashMap<>();
             if (resumeSnapshots == null) resumeSnapshots = new HashMap<>();
+            if (notificationHistories == null) notificationHistories = new HashMap<>();
+            if (editorDrafts == null) editorDrafts = new HashMap<>();
+            if (archiveBookmarks == null) archiveBookmarks = new HashMap<>();
+            if (recentArchiveEntries == null) recentArchiveEntries = new HashMap<>();
             if (terminalHistory == null) terminalHistory = new HashMap<>();
             return this;
         }
@@ -509,6 +594,8 @@ public final class AntOSSettings {
 
     public static final class Preferences {
         public static final List<String> TASK_MAP_ZOOMS = List.of("55", "65", "75", "85", "100");
+        public static final List<String> TASK_TRACKER_POSITIONS = List.of("right", "left", "top_right", "top_left");
+        public static final List<String> TASK_TRACKER_OPACITIES = List.of("0", "25", "50", "75");
 
         public String theme = "green";
         public String displayBrightness = "standard";
@@ -519,9 +606,15 @@ public final class AntOSSettings {
         public String wallpaperColors = "match";
         public String customColors = "";
         public boolean lookChosen;
+        public boolean pauseWhileOpen;
+        public boolean fullscreenDesktop;
+        public boolean quietNotifications;
+        public boolean interfaceSounds = true;
+        public int interfaceVolume = 60;
         private String screenPalette;
         private Boolean softText;
         public String uiSize = "standard";
+        public Integer uiScalePercent;
         public String mailAlerts = "toast";
         public boolean mailSound = true;
         public String taskAlerts = "actionbar";
@@ -531,7 +624,13 @@ public final class AntOSSettings {
         public String taskSidebarWidth = "narrow";
         public String taskSidebarText = "small";
         public String taskSidebarSpacing = "compact";
+        public String archiveText = "small";
         public boolean taskSidebarCounts = true;
+        public boolean taskTracker = true;
+        public String taskTrackerPosition = "right";
+        public String taskTrackerStyle = "detailed";
+        public String taskTrackerOpacity = "50";
+        public boolean taskAutoUnpin = true;
         public String editorLineNumbers = "auto";
         public boolean paintGrid = true;
         public int paintBrush = 1;
@@ -550,7 +649,13 @@ public final class AntOSSettings {
             copy.wallpaperColors = wallpaperColors;
             copy.customColors = customColors;
             copy.lookChosen = lookChosen;
+            copy.pauseWhileOpen = pauseWhileOpen;
+            copy.fullscreenDesktop = fullscreenDesktop;
+            copy.quietNotifications = quietNotifications;
+            copy.interfaceSounds = interfaceSounds;
+            copy.interfaceVolume = interfaceVolume;
             copy.uiSize = uiSize;
+            copy.uiScalePercent = uiScalePercent;
             copy.mailAlerts = mailAlerts;
             copy.mailSound = mailSound;
             copy.taskAlerts = taskAlerts;
@@ -560,7 +665,13 @@ public final class AntOSSettings {
             copy.taskSidebarWidth = taskSidebarWidth;
             copy.taskSidebarText = taskSidebarText;
             copy.taskSidebarSpacing = taskSidebarSpacing;
+            copy.archiveText = archiveText;
             copy.taskSidebarCounts = taskSidebarCounts;
+            copy.taskTracker = taskTracker;
+            copy.taskTrackerPosition = taskTrackerPosition;
+            copy.taskTrackerStyle = taskTrackerStyle;
+            copy.taskTrackerOpacity = taskTrackerOpacity;
+            copy.taskAutoUnpin = taskAutoUnpin;
             copy.editorLineNumbers = editorLineNumbers;
             copy.paintGrid = paintGrid;
             copy.paintBrush = paintBrush;
@@ -583,6 +694,7 @@ public final class AntOSSettings {
             if (wallpaperColors == null || !List.of("match", "original").contains(wallpaperColors)) wallpaperColors = "match";
             if (customColors == null) customColors = "";
             if (uiSize == null || !List.of("standard", "large", "largest").contains(uiSize)) uiSize = "standard";
+            uiScalePercent = uiScalePercent == null ? legacyUiScale(uiSize) : normalizeUiScale(uiScalePercent);
             if (mailAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(mailAlerts)) mailAlerts = "toast";
             if (taskAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(taskAlerts)) taskAlerts = "actionbar";
             if (taskMapZoom == null || !TASK_MAP_ZOOMS.contains(taskMapZoom)) taskMapZoom = "75";
@@ -590,9 +702,22 @@ public final class AntOSSettings {
             if (taskSidebarWidth == null || !List.of("narrow", "standard", "wide").contains(taskSidebarWidth)) taskSidebarWidth = "narrow";
             if (taskSidebarText == null || !List.of("small", "normal", "large").contains(taskSidebarText)) taskSidebarText = "small";
             if (taskSidebarSpacing == null || !List.of("compact", "comfortable").contains(taskSidebarSpacing)) taskSidebarSpacing = "compact";
+            if (taskTrackerPosition == null || !TASK_TRACKER_POSITIONS.contains(taskTrackerPosition)) taskTrackerPosition = "right";
+            if (taskTrackerStyle == null || !List.of("detailed", "compact").contains(taskTrackerStyle)) taskTrackerStyle = "detailed";
+            if (taskTrackerOpacity == null || !TASK_TRACKER_OPACITIES.contains(taskTrackerOpacity)) taskTrackerOpacity = "50";
+            if (archiveText == null || !List.of("small", "normal", "large").contains(archiveText)) archiveText = "small";
             if (editorLineNumbers == null || !List.of("auto", "on", "off").contains(editorLineNumbers)) editorLineNumbers = "auto";
             paintBrush = Math.max(1, Math.min(3, paintBrush));
+            interfaceVolume = Math.max(0, Math.min(100, interfaceVolume));
         }
+    }
+
+    private static final class BuiltInGames {
+        private boolean chess = true;
+        private boolean minesweeper = true;
+        private boolean cakeStack = true;
+        private boolean fliptris = true;
+        private boolean netherBreakout = true;
     }
 
     private static final class GameRewards {
@@ -617,13 +742,5 @@ public final class AntOSSettings {
         private boolean games = true;
         private boolean disks = true;
         private boolean tasks;
-    }
-
-    private static final class BuiltInGames {
-        private boolean chess = true;
-        private boolean minesweeper = true;
-        private boolean cakeStack = true;
-        private boolean fliptris = true;
-        private boolean netherBreakout = true;
     }
 }

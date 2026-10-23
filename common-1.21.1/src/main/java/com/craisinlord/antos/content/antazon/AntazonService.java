@@ -170,8 +170,8 @@ public final class AntazonService {
             List<ItemStack> contents = new ArrayList<>(merged.subList(start, Math.min(merged.size(), start + perDrop)));
             contents.add(new ItemStack(Items.CHEST, 1));
             RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
-            drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
             drop.setRewards(contents, player);
+            drop.prepareDelivery(landing);
             level.addFreshEntity(drop);
         }
         RewardDropEntity.announceIncoming(player);
@@ -198,8 +198,8 @@ public final class AntazonService {
                 List<ItemStack> chunk = new ArrayList<>(contents.subList(start, Math.min(contents.size(), start + RewardDropEntity.MAX_REWARD_STACKS)));
                 RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
                 BlockPos landing = delivery.position();
-                drop.setPos(landing.getX() + 0.5D, RewardDropEntity.spawnHeight(level, landing), landing.getZ() + 0.5D);
                 drop.setRewards(chunk, player);
+                drop.prepareDelivery(landing);
                 level.addFreshEntity(drop);
             }
             RewardDropEntity.announceIncoming(player);

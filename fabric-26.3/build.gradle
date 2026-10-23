@@ -92,6 +92,25 @@ tasks.register('runCommonTests') {
     dependsOn commonTests.keySet()
 }
 
+def taskPinsTestClasses = layout.buildDirectory.dir('classes/java/taskPinsTest')
+
+tasks.register('compileTaskPinsTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files('../common-26.3/src/test/java/com/craisinlord/antos/content/computer/TaskPinsAndClaimsTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = taskPinsTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+tasks.register('taskPinsAndClaimsTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies pinned task storage and Claim All reward crate packing.'
+    dependsOn tasks.named('compileTaskPinsTests')
+    classpath = files(taskPinsTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.computer.TaskPinsAndClaimsTest'
+}
+
 def merchantTestClasses = layout.buildDirectory.dir('classes/java/merchantTest')
 
 tasks.register('compileMerchantTests', JavaCompile) {
@@ -108,4 +127,86 @@ tasks.register('merchantTest', JavaExec) {
     dependsOn tasks.named('compileMerchantTests')
     classpath = files(merchantTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
     mainClass = 'com.craisinlord.antos.content.merchant.MerchantStoreTest'
+}
+
+def notificationHistoryTestClasses = layout.buildDirectory.dir('classes/java/notificationHistoryTest')
+
+tasks.register('compileNotificationHistoryTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files('../common-26.3/src/test/java/com/craisinlord/antos/config/NotificationHistoryTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = notificationHistoryTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+tasks.register('notificationHistoryTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies notification history storage, icons, and recovery.'
+    dependsOn tasks.named('compileNotificationHistoryTests')
+    classpath = files(notificationHistoryTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.config.NotificationHistoryTest'
+}
+
+def parityTestClasses = layout.buildDirectory.dir('classes/java/parityTest')
+def parityTestSources = '../common-26.3/src/test/java/com/craisinlord/antos'
+
+tasks.register('compileParityTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files(
+            "${parityTestSources}/config/ConfigMigrationTest.java",
+            "${parityTestSources}/config/DesktopPreferencesTest.java",
+            "${parityTestSources}/config/UiScaleTest.java",
+            "${parityTestSources}/content/client/AntazonTransactionFeedbackTest.java",
+            "${parityTestSources}/content/client/palette/PaletteTest.java",
+            "${parityTestSources}/content/client/screen/AntmailDraftTest.java",
+            "${parityTestSources}/content/client/screen/ArchiveFolderTest.java",
+            "${parityTestSources}/content/client/screen/DesktopQolAuditTest.java",
+            "${parityTestSources}/content/client/screen/DesktopViewportTest.java",
+            "${parityTestSources}/content/client/screen/EditableTextWrapTest.java",
+            "${parityTestSources}/content/client/screen/WindowBoundsTest.java",
+            "${parityTestSources}/content/computer/AccountRecoveryTest.java",
+            "${parityTestSources}/content/guide/CustomDisplaysTest.java",
+            "${parityTestSources}/content/guide/DisplayFeaturesTest.java",
+            "${parityTestSources}/content/guide/DisplayRecipesTest.java")
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = parityTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+def parityTests = [
+        configMigrationTest              : ['com.craisinlord.antos.config.ConfigMigrationTest', false],
+        desktopPreferencesTest           : ['com.craisinlord.antos.config.DesktopPreferencesTest', false],
+        uiScaleTest                      : ['com.craisinlord.antos.config.UiScaleTest', false],
+        antazonTransactionFeedbackTest   : ['com.craisinlord.antos.content.client.AntazonTransactionFeedbackTest', false],
+        paletteTest                      : ['com.craisinlord.antos.content.client.palette.PaletteTest', false],
+        antmailDraftTest                 : ['com.craisinlord.antos.content.client.screen.AntmailDraftTest', false],
+        archiveFolderTest                : ['com.craisinlord.antos.content.client.screen.ArchiveFolderTest', false],
+        desktopQolAuditTest              : ['com.craisinlord.antos.content.client.screen.DesktopQolAuditTest', false],
+        desktopViewportTest              : ['com.craisinlord.antos.content.client.screen.DesktopViewportTest', false],
+        textFeedbackTest                 : ['com.craisinlord.antos.content.client.screen.EditableTextWrapTest', false],
+        windowBoundsTest                 : ['com.craisinlord.antos.content.client.screen.WindowBoundsTest', false],
+        accountRecoveryTest              : ['com.craisinlord.antos.content.computer.AccountRecoveryTest', false],
+        customDisplaysTest               : ['com.craisinlord.antos.content.guide.CustomDisplaysTest', true],
+        displayFeaturesTest              : ['com.craisinlord.antos.content.guide.DisplayFeaturesTest', false],
+        displayRecipesTest               : ['com.craisinlord.antos.content.guide.DisplayRecipesTest', true]
+]
+
+parityTests.each { name, spec ->
+    tasks.register(name, JavaExec) {
+        group = 'verification'
+        dependsOn tasks.named('compileParityTests')
+        classpath = files(parityTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+        mainClass = spec[0]
+        if (spec[1]) args rootProject.projectDir.absolutePath
+        workingDir = layout.buildDirectory.dir("parity-tests/${name}").get().asFile
+        doFirst { workingDir.mkdirs() }
+    }
+}
+
+tasks.register('runParityTests') {
+    group = 'verification'
+    description = 'Runs the desktop, Archive, display, and settings parity test suites.'
+    dependsOn parityTests.keySet()
 }

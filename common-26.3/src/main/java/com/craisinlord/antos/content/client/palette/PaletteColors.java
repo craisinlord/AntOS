@@ -12,7 +12,7 @@ public final class PaletteColors {
     public static final int ICONS = 6;
     public static final int ERROR = 7;
     public static final String[] KEYS = {"desktop", "window", "panel", "text", "muted", "accent", "icons", "error"};
-    private static final int[] GRAPHITE = {0xFF1E1F22, 0xFF313338, 0xFF2B2D31, 0xFFDBDEE1, 0xFFB5BAC1, 0xFF65FF65, 0xFF65FF65, 0xFFFA777C};
+    private static final int[] GRAPHITE = {0xFF141518, 0xFF202124, 0xFF191A1D, 0xFFDBDEE1, 0xFFB5BAC1, 0xFF65FF65, 0xFF65FF65, 0xFFFA777C};
     private static final int[] TERMINAL = {0xFF102010, 0xFF030603, 0xFF071007, 0xFFA0D8A0, 0xFF6E926E, 0xFF65FF65, 0xFF65FF65, 0xFFFF7777};
     private static final String SHARE_PREFIX = "antos:";
 

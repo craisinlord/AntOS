@@ -31,6 +31,8 @@ public final class RewardDropRenderer extends EntityRenderer<RewardDropEntity, R
     @Override
     public void extractRenderState(RewardDropEntity entity, State state, float partialTick) {
         super.extractRenderState(entity, state, partialTick);
+        state.deliveryHidden = entity.deliveryHidden();
+        state.deliveryScale = entity.deliveryScale();
         if (chest == null) chest = new ItemStack(Items.CHEST);
         itemModelResolver.updateForNonLiving(state.item, chest, ItemDisplayContext.FIXED, entity);
     }
@@ -38,16 +40,20 @@ public final class RewardDropRenderer extends EntityRenderer<RewardDropEntity, R
     @Override
     public void submit(State state, PoseStack pose, SubmitNodeCollector collector,
                        net.minecraft.client.renderer.state.level.CameraRenderState cameraState) {
+        if (state.deliveryHidden) return;
         super.submit(state, pose, collector, cameraState);
         pose.pushPose();
         pose.translate(0.0D, 0.38D, 0.0D);
         pose.mulPose(new Quaternionf().rotationY((float) Math.toRadians(state.ageInTicks * 7.0F)));
-        pose.scale(0.9F, 0.9F, 0.9F);
+        float scale = 0.9F * state.deliveryScale;
+        pose.scale(scale, scale, scale);
         state.item.submit(pose, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, state.outlineColor);
         pose.popPose();
     }
 
     public static final class State extends EntityRenderState {
+        public boolean deliveryHidden;
+        public float deliveryScale;
         public final ItemStackRenderState item = new ItemStackRenderState();
     }
 }

@@ -27,6 +27,10 @@ import java.util.Set;
 
 final class AntazonApp extends ComputerApp {
     private final State state = new State();
+
+    void openNotification(String kind) {
+        switchTab(kind.equals("order") ? 2 : 1);
+    }
     void tick(boolean loggedIn, boolean windowOpen) {
         if (state.walletRefreshTicks > 0 && --state.walletRefreshTicks == 0) ComputerNetworking.requestAntazonWallet();
         if (loggedIn && !state.prefetched && AntOSSettings.appEnabled("ANTAZON")) {

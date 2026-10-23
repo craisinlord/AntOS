@@ -1,15 +1,11 @@
 package com.craisinlord.antos.content.client.game;
 
 import com.craisinlord.antos.api.client.game.ComputerGame;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.content.client.palette.Ui;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import com.craisinlord.antos.content.client.ThemedGraphics;
 import net.minecraft.network.chat.Component;
-import net.minecraft.core.Holder;
-import net.minecraft.sounds.SoundEvent;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -18,25 +14,6 @@ import com.mojang.blaze3d.platform.InputConstants;
 import java.util.Random;
 
 public final class NetherBreakoutSession implements ComputerGame.Session {
-    private enum Cue {
-        CLICK(SoundEvents.NOTE_BLOCK_HAT, 1.0F, 0.28F),
-        PADDLE(SoundEvents.NOTE_BLOCK_HAT, 0.72F, 0.3F),
-        HIT(SoundEvents.NOTE_BLOCK_HAT, 1.2F, 0.28F),
-        BRICK(SoundEvents.NOTE_BLOCK_SNARE, 0.88F, 0.35F),
-        POWERUP(SoundEvents.NOTE_BLOCK_PLING, 1.15F, 0.42F),
-        MISS(SoundEvents.NOTE_BLOCK_BASS, 0.82F, 0.35F);
-
-        final Holder<SoundEvent> sound;
-        final float pitch;
-        final float volume;
-
-        Cue(Holder<SoundEvent> sound, float pitch, float volume) {
-            this.sound = sound;
-            this.pitch = pitch;
-            this.volume = volume;
-        }
-    }
-
     private static final int COLS = 10;
     private static final int ROWS = 6;
     private static final int BEDROCK = 5;
@@ -203,11 +180,11 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
     @Override
     public boolean keyPressed(int keyCode) {
         if (keyCode == InputConstants.KEY_R) { reset(); return true; }
-        if (keyCode == InputConstants.KEY_M) { soundEnabled = !soundEnabled; if (soundEnabled) play(Cue.POWERUP); return true; }
+        if (keyCode == InputConstants.KEY_M) { soundEnabled = !soundEnabled; if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_POWERUP); return true; }
         if (keyCode == InputConstants.KEY_P) {
             if (gameOver || waveCleared) return true;
             paused = !paused;
-            if (soundEnabled) play(paused ? Cue.CLICK : Cue.POWERUP);
+            if (soundEnabled) AntOSUiSounds.play(paused ? AntOSUiSounds.Cue.CLICK : AntOSUiSounds.Cue.BREAKOUT_POWERUP);
             return true;
         }
         if (keyCode == InputConstants.KEY_SPACE || keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
@@ -283,7 +260,7 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
         double angle = Math.toRadians(30) * (random.nextBoolean() ? 1 : -1);
         velocityX = speed * Math.sin(angle);
         velocityY = -speed * Math.cos(angle);
-        if (soundEnabled) play(Cue.PADDLE);
+        if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_PADDLE);
     }
 
     private void step(double dx, double dy) {
@@ -304,7 +281,7 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
             double angle = offset * MAX_BOUNCE_ANGLE;
             velocityX = speed * Math.sin(angle);
             velocityY = -speed * Math.cos(angle);
-            if (soundEnabled) play(Cue.PADDLE);
+            if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_PADDLE);
         }
         if (ballY - BALL_RADIUS > height - 15) loseBall();
     }
@@ -321,7 +298,7 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
             message = tr("computer.antos.nether_breakout.next_ball");
             messageTicks = 30;
         }
-        if (soundEnabled) play(Cue.MISS);
+        if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_MISS);
     }
 
     private boolean hitBrick() {
@@ -348,12 +325,12 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
 
     private void damage(int r, int c) {
         if (bricks[r][c] == BEDROCK) {
-            if (soundEnabled) play(Cue.HIT);
+            if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_HIT);
             return;
         }
         bricks[r][c]--;
         if (bricks[r][c] > 0) {
-            if (soundEnabled) play(Cue.HIT);
+            if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_HIT);
             return;
         }
         breakBrick(r);
@@ -364,7 +341,7 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
             dropX = brickX(c) + brickWidth() / 2.0;
             dropY = brickY(r) + (rowHeight() - 2) / 2.0;
         }
-        if (soundEnabled) play(Cue.BRICK);
+        if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_BRICK);
         checkCleared();
     }
 
@@ -400,7 +377,7 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
             message = tr("computer.antos.nether_breakout.extra_life");
         }
         messageTicks = 50;
-        if (soundEnabled) play(Cue.POWERUP);
+        if (soundEnabled) AntOSUiSounds.play(AntOSUiSounds.Cue.BREAKOUT_POWERUP);
         checkCleared();
     }
 
@@ -429,10 +406,6 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
             case 4 -> Ui.mix(Ui.GAME_OUTLINE, Ui.TEXT_STRONG, 0.35F);
             default -> Ui.mix(Ui.BACKGROUND, Ui.TEXT_MUTED, 0.30F);
         };
-    }
-
-    private static void play(Cue cue) {
-        Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(cue.sound.value(), cue.pitch, cue.volume));
     }
 
     private static String tr(String key, Object... args) {

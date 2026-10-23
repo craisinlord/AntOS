@@ -102,7 +102,7 @@ public final class ComputerDisks {
         if (!data.profileDisks(account.accountId()).contains(diskId)) return "not_installed";
         if (data.diskState(account.accountId()).activated(diskId)) return "already_unlocked";
         if (!disk.features().encryption().enabled()) return "invalid_disk";
-        long now = player.level().getServer().overworld().getGameTime();
+        long now = System.nanoTime() / 50_000_000L;
         Map<UUID, Attempt> attempts;
         synchronized (ATTEMPTS) { attempts = ATTEMPTS.computeIfAbsent(player.level().getServer(), ignored -> new HashMap<>()); }
         Attempt previous = attempts.get(account.accountId());

@@ -34,12 +34,24 @@ public final class AntOSFabricClient implements ClientModInitializer {
         FloppyDiskModelProperties.register(AntOSFabricContent.FLOPPY_DISK);
         AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
         AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
+        net.minecraft.client.KeyMapping.Category antosKeys = net.minecraft.client.KeyMapping.Category.register(
+                net.minecraft.resources.Identifier.fromNamespaceAndPath(com.craisinlord.antos.AntOS.MODID, "antos"));
+        net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.registerKeyMapping(com.craisinlord.antos.content.client.ArchiveLookup.create(org.lwjgl.glfw.GLFW.GLFW_KEY_Z, antosKeys));
+        net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback.EVENT.register((stack, context, type, lines) -> com.craisinlord.antos.content.client.ArchiveLookup.tooltip(stack, lines));
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.ArchiveLookup.tick());
+        net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.registerKeyMapping(com.craisinlord.antos.content.client.TaskTrackerHud.createKey(antosKeys));
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.TaskTrackerHud.tick());
+        net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
+                net.minecraft.resources.Identifier.fromNamespaceAndPath(com.craisinlord.antos.AntOS.MODID, "task_tracker"),
+                (graphics, delta) -> com.craisinlord.antos.content.client.TaskTrackerHud.render(graphics));
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if ((screen instanceof InventoryScreen || screen instanceof CreativeModeInventoryScreen)
                     && AntOSSettings.inventoryComputerButtonEnabled()) {
                 Screens.getWidgets(screen).add(new InventoryComputerButton(4, 4));
             }
         });
+        net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry.register(context ->
+                new com.craisinlord.antos.content.client.renderer.DisplaySceneRenderer(context.minecraft().renderBuffers().bufferSource()));
         BlockEntityRendererRegistry.register(AntOSFabricContent.COMPUTER_BLOCK_ENTITY, ComputerRenderer::new);
         EntityRendererRegistry.register(AntOSFabricContent.REWARD_DROP_ENTITY, RewardDropRenderer::new);
     }

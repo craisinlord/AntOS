@@ -23,9 +23,13 @@ public final class ComputerTasksClientState {
     private static final Map<String, Map<String, RewardPoolInfo>> REWARD_POOLS = new ConcurrentHashMap<>();
     private static final Map<String, Definitions> DEFINITIONS = new ConcurrentHashMap<>();
     private static final Map<String, String> STATE_HASHES = new ConcurrentHashMap<>();
+    private static final Map<String, List<String>> PINNED = new ConcurrentHashMap<>();
     private static volatile int revision;
+    private static volatile ClaimSummary claimSummary;
+    private static volatile PinNotice pinNotice;
+    private static long noticeSequence;
     private ComputerTasksClientState() { }
-    public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); TEAMS.clear(); INVITES.clear(); TEAM_STATUS.clear(); CATEGORIES.clear(); GROUPS.clear(); REWARD_POOLS.clear(); DEFINITIONS.clear(); STATE_HASHES.clear(); revision++; }
+    public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); TEAMS.clear(); INVITES.clear(); TEAM_STATUS.clear(); CATEGORIES.clear(); GROUPS.clear(); REWARD_POOLS.clear(); DEFINITIONS.clear(); STATE_HASHES.clear(); PINNED.clear(); claimSummary = null; pinNotice = null; revision++; }
 
     public static String requestToken() {
         String key = ComputerWorkspaceClientKey.of();
@@ -37,6 +41,22 @@ public final class ComputerTasksClientState {
     public static int revision() { return revision; }
 
     public static void update(ComputerAccessResultPayload result) {
+        String claimAllPrefix = ComputerAccessPayload.TASK_CLAIM_ALL + "\0";
+        if (result.data().startsWith(claimAllPrefix)) {
+            claimSummary = parseClaimSummary(result.data().substring(claimAllPrefix.length()));
+            revision++;
+            return;
+        }
+        String pinPrefix = ComputerAccessPayload.TASK_PIN + "\0";
+        if (result.data().startsWith(pinPrefix)) {
+            String[] fields = result.data().substring(pinPrefix.length()).split("\u0000", 2);
+            String status = fields[0];
+            String taskId = fields.length > 1 ? fields[1] : "";
+            if (!status.equals("pinned") && !status.equals("unpinned")) refreshPinsFromServer();
+            pinNotice = new PinNotice(++noticeSequence, status, taskId);
+            revision++;
+            return;
+        }
         String teamResultPrefix = ComputerAccessPayload.TEAM_RESULT + "\0";
         if (result.data().startsWith(teamResultPrefix)) {
             String[] status = result.data().split("\u0000", 4);
@@ -235,7 +255,39 @@ public final class ComputerTasksClientState {
                 List.copyOf(options));
     }
 
+    private static ClaimSummary parseClaimSummary(String json) {
+        try {
+            var root = JsonParser.parseString(json).getAsJsonObject();
+            Map<String, Integer> items = new java.util.LinkedHashMap<>();
+            long antcoins = 0L;
+            int experience = 0;
+            int levels = 0;
+            int other = 0;
+            if (root.has("receipt") && root.get("receipt").isJsonArray()) for (var element : root.getAsJsonArray("receipt")) {
+                var reward = element.getAsJsonObject();
+                switch (string(reward, "type")) {
+                    case "item" -> items.merge(string(reward, "item"), integer(reward, "count", 0), Integer::sum);
+                    case "antcoins" -> antcoins += number(reward, "amount", 0L);
+                    case "experience" -> experience += integer(reward, "points", 0);
+                    case "experience_levels" -> levels += integer(reward, "levels", 0);
+                    default -> other++;
+                }
+            }
+            List<String> failed = strings(root, "failed");
+            return new ClaimSummary(++noticeSequence, string(root, "error"), strings(root, "claimed").size(), failed.size(), failed,
+                    integer(root, "crates", 0), java.util.Collections.unmodifiableMap(items), antcoins, experience, levels, other);
+        } catch (RuntimeException ignored) {
+            return new ClaimSummary(++noticeSequence, "invalid", 0, 0, List.of(), 0, Map.of(), 0L, 0, 0, 0);
+        }
+    }
+
+    private static void refreshPinsFromServer() {
+        STATE_HASHES.remove(ComputerWorkspaceClientKey.of());
+        ComputerNetworking.requestTasks(requestToken());
+    }
+
     private static void applyState(String key, Definitions definitions, JsonObject root) {
+        PINNED.put(key, strings(root, "pinned"));
         if (root.has("team") && root.get("team").isJsonObject()) {
             var team = root.getAsJsonObject("team");
             TEAMS.put(key, new TeamInfo(team.get("id").getAsString(),
@@ -302,6 +354,18 @@ public final class ComputerTasksClientState {
     }
 
     public static List<TaskRow> get() { return TASKS.getOrDefault(ComputerWorkspaceClientKey.of(), List.of()); }
+    public static List<String> pinned() { return PINNED.getOrDefault(ComputerWorkspaceClientKey.of(), List.of()); }
+    public static boolean isPinned(String taskId) { return pinned().contains(taskId); }
+    public static void setPinnedLocally(String taskId, boolean pinned) {
+        String key = ComputerWorkspaceClientKey.of();
+        java.util.ArrayList<String> next = new java.util.ArrayList<>(PINNED.getOrDefault(key, List.of()));
+        if (pinned ? next.contains(taskId) : !next.remove(taskId)) return;
+        if (pinned) next.add(taskId);
+        PINNED.put(key, List.copyOf(next));
+        revision++;
+    }
+    public static ClaimSummary claimSummary() { return claimSummary; }
+    public static PinNotice pinNotice() { return pinNotice; }
     public static boolean hasSnapshot() { return RECEIVED.contains(ComputerWorkspaceClientKey.of()); }
     public static boolean hasError() { return ERRORS.contains(ComputerWorkspaceClientKey.of()); }
     public static TeamInfo team() { return TEAMS.get(ComputerWorkspaceClientKey.of()); }
@@ -330,7 +394,7 @@ public final class ComputerTasksClientState {
         var id = net.minecraft.resources.ResourceLocation.tryParse(category);
         return id == null ? null : definitions.get(id.toString());
     }
-    public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); REWARD_POOLS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
+    public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); PINNED.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); REWARD_POOLS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
     public static void clearTransient() { TEAM_STATUS.remove(ComputerWorkspaceClientKey.of()); }
     private record Definitions(String hash, List<TaskDefinition> tasks, Map<String, CategoryInfo> categories, Map<String, GroupInfo> groups,
                                Map<String, RewardPoolInfo> rewardPools, List<LinkDefinition> links) { }
@@ -359,4 +423,9 @@ public final class ComputerTasksClientState {
     public record RewardPoolEntryInfo(String item, String pool, int weight, int count) { }
     public record TeamInfo(String id, boolean owner, String ownerName, List<String> members) { }
     public record TeamInvite(String id, String ownerName, String inviterName) { }
+    public record ClaimSummary(long sequence, String error, int claimed, int failed, List<String> failedIds, int crates, Map<String, Integer> items,
+                               long antcoins, int experience, int levels, int other) {
+        public int itemCount() { return items.values().stream().mapToInt(Integer::intValue).sum(); }
+    }
+    public record PinNotice(long sequence, String status, String taskId) { }
 }

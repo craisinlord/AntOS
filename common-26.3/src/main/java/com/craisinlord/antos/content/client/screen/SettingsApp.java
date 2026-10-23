@@ -4,6 +4,8 @@ import com.craisinlord.antos.content.client.palette.PaletteColors;
 import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.client.palette.TerminalPalette;
 import com.google.gson.JsonObject;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
+import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntazonClientState;
@@ -52,12 +54,21 @@ final class SettingsApp extends ComputerApp {
     private final Field displayName = new Field(32, false);
     private final Field iconItem = new Field(64, false);
     private final Field search = new Field(32, false);
+    private final Field settingsSearch = new Field(64, false);
+    private String revealTarget = "";
+    private int revealY = -1;
     private final Field currentPassword = new Field(128, true);
     private final Field newPassword = new Field(128, true);
     private final Field confirmPassword = new Field(128, true);
     private final Field hintField = new Field(64, false);
     private final Field[] customFields = newCustomFields();
     private Field focused;
+    private boolean draggingScale;
+    private boolean scaleTrackVisible;
+    private int pendingScale;
+    private int scaleTrackX;
+    private int scaleTrackY;
+    private int scaleTrackWidth;
     private int contentTop;
     private int contentBottom;
     private int paneX;
@@ -97,9 +108,22 @@ final class SettingsApp extends ComputerApp {
         }
         if (!confirmAction.isEmpty() && System.currentTimeMillis() > confirmUntil) confirmAction = "";
         kit.begin();
+        scaleTrackVisible = false;
         kit.suppressHover(passwordDialog);
+        if (!passwordDialog) {
+            kit.field(g, x, y, w - 22, 17, settingsSearch.shown(), settingsSearch.cursor,
+                    focused == settingsSearch, tr("search.placeholder"));
+            kit.hit(x, y, w - 22, 17, () -> focus(settingsSearch));
+            kit.button(g, x + w - 19, y, 19, 17, "×", false, !settingsSearch.value.isEmpty(), () -> {
+                settingsSearch.set("");
+                state.scroll = 0;
+                focused = settingsSearch;
+            });
+        }
+        y += 22;
+        h -= 22;
         boolean narrow = w < 300;
-        if (narrow && state.showList) {
+        if (narrow && state.showList && settingsSearch.value.isBlank()) {
             renderCategoryList(g, x, y, w, h);
         } else {
             int left = x;
@@ -121,14 +145,15 @@ final class SettingsApp extends ComputerApp {
         g.drawString(font, Component.literal(tr("title")), x + 6, y + 5, Ui.TEXT_STRONG, false);
         g.fill(x + 4, y + 16, x + SIDEBAR - 4, y + 17, Ui.SURFACE);
         int rowY = y + 21;
+        int spacing = Math.min(21, Math.max(16, (h - 21) / CATEGORIES.length));
         for (String category : CATEGORIES) {
             boolean selected = state.category.equals(category);
-            boolean hover = kit.hovered(x + 2, rowY, SIDEBAR - 4, 19);
-            if (selected || hover) g.fill(x + 2, rowY, x + SIDEBAR - 2, rowY + 19, selected ? Ui.SELECTED_FILL : Ui.HOVER);
-            if (selected) g.fill(x + 2, rowY, x + 4, rowY + 19, Ui.ACCENT);
-            g.drawString(font, Component.literal(screen.trimToWidth(tr("category." + category), SIDEBAR - 14)), x + 8, rowY + 6, selected ? Ui.TEXT : Ui.ACCENT, false);
-            kit.hit(x + 2, rowY, SIDEBAR - 4, 19, () -> select(category));
-            rowY += 21;
+            boolean hover = kit.hovered(x + 2, rowY, SIDEBAR - 4, spacing - 2);
+            if (selected || hover) g.fill(x + 2, rowY, x + SIDEBAR - 2, rowY + spacing - 2, selected ? Ui.SELECTED_FILL : Ui.HOVER);
+            if (selected) g.fill(x + 2, rowY, x + 4, rowY + spacing - 2, Ui.ACCENT);
+            g.drawString(font, Component.literal(screen.trimToWidth(tr("category." + category), SIDEBAR - 14)), x + 8, rowY + (spacing - 10) / 2, selected ? Ui.TEXT : Ui.ACCENT, false);
+            kit.hit(x + 2, rowY, SIDEBAR - 4, spacing - 2, () -> select(category));
+            rowY += spacing;
         }
     }
 
@@ -136,17 +161,27 @@ final class SettingsApp extends ComputerApp {
         g.drawString(font, Component.literal(tr("title")), x, y + 3, Ui.TEXT_STRONG, false);
         g.fill(x, y + 14, x + w, y + 15, Ui.SURFACE);
         int rowY = y + 19;
+        int spacing = Math.min(22, Math.max(18, (h - 19) / CATEGORIES.length));
         for (String category : CATEGORIES) {
-            boolean hover = kit.hovered(x, rowY, w, 20);
-            g.fill(x, rowY, x + w, rowY + 20, hover ? Ui.HOVER : Ui.PANEL);
-            g.drawString(font, Component.literal(tr("category." + category)), x + 6, rowY + 6, hover ? Ui.ACCENT : Ui.TEXT, false);
-            g.drawString(font, Component.literal(">"), x + w - 10, rowY + 6, Ui.TEXT_MUTED, false);
-            kit.hit(x, rowY, w, 20, () -> select(category));
-            rowY += 22;
+            boolean hover = kit.hovered(x, rowY, w, spacing - 2);
+            g.fill(x, rowY, x + w, rowY + spacing - 2, hover ? Ui.HOVER : Ui.PANEL);
+            g.drawString(font, Component.literal(tr("category." + category)), x + 6, rowY + (spacing - 10) / 2, hover ? Ui.ACCENT : Ui.TEXT, false);
+            g.drawString(font, Component.literal(">"), x + w - 10, rowY + (spacing - 10) / 2, Ui.TEXT_MUTED, false);
+            kit.hit(x, rowY, w, spacing - 2, () -> select(category));
+            rowY += spacing;
         }
     }
 
+    void openNotifications() {
+        settingsSearch.set("");
+        select("notifications");
+    }
+
     private void select(String category) {
+        settingsSearch.set("");
+        revealTarget = "";
+        draggingScale = false;
+        scaleTrackVisible = false;
         state.category = category;
         state.scroll = 0;
         state.showList = false;
@@ -159,10 +194,15 @@ final class SettingsApp extends ComputerApp {
         int titleX = x;
         if (narrow) {
             int backWidth = kit.labelWidth("<");
-            kit.button(g, x, y, backWidth, 15, "<", false, true, tr("tip.back"), () -> state.showList = true);
+            kit.button(g, x, y, backWidth, 15, "<", false, true, tr("tip.back"), () -> {
+                state.showList = true;
+                settingsSearch.set("");
+                state.scroll = 0;
+                focused = null;
+            });
             titleX += backWidth + 6;
         }
-        g.drawString(font, Component.literal(tr("category." + state.category)), titleX, y + 4, Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal((settingsSearch.value.isBlank() ? tr("category." + state.category) : tr("search.title"))), titleX, y + 4, Ui.TEXT_STRONG, false);
         if (System.currentTimeMillis() < noticeUntil) {
             String shown = screen.trimToWidth(notice, Math.max(10, w / 2));
             g.drawString(font, Component.literal(shown), x + w - font.width(shown), y + 4, Ui.TEXT, false);
@@ -175,7 +215,9 @@ final class SettingsApp extends ComputerApp {
         kit.clip(x, contentTop, w, viewHeight);
         cursorY = contentTop + 2 - state.scroll;
         try {
-            switch (state.category) {
+            revealY = -1;
+            if (!settingsSearch.value.isBlank()) renderSearchResults(g);
+            else switch (state.category) {
                 case "account" -> renderAccount(g);
                 case "personalize" -> renderPersonalize(g);
                 case "accessibility" -> renderAccessibility(g);
@@ -191,8 +233,134 @@ final class SettingsApp extends ComputerApp {
         }
         int contentHeight = cursorY + state.scroll - contentTop;
         state.maximumScroll = Math.max(0, contentHeight - viewHeight);
+        if (revealY >= 0) {
+            state.scroll = Math.max(0, Math.min(state.maximumScroll, revealY));
+            revealTarget = "";
+        }
         state.scroll = Math.max(0, Math.min(state.maximumScroll, state.scroll));
         kit.scrollbar(g, x + w - 3, contentTop, viewHeight, viewHeight, contentHeight, state.scroll, state.maximumScroll, value -> state.scroll = value);
+    }
+
+    private static final String[][] SEARCH_SETTINGS = {
+            {"account", "account.signed_in"},
+            {"account", "account.username"},
+            {"account", "account.profile"},
+            {"account", "account.display_name"},
+            {"account", "account.icon_item"},
+            {"account", "account.security"},
+            {"account", "account.password"},
+            {"account", "account.hint"},
+            {"account", "face_id.label"},
+            {"account", "account.session"},
+            {"account", "account.log_out_hint"},
+            {"personalize", "accessibility.look"},
+            {"personalize", "accessibility.icons"},
+            {"personalize", "accessibility.wallpaper"},
+            {"personalize", "personalize.theme"},
+            {"personalize", "personalize.wallpaper"},
+            {"personalize", "personalize.reset_hint"},
+            {"accessibility", "accessibility.display"},
+            {"accessibility", "accessibility.brightness"},
+            {"accessibility", "accessibility.fullscreen"},
+            {"accessibility", "accessibility.layout_hint"},
+            {"accessibility", "accessibility.comfort"},
+            {"accessibility", "accessibility.reduce_effects"},
+            {"accessibility", "accessibility.resume"},
+            {"accessibility", "accessibility.gameplay"},
+            {"accessibility", "accessibility.pause"},
+            {"accessibility", "accessibility.preview"},
+            {"accessibility", "accessibility.reset_hint"},
+            {"apps", "apps.text"},
+            {"apps", "apps.line_numbers"},
+            {"apps", "apps.paint"},
+            {"apps", "apps.paint_grid"},
+            {"apps", "apps.paint_brush"},
+            {"apps", "apps.terminal"},
+            {"apps", "apps.terminal_history"},
+            {"apps", "apps.terminal_clear_hint"},
+            {"apps", "apps.archive"},
+            {"apps", "apps.archive_text"},
+            {"apps", "apps.archive_clear_recent_hint"},
+            {"apps", "apps.tasks"},
+            {"apps", "apps.tasks_zoom"},
+            {"apps", "apps.tasks_sidebar_behavior"},
+            {"apps", "apps.tasks_sidebar_width"},
+            {"apps", "apps.tasks_sidebar_text"},
+            {"apps", "apps.tasks_sidebar_spacing"},
+            {"apps", "apps.tasks_sidebar_counts"},
+            {"apps", "apps.tasks_sidebar_reset_hint"},
+            {"apps", "apps.tasks_tracker"},
+            {"apps", "apps.tasks_tracker_show"},
+            {"apps", "apps.tasks_tracker_position"},
+            {"apps", "apps.tasks_tracker_style"},
+            {"apps", "apps.tasks_tracker_opacity"},
+            {"apps", "apps.tasks_auto_unpin"},
+            {"apps", "apps.files"},
+            {"apps", "apps.files_places"},
+            {"apps", "apps.files_sort"},
+            {"notifications", "notifications.panel_hint"},
+            {"notifications", "notifications.quiet"},
+            {"notifications", "notifications.interface"},
+            {"notifications", "notifications.interface_sounds"},
+            {"notifications", "notifications.interface_volume"},
+            {"notifications", "notifications.interface_preview_hint"},
+            {"notifications", "notifications.mail"},
+            {"notifications", "notifications.style"},
+            {"notifications", "notifications.sound"},
+            {"notifications", "notifications.test_hint"},
+            {"notifications", "notifications.tasks"},
+            {"storage", "storage.usage"},
+            {"storage", "storage.used"},
+            {"storage", "storage.items"},
+            {"storage", "storage.breakdown"},
+            {"storage", "storage.manage_hint"},
+            {"help", "help.tours"},
+            {"help", "help.antos_tour"},
+            {"help", "help.antazon_tour"},
+            {"help", "help.shortcuts"},
+            {"help", "help.search"},
+            {"about", "about.system"},
+            {"about", "about.version"},
+            {"about", "about.account"},
+            {"about", "about.theme"},
+            {"about", "about.stats"},
+            {"about", "about.files"},
+            {"about", "about.disks"},
+            {"about", "about.tasks"},
+            {"about", "about.antcoins"},
+            {"accessibility", "accessibility.ui_size"}
+    };
+
+    private void reveal(String label) {
+        if (!revealTarget.isEmpty() && revealTarget.equals(label) && revealY < 0) revealY = cursorY + state.scroll - contentTop;
+    }
+
+    private void renderSearchResults(ThemedGraphics g) {
+        String query = settingsSearch.value.toLowerCase(Locale.ROOT).trim();
+        String[] words = query.split("\\s+");
+        int shown = 0;
+        for (String[] item : SEARCH_SETTINGS) {
+            if (item[1].equals("accessibility.brightness") && !AntOSSettings.preferences().displayLook.equals("terminal")) continue;
+            String category = tr("category." + item[0]);
+            String title = tr(item[1]);
+            String text = (category + " " + title).toLowerCase(Locale.ROOT);
+            boolean matches = true;
+            for (String word : words) if (!text.contains(word)) { matches = false; break; }
+            if (!matches) continue;
+            int rowY = cursorY;
+            int width = innerWidth();
+            boolean hover = kit.hovered(paneX, rowY, width, 31);
+            g.fill(paneX, rowY, paneX + width, rowY + 31, hover ? Ui.HOVER : Ui.PANEL);
+            g.drawString(font, Component.literal(screen.trimToWidth(title, width - 12)), paneX + 5, rowY + 4, Ui.TEXT, false);
+            g.drawString(font, Component.literal(category), paneX + 5, rowY + 17, Ui.TEXT_MUTED, false);
+            kit.hit(paneX, rowY, width, 31, () -> {
+                select(item[0]);
+                revealTarget = title;
+            });
+            cursorY += 35;
+            shown++;
+        }
+        if (shown == 0) label(g, tr("search.empty"), Ui.TEXT_MUTED);
     }
 
     private int innerWidth() {
@@ -200,6 +368,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void heading(ThemedGraphics g, String key) {
+        reveal(tr(key));
         cursorY += 4;
         g.drawString(font, Component.literal(tr(key)), paneX, cursorY, Ui.TEXT_MUTED, false);
         g.fill(paneX, cursorY + 10, paneX + innerWidth(), cursorY + 11, Ui.SURFACE);
@@ -214,6 +383,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void valueRow(ThemedGraphics g, String label, String value) {
+        reveal(label);
         int valueWidth = Math.min(font.width(value), innerWidth() / 2);
         String shown = screen.trimToWidth(value, valueWidth);
         g.drawString(font, Component.literal(screen.trimToWidth(label, innerWidth() - valueWidth - 8)), paneX, cursorY + 4, Ui.TEXT, false);
@@ -222,6 +392,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void toggleRow(ThemedGraphics g, String label, boolean value, Consumer<Boolean> change) {
+        reveal(label);
         int width = innerWidth();
         boolean hover = kit.hovered(paneX, cursorY, width, ROW - 2);
         if (hover) g.fill(paneX, cursorY, paneX + width, cursorY + ROW - 2, Ui.HOVER);
@@ -232,11 +403,12 @@ final class SettingsApp extends ComputerApp {
         kit.outline(g, trackX, trackY, 24, 12, value ? Ui.ACCENT : Ui.LINE);
         int knobX = value ? trackX + 14 : trackX + 2;
         g.fill(knobX, trackY + 2, knobX + 8, trackY + 10, value ? Ui.TEXT : Ui.TEXT_MUTED);
-        kit.hit(paneX, cursorY, width, ROW - 2, () -> change.accept(!value));
+        kit.hit(paneX, cursorY, width, ROW - 2, () -> AntOSUiSounds.action(() -> change.accept(!value)));
         cursorY += ROW;
     }
 
     private void choiceRow(ThemedGraphics g, String label, String[] values, String prefix, String selected, Consumer<String> change) {
+        reveal(label);
         int width = innerWidth();
         int[] widths = new int[values.length];
         int total = 0;
@@ -252,13 +424,14 @@ final class SettingsApp extends ComputerApp {
         for (int index = 0; index < values.length; index++) {
             String value = values[index];
             screen.drawFilterButton(g, chipX, chipY, widths[index], value.equals(selected), tr(prefix + value));
-            kit.hit(chipX, chipY, widths[index], 17, () -> change.accept(value));
+            kit.hit(chipX, chipY, widths[index], 17, () -> AntOSUiSounds.action(() -> change.accept(value)));
             chipX += widths[index] + 3;
         }
         cursorY += inline ? ROW + 2 : ROW + 16;
     }
 
     private void buttonRow(ThemedGraphics g, String label, String button, boolean danger, Runnable action) {
+        reveal(label);
         int width = innerWidth();
         int buttonWidth = Math.max(56, kit.labelWidth(button));
         g.drawString(font, Component.literal(screen.trimToWidth(label, width - buttonWidth - 8)), paneX + 3, cursorY + 5, danger ? Ui.ERROR : Ui.TEXT, false);
@@ -267,6 +440,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void field(ThemedGraphics g, String label, Field field, String placeholder) {
+        reveal(label);
         g.drawString(font, Component.literal(label), paneX + 3, cursorY, Ui.TEXT_MUTED, false);
         cursorY += 10;
         kit.field(g, paneX, cursorY, innerWidth(), 18, field.shown(), field.cursor, focused == field, placeholder);
@@ -315,6 +489,17 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void renderPersonalize(ThemedGraphics g) {
+        var preferences = AntOSSettings.preferences();
+        choiceRow(g, tr("accessibility.look"), new String[]{"terminal", "graphite", "custom"}, "accessibility.look_", preferences.displayLook,
+                value -> AntOSSettings.updatePreferences(p -> p.displayLook = value));
+        label(g, tr("accessibility.look_hint_" + preferences.displayLook), Ui.TEXT_MUTED);
+        if (!preferences.displayLook.equals("custom")) {
+            choiceRow(g, tr("accessibility.icons"), new String[]{"accent", "neutral"}, "accessibility.icons_", preferences.iconColor,
+                    value -> AntOSSettings.updatePreferences(p -> p.iconColor = value));
+        }
+        choiceRow(g, tr("accessibility.wallpaper"), new String[]{"match", "original"}, "accessibility.wallpaper_", preferences.wallpaperColors,
+                value -> AntOSSettings.updatePreferences(p -> p.wallpaperColors = value));
+        if (preferences.displayLook.equals("custom")) renderCustomColors(g, preferences);
         heading(g, "personalize.theme");
         int width = innerWidth();
         int columns = Math.max(2, Math.min(3, width / 64));
@@ -365,48 +550,85 @@ final class SettingsApp extends ComputerApp {
         }
         cursorY += ((wallpapers.size() + perRow - 1) / perRow) * (thumbHeight + 6) + 2;
         label(g, tr("personalize.wallpaper_hint"), Ui.TEXT_MUTED);
+        buttonRow(g, tr("personalize.reset_hint"), tr("personalize.reset"), false, () ->
+                AntOSSettings.updatePreferences(p -> {
+                    p.displayLook = "terminal";
+                    p.iconColor = "accent";
+                    p.wallpaperColors = "match";
+                }));
     }
 
     private void renderAccessibility(ThemedGraphics g) {
         heading(g, "accessibility.display");
         label(g, tr("accessibility.hint"), Ui.TEXT_MUTED);
         var preferences = AntOSSettings.preferences();
-        choiceRow(g, tr("accessibility.look"), new String[]{"terminal", "graphite", "custom"}, "accessibility.look_", preferences.displayLook,
-                value -> AntOSSettings.updatePreferences(p -> p.displayLook = value));
-        label(g, tr("accessibility.look_hint_" + preferences.displayLook), Ui.TEXT_MUTED);
         if (preferences.displayLook.equals("terminal")) {
             choiceRow(g, tr("accessibility.brightness"), new String[]{"standard", "soft", "dim"}, "accessibility.brightness_", preferences.displayBrightness,
                     value -> AntOSSettings.updatePreferences(p -> p.displayBrightness = value));
             label(g, tr("accessibility.brightness_hint_" + preferences.displayBrightness), Ui.TEXT_MUTED);
         }
-        if (!preferences.displayLook.equals("custom")) {
-            choiceRow(g, tr("accessibility.icons"), new String[]{"accent", "neutral"}, "accessibility.icons_", preferences.iconColor,
-                    value -> AntOSSettings.updatePreferences(p -> p.iconColor = value));
-        }
-        choiceRow(g, tr("accessibility.wallpaper"), new String[]{"match", "original"}, "accessibility.wallpaper_", preferences.wallpaperColors,
-                value -> AntOSSettings.updatePreferences(p -> p.wallpaperColors = value));
-        if (preferences.displayLook.equals("custom")) renderCustomColors(g, preferences);
+        toggleRow(g, tr("accessibility.fullscreen"), preferences.fullscreenDesktop,
+                value -> AntOSSettings.updatePreferences(p -> p.fullscreenDesktop = value));
+        label(g, tr("accessibility.fullscreen_hint"), Ui.TEXT_MUTED);
+        buttonRow(g, tr("accessibility.layout_hint"), tr("accessibility.layout_reset"), false, screen::resetWindowLayout);
         heading(g, "accessibility.comfort");
-        choiceRow(g, tr("accessibility.ui_size"), new String[]{"standard", "large", "largest"}, "accessibility.ui_size_", preferences.uiSize,
-                value -> AntOSSettings.updatePreferences(p -> p.uiSize = value));
+        renderScaleSlider(g);
         toggleRow(g, tr("accessibility.reduce_effects"), preferences.reduceEffects,
                 value -> AntOSSettings.updatePreferences(p -> p.reduceEffects = value));
         label(g, tr("accessibility.reduce_effects_hint"), Ui.TEXT_MUTED);
         toggleRow(g, tr("accessibility.resume"), preferences.resumeSession,
                 value -> AntOSSettings.updatePreferences(p -> p.resumeSession = value));
         label(g, tr("accessibility.resume_hint"), Ui.TEXT_MUTED);
+        heading(g, "accessibility.gameplay");
+        toggleRow(g, tr("accessibility.pause"), preferences.pauseWhileOpen,
+                value -> AntOSSettings.updatePreferences(p -> p.pauseWhileOpen = value));
+        label(g, tr("accessibility.pause_hint"), Ui.TEXT_MUTED);
         heading(g, "accessibility.preview");
         renderDisplayPreview(g);
         buttonRow(g, tr("accessibility.reset_hint"), tr("accessibility.reset"), false, () ->
                 AntOSSettings.updatePreferences(p -> {
                     p.displayBrightness = "standard";
-                    p.displayLook = "terminal";
-                    p.iconColor = "accent";
-                    p.wallpaperColors = "match";
                     p.uiSize = "standard";
+                    p.uiScalePercent = 100;
                     p.reduceEffects = false;
                     p.resumeSession = true;
+                    p.fullscreenDesktop = false;
                 }));
+    }
+
+    private void renderScaleSlider(ThemedGraphics g) {
+        reveal(tr("accessibility.ui_size"));
+        scaleTrackVisible = true;
+        int value = draggingScale ? pendingScale : AntOSSettings.uiScalePercent();
+        int width = innerWidth();
+        String percentage = tr("accessibility.ui_scale_value", value);
+        g.drawString(font, Component.literal(screen.trimToWidth(tr("accessibility.ui_size"), width - font.width(percentage) - 10)), paneX + 3, cursorY + 4, Ui.TEXT, false);
+        g.drawString(font, Component.literal(percentage), paneX + width - font.width(percentage) - 3, cursorY + 4, Ui.ACCENT, false);
+        cursorY += 18;
+        scaleTrackX = paneX + 27;
+        scaleTrackY = cursorY;
+        scaleTrackWidth = Math.max(1, width - 54);
+        int range = AntOSSettings.MAX_UI_SCALE - AntOSSettings.MIN_UI_SCALE;
+        int thumbX = scaleTrackX + Math.round((value - AntOSSettings.MIN_UI_SCALE) * (scaleTrackWidth - 1) / (float) range);
+        g.fill(scaleTrackX, cursorY + 7, scaleTrackX + scaleTrackWidth, cursorY + 10, Ui.BORDER);
+        g.fill(scaleTrackX, cursorY + 7, thumbX, cursorY + 10, Ui.ACCENT);
+        g.fill(thumbX - 4, cursorY + 2, thumbX + 5, cursorY + 15, Ui.ACCENT);
+        kit.outline(g, thumbX - 4, cursorY + 2, 9, 13, draggingScale ? Ui.FOCUS : Ui.BORDER_STRONG);
+        kit.button(g, paneX, cursorY, 20, 17, "-", false, value > AntOSSettings.MIN_UI_SCALE, () -> setScale(AntOSSettings.uiScalePercent() - AntOSSettings.UI_SCALE_STEP));
+        kit.button(g, paneX + width - 20, cursorY, 20, 17, "+", false, value < AntOSSettings.MAX_UI_SCALE, () -> setScale(AntOSSettings.uiScalePercent() + AntOSSettings.UI_SCALE_STEP));
+        cursorY += 22;
+        buttonRow(g, tr("accessibility.ui_scale_range"), tr("accessibility.ui_scale_reset"), false, () -> setScale(100));
+        label(g, tr("accessibility.ui_scale_hint"), Ui.TEXT_MUTED);
+    }
+
+    private void setScale(int percentage) {
+        int normalized = AntOSSettings.normalizeUiScale(percentage);
+        if (normalized != AntOSSettings.uiScalePercent()) AntOSSettings.updatePreferences(p -> p.uiScalePercent = normalized);
+    }
+
+    private void dragScale(double mouseX) {
+        double progress = Math.max(0, Math.min(1, (mouseX - scaleTrackX) / Math.max(1, scaleTrackWidth - 1)));
+        pendingScale = AntOSSettings.normalizeUiScale(AntOSSettings.MIN_UI_SCALE + (int) Math.round(progress * (AntOSSettings.MAX_UI_SCALE - AntOSSettings.MIN_UI_SCALE)));
     }
 
     private void renderCustomColors(ThemedGraphics g, AntOSSettings.Preferences preferences) {
@@ -530,6 +752,14 @@ final class SettingsApp extends ComputerApp {
             screen.session.terminal.clearHistory();
             notice(tr("notice.history_cleared"));
         });
+        heading(g, "apps.archive");
+        choiceRow(g, tr("apps.archive_text"), new String[]{"small", "normal", "large"}, "choice.sidebar_", preferences.archiveText,
+                value -> AntOSSettings.updatePreferences(p -> p.archiveText = value));
+        buttonRow(g, tr("apps.archive_clear_recent_hint"), tr("apps.archive_clear_recent"), false, () -> {
+            com.craisinlord.antos.config.AntOSSettings.clearRecentArchiveEntries(
+                    com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of());
+            notice(tr("apps.archive_clear_recent"));
+        });
         heading(g, "apps.tasks");
         choiceRow(g, tr("apps.tasks_zoom"), AntOSSettings.Preferences.TASK_MAP_ZOOMS.toArray(String[]::new), "choice.zoom_", preferences.taskMapZoom, value -> {
             AntOSSettings.updatePreferences(p -> p.taskMapZoom = value);
@@ -563,6 +793,18 @@ final class SettingsApp extends ComputerApp {
             });
             screen.tasks.resetSidebar();
         });
+        heading(g, "apps.tasks_tracker");
+        toggleRow(g, tr("apps.tasks_tracker_show"), preferences.taskTracker,
+                value -> AntOSSettings.updatePreferences(p -> p.taskTracker = value));
+        choiceRow(g, tr("apps.tasks_tracker_position"), AntOSSettings.Preferences.TASK_TRACKER_POSITIONS.toArray(String[]::new), "choice.tracker_",
+                preferences.taskTrackerPosition, value -> AntOSSettings.updatePreferences(p -> p.taskTrackerPosition = value));
+        choiceRow(g, tr("apps.tasks_tracker_style"), new String[]{"detailed", "compact"}, "choice.tracker_", preferences.taskTrackerStyle,
+                value -> AntOSSettings.updatePreferences(p -> p.taskTrackerStyle = value));
+        choiceRow(g, tr("apps.tasks_tracker_opacity"), AntOSSettings.Preferences.TASK_TRACKER_OPACITIES.toArray(String[]::new), "choice.opacity_",
+                preferences.taskTrackerOpacity, value -> AntOSSettings.updatePreferences(p -> p.taskTrackerOpacity = value));
+        toggleRow(g, tr("apps.tasks_auto_unpin"), preferences.taskAutoUnpin,
+                value -> AntOSSettings.updatePreferences(p -> p.taskAutoUnpin = value));
+        label(g, tr("apps.tasks_tracker_hint"), Ui.TEXT_MUTED);
         heading(g, "apps.files");
         toggleRow(g, tr("apps.files_places"), preferences.explorerPlaces, value -> {
             AntOSSettings.updatePreferences(p -> p.explorerPlaces = value);
@@ -577,7 +819,18 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void renderNotifications(ThemedGraphics g) {
+        buttonRow(g, tr("notifications.panel_hint"), tr("notifications.panel_open"), false, screen::openNotifications);
+        toggleRow(g, tr("notifications.quiet"), AntOSSettings.preferences().quietNotifications,
+                value -> AntOSSettings.updatePreferences(p -> p.quietNotifications = value));
+        label(g, tr("notifications.quiet_hint"), Ui.TEXT_MUTED);
         var preferences = AntOSSettings.preferences();
+        heading(g, "notifications.interface");
+        toggleRow(g, tr("notifications.interface_sounds"), preferences.interfaceSounds,
+                value -> AntOSSettings.updatePreferences(p -> p.interfaceSounds = value));
+        choiceRow(g, tr("notifications.interface_volume"), new String[]{"0", "20", "40", "60", "80", "100"}, "choice.volume_", Integer.toString(preferences.interfaceVolume),
+                value -> AntOSSettings.updatePreferences(p -> p.interfaceVolume = Integer.parseInt(value)));
+        buttonRow(g, tr("notifications.interface_preview_hint"), tr("notifications.interface_preview"), false, AntOSUiSounds::preview);
+        label(g, tr("notifications.interface_hint"), Ui.TEXT_MUTED);
         heading(g, "notifications.mail");
         choiceRow(g, tr("notifications.style"), ALERT_STYLES, "choice.alert_", preferences.mailAlerts,
                 value -> AntOSSettings.updatePreferences(p -> p.mailAlerts = value));
@@ -651,6 +904,7 @@ final class SettingsApp extends ComputerApp {
         heading(g, "help.tours");
         buttonRow(g, tr("help.antos_tour"), tr("help.replay"), false, this::replayTour);
         if (AntOSSettings.appEnabled("ANTAZON")) buttonRow(g, tr("help.antazon_tour"), tr("help.replay"), false, this::replayAntazon);
+        if (AntOSSettings.appEnabled("MERCHANT")) buttonRow(g, tr("help.merchant_tour"), tr("help.replay"), false, this::replayMerchant);
         heading(g, "help.shortcuts");
         field(g, tr("help.search"), search, tr("help.search_placeholder"));
         String query = search.value.toLowerCase(Locale.ROOT).trim();
@@ -884,6 +1138,9 @@ final class SettingsApp extends ComputerApp {
     }
 
     private void logout() {
+        screen.session.text.checkpoint();
+        screen.session.paint.checkpoint();
+        AntOSUiSounds.play(Cue.CLOSE);
         ComputerNetworking.logout();
         AnternetAccountNetworking.logout();
         AnternetAccountClientState.clear();
@@ -910,6 +1167,11 @@ final class SettingsApp extends ComputerApp {
         screen.open("ANTAZON");
     }
 
+    private void replayMerchant() {
+        screen.session.merchant.replayTour();
+        screen.open("MERCHANT");
+    }
+
     private void confirm(String action) {
         confirmAction = action;
         confirmUntil = System.currentTimeMillis() + 3000L;
@@ -926,6 +1188,15 @@ final class SettingsApp extends ComputerApp {
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
+        if (!passwordDialog && scaleTrackVisible && button == 0
+                && mouseY >= contentTop && mouseY < contentBottom
+                && ComputerScreen.inside(scaleTrackX - 4, scaleTrackY, scaleTrackWidth + 8, 17, mouseX, mouseY)) {
+            focused = null;
+            draggingScale = true;
+            dragScale(mouseX);
+            AntOSUiSounds.play(Cue.CLICK);
+            return true;
+        }
         Field before = focused;
         if (!passwordDialog) focused = null;
         kit.click(mouseX, mouseY, button);
@@ -933,16 +1204,21 @@ final class SettingsApp extends ComputerApp {
         return true;
     }
 
-    void drag(double mouseY) {
-        kit.drag(mouseY);
+    void drag(double mouseX, double mouseY) {
+        if (draggingScale) dragScale(mouseX);
+        else kit.drag(mouseY);
     }
 
     void release() {
+        if (draggingScale) {
+            draggingScale = false;
+            setScale(pendingScale);
+        }
         kit.release();
     }
 
     boolean scroll(Window window, double mouseX, double mouseY, double scrollY) {
-        if (passwordDialog) return true;
+        if (passwordDialog || draggingScale) return true;
         state.scroll = Math.max(0, Math.min(state.maximumScroll, state.scroll - (int) Math.signum(scrollY) * 16));
         return true;
     }
@@ -950,7 +1226,7 @@ final class SettingsApp extends ComputerApp {
     boolean type(Window window, char codePoint, int modifiers) {
         if (focused == null) return false;
         focused.type(codePoint);
-        if (focused == search) state.scroll = 0;
+        if (focused == search || focused == settingsSearch) state.scroll = 0;
         return true;
     }
 
@@ -976,8 +1252,18 @@ final class SettingsApp extends ComputerApp {
             } else if (focused != null) focused.key(keyCode, control);
             return true;
         }
+        if (control && keyCode == InputConstants.KEY_F) {
+            focused = settingsSearch;
+            return true;
+        }
+        if (focused == null && keyCode == InputConstants.KEY_ESCAPE && !settingsSearch.value.isEmpty()) {
+            settingsSearch.set("");
+            state.scroll = 0;
+            return true;
+        }
         if (focused == null) return false;
         if (keyCode == InputConstants.KEY_ESCAPE) {
+            if (focused == settingsSearch) { settingsSearch.set(""); state.scroll = 0; }
             focused = null;
             return true;
         }
@@ -991,7 +1277,7 @@ final class SettingsApp extends ComputerApp {
             return true;
         }
         focused.key(keyCode, control);
-        if (focused == search) state.scroll = 0;
+        if (focused == search || focused == settingsSearch) state.scroll = 0;
         return true;
     }
 

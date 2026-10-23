@@ -20,6 +20,7 @@ import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
 import com.craisinlord.antos.content.computer.paint.AntPaintCanvas;
 import com.craisinlord.antos.content.computer.paint.AntPaintFile;
 import com.craisinlord.antos.content.computer.paint.AntPaintFileCodec;
+import com.craisinlord.antos.content.guide.ComputerGuideData;
 import com.craisinlord.antos.content.network.AntmailAnternetResultPayload;
 import com.craisinlord.antos.content.network.AntmailNetworking;
 import com.craisinlord.antos.content.network.ComputerNetworking;
@@ -35,8 +36,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.WIDTH;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 
 final class AntmailApp extends ComputerApp {
     private static final long STATUS_DURATION_MS = 6000L;
@@ -156,6 +155,7 @@ final class AntmailApp extends ComputerApp {
         int folderGroupWidth = folderSlotWidth * 4;
         int composeX = x + folderGroupWidth + 4;
         state.attachmentHits.clear();
+        state.archiveHits.clear();
         if (state.selfDeletingId != null && !state.mode.equals("message")) {
             AntmailNetworking.delete(state.selfDeletingId, false);
             state.ghosts.add(state.selfDeletingId);
@@ -400,7 +400,7 @@ final class AntmailApp extends ComputerApp {
                     int contentHeight = bodyLines.size() * bodyLineAdvance + (message.attachments().isEmpty() ? 0 : 6);
                     for (AntmailAttachment attachment : message.attachments()) {
                         contentHeight += attachment instanceof AntmailAttachment.Render render
-                                ? (render.kind().equals("entity") ? 56 : 42) + 8 : 14;
+                                ? renderHeight(message, render, message.attachments().indexOf(attachment)) + 8 : 14;
                     }
                     int bodyHeight = Math.max(1, detail.bodyBottom() - detail.bodyTop());
                     int bodyVisible = Math.max(1, bodyHeight / bodyLineAdvance);
@@ -430,7 +430,15 @@ final class AntmailApp extends ComputerApp {
                         if (!message.attachments().isEmpty()) {
                             for (int attachmentIndex = 0; attachmentIndex < message.attachments().size(); attachmentIndex++) {
                                 AntmailAttachment attachment = message.attachments().get(attachmentIndex);
-                                if (attachment instanceof AntmailAttachment.Render render) {
+                                if (attachment instanceof AntmailAttachment.Render render && render.kind().equals("display")) {
+                                    String key = displayKey(message, attachmentIndex);
+                                    int end = screen.displays.render(g, render.resourceId(), key, x, messageLine, navWidth - 8, detail.bodyTop(), detail.bodyBottom());
+                                    state.displayHeights.put(key, Math.max(12, end - messageLine));
+                                    messageLine = end + 8;
+                                } else if (attachment instanceof AntmailAttachment.Render render && render.kind().equals("archive")) {
+                                    if (messageLine + 24 > detail.bodyTop() && messageLine < detail.bodyBottom()) archiveCard(g, render.resourceId(), x, messageLine, navWidth - 8, detail.bodyTop(), detail.bodyBottom());
+                                    messageLine += 32;
+                                } else if (attachment instanceof AntmailAttachment.Render render) {
                                     int previewSize = render.kind().equals("entity") ? 56 : 42;
                                     int boxWidth = Math.min(previewSize, 72);
                                     if (messageLine + previewSize > detail.bodyTop() && messageLine < detail.bodyBottom()) {
@@ -698,12 +706,12 @@ final class AntmailApp extends ComputerApp {
     }
 
     private void startReply(AntmailMessage message) {
-        String subject = message.subject();
+        String subject = localizedMailText(message.subject());
         if (!subject.regionMatches(true, 0, "Re:", 0, 3)) subject = "Re: " + subject;
         if (subject.length() > com.craisinlord.antos.content.antmail.AntmailValidation.MAX_SUBJECT_LENGTH) {
             subject = subject.substring(0, com.craisinlord.antos.content.antmail.AntmailValidation.MAX_SUBJECT_LENGTH);
         }
-        String body = "\n\n-------- " + message.sender().fullAddress() + " wrote --------\n" + message.body();
+        String body = "\n\n-------- " + message.sender().fullAddress() + " wrote --------\n" + localizedMailText(message.body());
         if (body.length() > com.craisinlord.antos.content.antmail.AntmailValidation.MAX_BODY_LENGTH) {
             body = body.substring(0, com.craisinlord.antos.content.antmail.AntmailValidation.MAX_BODY_LENGTH);
         }
@@ -729,6 +737,11 @@ final class AntmailApp extends ComputerApp {
     }
 
     private String localizedMailText(String value) {
+        if (value != null && value.startsWith("computer.antos.merchant.receipt.")) {
+            int end = value.indexOf("\n\n");
+            String[] parts = (end < 0 ? value : value.substring(0, end)).split("\u001F", -1);
+            return Component.translatable(parts[0], (Object[]) java.util.Arrays.copyOfRange(parts, 1, parts.length)).getString() + (end < 0 ? "" : value.substring(end));
+        }
         return value != null && value.startsWith("antazon.") ? Component.translatable(value).getString() : value;
     }
 
@@ -840,6 +853,43 @@ final class AntmailApp extends ComputerApp {
 
     private record AntmailAttachmentHit(int index, int y) { }
 
+    private record ArchiveHit(Identifier entry, int y) { }
+
+    private static String displayKey(AntmailMessage message, int index) {
+        return "mail/" + message.id() + "/" + index;
+    }
+
+    private int renderHeight(AntmailMessage message, AntmailAttachment.Render render, int index) {
+        return switch (render.kind()) {
+            case "display" -> state.displayHeights.getOrDefault(displayKey(message, index), 120);
+            case "archive" -> 24;
+            case "entity" -> 56;
+            default -> 42;
+        };
+    }
+
+    private void archiveCard(ThemedGraphics g, String id, int x, int y, int w, int top, int bottom) {
+        var font = Minecraft.getInstance().font;
+        Identifier entryId = Identifier.tryParse(id);
+        ComputerGuideData.Entry entry = entryId == null ? null : ComputerGuideData.availableEntry(screen.workspaceDiskIds(),
+                com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(), entryId);
+        boolean hovered = entry != null && screen.inside(x, Math.max(y, top), w, Math.min(y + 24, bottom) - Math.max(y, top), screen.session.mouseX, screen.session.mouseY);
+        g.fill(x, y, x + w, y + 24, hovered ? Ui.HOVER : Ui.SURFACE);
+        g.renderOutline(x, y, w, 24, entry == null ? Ui.LINE : Ui.ACCENT);
+        String icon = entry == null ? "" : !entry.itemId().isBlank() ? entry.itemId() : entry.coverItemId();
+        net.minecraft.world.item.Item item = icon.isBlank() || Identifier.tryParse(icon) == null ? null
+                : net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(Identifier.parse(icon));
+        int textX = x + 6;
+        if (item != null && item != net.minecraft.world.item.Items.AIR) {
+            g.renderItem(new net.minecraft.world.item.ItemStack(item), x + 4, y + 4);
+            textX = x + 25;
+        }
+        String title = entry == null ? "ARCHIVE PAGE" : AntOSPlayerText.apply(ComputerGuideData.archiveTitle(entry).getString());
+        g.drawString(font, Component.literal(screen.trimToWidth(title, x + w - textX - 4)), textX, y + 4, entry == null ? Ui.TEXT_MUTED : Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal(screen.trimToWidth(entry == null ? "NOT IN YOUR ARCHIVE YET" : "[ OPEN IN ARCHIVE ]", x + w - textX - 4)), textX, y + 14, entry == null ? Ui.TEXT_MUTED : Ui.ACCENT, false);
+        if (entry != null) state.archiveHits.add(new ArchiveHit(entry.id(), y));
+    }
+
     private void renderAvatar(ThemedGraphics g, String identity, String itemId, String entityId, int x, int y, int size) {
         ProfileAvatar.draw(this, g, identity, itemId, entityId, x, y, size);
     }
@@ -887,12 +937,14 @@ final class AntmailApp extends ComputerApp {
     }
 
     private AntmailMessage selectedMessage(AntmailAnternetResultPayload result) {
-        List<AntmailMessage> messages = mailboxMessages(result, state.sent);
-        if (state.messageIndex < 0 || state.messageIndex >= messages.size()) return null;
-        AntmailMessage summary = messages.get(state.messageIndex);
-        AntmailMessage detail = AntmailClientState.getMessage(summary.id());
-        if (detail == null) requestMissingDetail(summary.id());
-        return detail == null ? summary : detail;
+        if (state.messageId == null) return null;
+        AntmailMessage detail = AntmailClientState.getMessage(state.messageId);
+        if (detail != null) return detail;
+        requestMissingDetail(state.messageId);
+        for (AntmailMessage summary : mailboxMessages(result, state.sent)) {
+            if (summary.id().equals(state.messageId)) return summary;
+        }
+        return null;
     }
 
     private void requestMissingDetail(java.util.UUID id) {
@@ -904,22 +956,14 @@ final class AntmailApp extends ComputerApp {
     }
 
     private void openMessage(AntmailMessage message, String originMode) {
-        List<AntmailMessage> source = mailboxMessages(AntmailClientState.getMailbox(), originMode.equals("sent"));
-        int index = -1;
-        for (int i = 0; i < source.size(); i++) {
-            if (source.get(i).id().equals(message.id())) {
-                index = i;
-                break;
-            }
-        }
-        if (index < 0) return;
         clearStatus();
         state.originMode = originMode;
         state.sent = originMode.equals("sent");
-        state.messageIndex = index;
+        state.messageId = message.id();
         state.mode = "message";
         state.detailScroll = 0;
         state.attachmentHits.clear();
+        state.archiveHits.clear();
         AntmailNetworking.requestMessage(message.id());
         if (originMode.equals("inbox") && !message.read()) {
             AntmailNetworking.markRead(message.id());
@@ -931,7 +975,7 @@ final class AntmailApp extends ComputerApp {
     private void returnToOrigin() {
         state.mode = state.originMode.isBlank() ? "inbox" : state.originMode;
         state.sent = state.mode.equals("sent");
-        state.messageIndex = -1;
+        state.messageId = null;
         state.detailScroll = 0;
     }
 
@@ -1015,7 +1059,7 @@ final class AntmailApp extends ComputerApp {
             state.sent = false;
             state.page = 0;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             state.ghosts.clear();
             requestState(true);
         } else if (screen.inside(contentX + folderSlotWidth, contentY, folderSlotWidth, 20, mouseX, mouseY)) {
@@ -1028,7 +1072,7 @@ final class AntmailApp extends ComputerApp {
             state.sent = true;
             state.page = 0;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (screen.inside(contentX + folderSlotWidth * 2, contentY, folderSlotWidth, 20, mouseX, mouseY)) {
             state.moreOpen = false;
@@ -1040,7 +1084,7 @@ final class AntmailApp extends ComputerApp {
             state.sent = false;
             state.page = 0;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (screen.inside(contentX + folderSlotWidth * 3, contentY, folderSlotWidth, 20, mouseX, mouseY)) {
             state.moreOpen = !state.moreOpen;
@@ -1052,7 +1096,7 @@ final class AntmailApp extends ComputerApp {
             state.mode = "archive";
             state.sent = false;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
                 navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 38,
@@ -1062,7 +1106,7 @@ final class AntmailApp extends ComputerApp {
             state.mode = "trash";
             state.sent = false;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
                 navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 56,
@@ -1263,6 +1307,16 @@ final class AntmailApp extends ComputerApp {
                 return true;
             }
             if (message != null && mouseX >= contentX && mouseX < contentX + navWidth - 8) {
+                for (ArchiveHit hit : state.archiveHits) {
+                    if (mouseY >= Math.max(hit.y(), detail.bodyTop()) && mouseY < Math.min(hit.y() + 24, detail.bodyBottom())) {
+                        ComputerGuideData.Entry entry = ComputerGuideData.availableEntry(screen.workspaceDiskIds(),
+                                com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.get(), hit.entry());
+                        if (entry == null) return true;
+                        screen.session.archive.select(entry);
+                        screen.open("ARCHIVE");
+                        return true;
+                    }
+                }
                 for (AntmailAttachmentHit hit : state.attachmentHits) {
                     if (hit.index() < message.attachments().size()
                             && mouseY >= Math.max(hit.y(), detail.bodyTop())
@@ -1371,7 +1425,7 @@ final class AntmailApp extends ComputerApp {
         if (state.mode.equals("compose")) {
             float scale = screen.uiScale();
             double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
-            int windowX = -WIDTH / 2 + screen.windowLocalX(window), windowY = -HEIGHT / 2 + screen.windowLocalY(window);
+            int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
             int contentX = windowX + 8, contentY = windowY + 28, contentH = screen.windowHeight(window) - 34;
             int contentW = screen.windowWidth(window) - 16;
             AntmailComposeLayout composeLayout = composeLayout(contentY, contentH, contentW);
@@ -1382,7 +1436,7 @@ final class AntmailApp extends ComputerApp {
         } else if (state.mode.equals("message")) {
             float scale = screen.uiScale();
             double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
-            int windowX = -WIDTH / 2 + screen.windowLocalX(window), windowY = -HEIGHT / 2 + screen.windowLocalY(window);
+            int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
             int contentX = windowX + 8, contentY = windowY + 28, contentW = screen.windowWidth(window) - 16;
             AntmailMessage message = selectedMessage(AntmailClientState.getMailbox());
             boolean showRetry = message != null && state.sent && !message.deliveryStatus().equals("DELIVERED");
@@ -1917,7 +1971,7 @@ final class AntmailApp extends ComputerApp {
         int cursor;
         int selectionStart = -1;
         boolean sent;
-        int messageIndex = -1;
+        UUID messageId;
         long openedAt;
         UUID selfDeletingId;
         final List<UUID> ghosts = new ArrayList<>();
@@ -1951,6 +2005,8 @@ final class AntmailApp extends ComputerApp {
         String lastRenderedBody = "";
         boolean lastBodyFocused;
         final List<AntmailAttachmentHit> attachmentHits = new ArrayList<>();
+        final List<ArchiveHit> archiveHits = new ArrayList<>();
+        final java.util.Map<String, Integer> displayHeights = new java.util.HashMap<>();
         boolean attachText;
         boolean attachPaint;
         boolean attachCoins;
@@ -1979,7 +2035,7 @@ final class AntmailApp extends ComputerApp {
         state.sent = mode.equals("sent");
         state.page = 0;
         state.listScroll = 0;
-        state.messageIndex = -1;
+        state.messageId = null;
     }
 
 }

@@ -99,3 +99,21 @@ def uiColorCheck = tasks.register('checkUiColors') {
 subprojects {
     tasks.matching { it.name == 'compileJava' }.configureEach { dependsOn(uiColorCheck) }
 }
+
+def deliveryArrivalTestClasses = layout.buildDirectory.dir('classes/java/deliveryArrivalTest')
+tasks.register('compileDeliveryArrivalTests', JavaCompile) {
+    source files(
+            'common-1.21.1/src/main/java/com/craisinlord/antos/content/entity/DeliveryArrival.java',
+            'common-1.21.1/src/test/java/com/craisinlord/antos/content/entity/DeliveryArrivalTest.java')
+    classpath = files()
+    destinationDirectory = deliveryArrivalTestClasses
+    options.release = 21
+}
+
+tasks.register('deliveryArrivalTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies delivery placement under roofs, in cramped rooms, and near world limits.'
+    dependsOn tasks.named('compileDeliveryArrivalTests')
+    classpath = files(deliveryArrivalTestClasses)
+    mainClass = 'com.craisinlord.antos.content.entity.DeliveryArrivalTest'
+}

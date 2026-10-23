@@ -31,6 +31,7 @@ final class TextEditorApp extends ComputerApp {
     final State state = new State();
     final AppKit kit = new AppKit(this);
     private final FileDialog dialog = new FileDialog(this, kit);
+    private final LocalDraftRecovery recovery = new LocalDraftRecovery(this, kit, "text");
     private final List<int[]> rows = new ArrayList<>();
     private String layoutContent;
     private int[] rowLineStarts = new int[1];
@@ -155,6 +156,7 @@ final class TextEditorApp extends ComputerApp {
         renderText(g, x, top, w, y + h - 14 - top);
         renderFooter(g, x, y + h - 12, w);
         dialog.render(g, x, y, w, h);
+        recovery.render(g, x, y, w, h, this::recoverDraft);
         kit.drawTooltip(g, x, y, x + w, y + h);
     }
 
@@ -487,6 +489,7 @@ final class TextEditorApp extends ComputerApp {
     }
 
     boolean type(Window window, char codePoint, int modifiers) {
+        if (recovery.active()) return true;
         if (dialog.active()) return dialog.type(codePoint);
         if (codePoint < 32 || codePoint == 127) return false;
         if (state.finding && state.findFocused) {
@@ -501,6 +504,7 @@ final class TextEditorApp extends ComputerApp {
     }
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
+        if (recovery.active()) return recovery.key(keyCode);
         if (dialog.active()) return dialog.key(keyCode, modifiers);
         boolean control = screen.hasControl(modifiers);
         boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
@@ -984,6 +988,36 @@ final class TextEditorApp extends ComputerApp {
         long lastEditTime;
         final ArrayDeque<Snapshot> undo = new ArrayDeque<>();
         final ArrayDeque<Snapshot> redo = new ArrayDeque<>();
+    }
+
+    void checkpoint() {
+        if (!state.dirty) { recovery.checkpoint(null); return; }
+        JsonObject draft = new JsonObject();
+        draft.addProperty("path", state.path);
+        draft.addProperty("content", state.content);
+        draft.addProperty("saved", state.savedContent);
+        draft.addProperty("cursor", state.cursor);
+        recovery.checkpoint(draft);
+    }
+
+    private void recoverDraft(JsonObject draft) {
+        if (!draft.has("content") || !draft.get("content").isJsonPrimitive() || !draft.getAsJsonPrimitive("content").isString()
+                || !draft.has("saved") || !draft.get("saved").isJsonPrimitive() || !draft.getAsJsonPrimitive("saved").isString()) {
+            throw new IllegalArgumentException("Incomplete text recovery draft");
+        }
+        String path = ComputerResume.string(draft, "path");
+        String content = ComputerResume.string(draft, "content");
+        String saved = ComputerResume.string(draft, "saved");
+        if (content.length() > ComputerFileSystem.MAX_FILE_SIZE || saved.length() > ComputerFileSystem.MAX_FILE_SIZE) {
+            throw new IllegalArgumentException("Text recovery draft exceeds file limit");
+        }
+        if (!path.startsWith("/") || ComputerFileSystem.isProtected(path)) path = UNTITLED;
+        load(path, content);
+        state.savedContent = saved;
+        state.dirty = true;
+        state.cursor = clamp(ComputerResume.number(draft, "cursor"), 0, content.length());
+        state.pendingOpenPath = "";
+        notice(Component.translatable("computer.antos.recovery.restored").getString(), Ui.ACCENT);
     }
 
     JsonObject saveResume() {

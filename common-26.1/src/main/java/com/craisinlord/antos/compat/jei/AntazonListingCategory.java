@@ -102,10 +102,16 @@ final class AntazonListingCategory implements IRecipeCategory<JeiRecipes.Listing
     }
 
     @Override
+    public void createRecipeExtras(mezz.jei.api.gui.widgets.IRecipeExtrasBuilder builder, JeiRecipes.ListingRecipe recipe, IFocusGroup focuses) {
+        builder.addGuiEventListener(new JeiOpenButton(getWidth(), new com.craisinlord.antos.content.client.ArchiveLookup.Target("listing", recipe.listing().id())));
+    }
+
+    @Override
     public void draw(JeiRecipes.ListingRecipe recipe, IRecipeSlotsView slots, GuiGraphicsExtractor g, double mouseX, double mouseY) {
         JeiClientState.Listing listing = recipe.listing();
         JeiDrawing.panel(g, getWidth(), HEIGHT);
-        JeiDrawing.text(g, JeiDrawing.listingName(listing), 5, 5, getWidth() - 10, Ui.TEXT_STRONG);
+        JeiDrawing.text(g, JeiDrawing.listingName(listing), 5, 5, JeiOpenButton.titleWidth(getWidth()), Ui.TEXT_STRONG);
+        JeiOpenButton.draw(g, getWidth(), mouseX, mouseY);
         JeiClientState.Deal deal = deal(recipe);
         List<JeiClientState.Payment> payments = listing.payments();
         for (int row = 0; row < Math.min(PAYMENT_ROWS, payments.size()); row++) {
@@ -134,6 +140,7 @@ final class AntazonListingCategory implements IRecipeCategory<JeiRecipes.Listing
 
     @Override
     public void getTooltip(ITooltipBuilder tooltip, JeiRecipes.ListingRecipe recipe, IRecipeSlotsView slots, double mouseX, double mouseY) {
+        if (JeiOpenButton.tooltip(tooltip, getWidth(), mouseX, mouseY)) return;
         List<JeiClientState.Payment> payments = recipe.listing().payments();
         for (int row = 0; row < Math.min(PAYMENT_ROWS, payments.size()); row++) {
             JeiClientState.Payment payment = payments.get(row);

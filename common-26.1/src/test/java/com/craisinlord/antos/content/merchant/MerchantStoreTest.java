@@ -9,6 +9,7 @@ public final class MerchantStoreTest {
     public static void main(String[] args) throws Exception {
         MerchantAuditTest.run();
         MerchantIdentityTest.run();
+        MerchantAccessTest.run();
         if (args.length == 0 || !args[0].equals("--rules-only")) MerchantInventoryTest.run();
         Path directory = Files.createTempDirectory("merchant-test-");
         Path file = directory.resolve("market.json");
@@ -51,6 +52,35 @@ public final class MerchantStoreTest {
         boolean rejected = false;
         try { new MerchantStore(file); } catch (Exception exception) { rejected = true; }
         check(rejected, "Unsupported data must not be replaced with an empty market");
+        long now = 1_000_000_000_000L;
+        JsonObject aged = store.snapshot();
+        aged.getAsJsonArray("listings").get(0).getAsJsonObject().addProperty("created", now);
+        JsonObject soldOut = listing();
+        soldOut.addProperty("id", "sold-out");
+        soldOut.addProperty("lots", 0);
+        soldOut.addProperty("created", now - MerchantStore.SOLD_OUT_RETENTION - 1);
+        aged.getAsJsonArray("listings").add(soldOut);
+        for (String status : new String[]{"pending", "dispatched"}) {
+            JsonObject shipment = new JsonObject();
+            shipment.addProperty("status", status);
+            shipment.addProperty("created", now - MerchantStore.SHIPMENT_RETENTION - 1);
+            aged.getAsJsonArray("shipments").add(shipment);
+        }
+        JsonObject oldTrade = new JsonObject();
+        oldTrade.addProperty("created", now - MerchantStore.TRADE_RETENTION - 1);
+        aged.getAsJsonArray("trades").add(oldTrade);
+        for (int index = 0; index < MerchantStore.MAX_REQUESTS + 5; index++) {
+            JsonObject row = new JsonObject();
+            row.addProperty("account", "spam");
+            row.addProperty("id", "spam-" + index);
+            aged.getAsJsonArray("requests").add(row);
+        }
+        MerchantStore.prune(aged, now);
+        check(aged.getAsJsonArray("listings").size() == 1, "Old sold-out listings are pruned while active stock stays");
+        check(aged.getAsJsonArray("shipments").size() == 1 && aged.getAsJsonArray("shipments").get(0).getAsJsonObject().get("status").getAsString().equals("pending"), "Pending deliveries are never pruned");
+        check(aged.getAsJsonArray("trades").isEmpty(), "Old trade history is pruned");
+        check(aged.getAsJsonArray("requests").size() == MerchantStore.MAX_REQUESTS && MerchantStore.requested(aged, "spam", "spam-" + (MerchantStore.MAX_REQUESTS + 4)), "Request log keeps the newest entries");
+        check(MerchantStore.activeListings(aged, "seller") == 1 && MerchantStore.activeListings(aged, "buyer") == 0, "Only active listings count toward the cap");
         Files.delete(file.resolveSibling("market.json.tmp"));
         Files.delete(file);
         Files.delete(directory);

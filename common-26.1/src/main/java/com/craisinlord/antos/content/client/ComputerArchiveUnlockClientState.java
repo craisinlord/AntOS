@@ -23,11 +23,23 @@ public final class ComputerArchiveUnlockClientState {
         try {
             var root = JsonParser.parseString(snapshot).getAsJsonObject();
             com.craisinlord.antos.content.guide.ComputerGuideData.applyNetworkSettings(root);
+            if (root.get("lookup_outputs") instanceof com.google.gson.JsonObject outputs)
+                ArchiveLookup.rememberOutputs(com.craisinlord.antos.content.guide.ArchiveRecipeOutputs.fromJson(outputs));
             var array = root.getAsJsonArray("unlocked_entries");
             List<Identifier> ids = array == null ? List.of() : array.asList().stream().map(value -> {
                 try { return Identifier.parse(value.getAsString()); }
                 catch (RuntimeException ignored) { return null; }
             }).filter(java.util.Objects::nonNull).distinct().toList();
+            if (root.has("lookup_only")) {
+                var activated = root.getAsJsonArray("activated_disks");
+                ArchiveLookup.remember(ids, activated == null ? List.of() : activated.asList().stream()
+                        .map(value -> Identifier.tryParse(value.getAsString())).filter(java.util.Objects::nonNull).toList());
+                Map<String, String> tasks = new java.util.HashMap<>();
+                if (root.get("lookup_tasks") instanceof com.google.gson.JsonObject lookupTasks)
+                    lookupTasks.entrySet().forEach(entry -> tasks.put(entry.getKey(), entry.getValue().getAsString()));
+                ArchiveLookup.rememberTasks(tasks);
+                return;
+            }
             String key = ComputerWorkspaceClientKey.of();
             UNLOCKS.put(key, ids);
             var disks = root.getAsJsonArray("installed_disks");
@@ -59,6 +71,7 @@ public final class ComputerArchiveUnlockClientState {
             });
             DISK_FILES.put(key, Map.copyOf(files));
             ComputerProgramClientState.updateArchive(root);
+            if (!key.equals("workspace:unbound")) ArchiveLookup.remember(ids, ACTIVATED_DISKS.getOrDefault(key, List.of()));
         } catch (RuntimeException ignored) { }
     }
 

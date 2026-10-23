@@ -23,9 +23,13 @@ public final class ComputerTasksClientState {
     private static final Map<String, Map<String, RewardPoolInfo>> REWARD_POOLS = new ConcurrentHashMap<>();
     private static final Map<String, Definitions> DEFINITIONS = new ConcurrentHashMap<>();
     private static final Map<String, String> STATE_HASHES = new ConcurrentHashMap<>();
+    private static final Map<String, List<String>> PINNED = new ConcurrentHashMap<>();
     private static volatile int revision;
+    private static volatile ClaimSummary claimSummary;
+    private static volatile PinNotice pinNotice;
+    private static long noticeSequence;
     private ComputerTasksClientState() { }
-    public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); TEAMS.clear(); INVITES.clear(); TEAM_STATUS.clear(); CATEGORIES.clear(); GROUPS.clear(); REWARD_POOLS.clear(); DEFINITIONS.clear(); STATE_HASHES.clear(); revision++; }
+    public static void clearAll() { TASKS.clear(); RECEIVED.clear(); ERRORS.clear(); TEAMS.clear(); INVITES.clear(); TEAM_STATUS.clear(); CATEGORIES.clear(); GROUPS.clear(); REWARD_POOLS.clear(); DEFINITIONS.clear(); STATE_HASHES.clear(); PINNED.clear(); claimSummary = null; pinNotice = null; revision++; }
 
     public static String requestToken() {
         String key = ComputerWorkspaceClientKey.of();
@@ -37,6 +41,22 @@ public final class ComputerTasksClientState {
     public static int revision() { return revision; }
 
     public static void update(ComputerAccessResultPayload result) {
+        String claimAllPrefix = ComputerAccessPayload.TASK_CLAIM_ALL + "\0";
+        if (result.data().startsWith(claimAllPrefix)) {
+            claimSummary = parseClaimSummary(result.data().substring(claimAllPrefix.length()));
+            revision++;
+            return;
+        }
+        String pinPrefix = ComputerAccessPayload.TASK_PIN + "\0";
+        if (result.data().startsWith(pinPrefix)) {
+            String[] fields = result.data().substring(pinPrefix.length()).split("\u0000", 2);
+            String status = fields[0];
+            String taskId = fields.length > 1 ? fields[1] : "";
+            if (!status.equals("pinned") && !status.equals("unpinned")) refreshPinsFromServer();
+            pinNotice = new PinNotice(++noticeSequence, status, taskId);
+            revision++;
+            return;
+        }
         String teamResultPrefix = ComputerAccessPayload.TEAM_RESULT + "\0";
         if (result.data().startsWith(teamResultPrefix)) {
             String[] status = result.data().split("\u0000", 4);
@@ -48,7 +68,7 @@ public final class ComputerTasksClientState {
         if (!result.data().startsWith(prefix)) return;
         String key = ComputerWorkspaceClientKey.of();
         try {
-            var root = JsonParser.parseString(result.data().substring(prefix.length())).getAsJsonObject();
+            var root = JsonParser.parseString(decompress(result.data().substring(prefix.length()))).getAsJsonObject();
             if (root.has("error")) {
                 TASKS.put(key, List.of());
                 DEFINITIONS.remove(key);
@@ -81,41 +101,56 @@ public final class ComputerTasksClientState {
         } catch (RuntimeException ignored) { }
     }
 
+    private static final String COMPRESSED_PREFIX = "gz:";
+    private static final int MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
+
+    private static String decompress(String data) {
+        if (!data.startsWith(COMPRESSED_PREFIX)) return data;
+        byte[] compressed = java.util.Base64.getDecoder().decode(data.substring(COMPRESSED_PREFIX.length()));
+        try (java.util.zip.GZIPInputStream gzip = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(compressed))) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(compressed.length * 8);
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = gzip.read(buffer)) > 0) {
+                if (out.size() + read > MAX_DECOMPRESSED_BYTES) throw new IllegalStateException("Task snapshot is too large");
+                out.write(buffer, 0, read);
+            }
+            return out.toString(java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     private static Definitions parseDefinitions(String hash, JsonObject root) {
         java.util.ArrayList<TaskDefinition> tasks = new java.util.ArrayList<>();
         if (root.has("tasks") && root.get("tasks").isJsonArray()) for (var element : root.getAsJsonArray("tasks")) {
             var row = element.getAsJsonObject();
             java.util.ArrayList<ObjectiveDefinition> objectives = new java.util.ArrayList<>();
-            var objectiveArray = row.getAsJsonArray("objectives");
-            if (objectiveArray != null) for (var objectiveElement : objectiveArray) {
+            if (row.has("objectives") && row.get("objectives").isJsonArray()) for (var objectiveElement : row.getAsJsonArray("objectives")) {
                 var objective = objectiveElement.getAsJsonObject();
-                objectives.add(new ObjectiveDefinition(objective.get("description").getAsString(), objective.get("count").getAsInt(),
-                        objective.get("optional").getAsBoolean(), objective.has("item") ? objective.get("item").getAsString() : ""));
+                objectives.add(new ObjectiveDefinition(string(objective, "description"), integer(objective, "count", 1),
+                        flag(objective, "optional", false), string(objective, "item")));
             }
             java.util.ArrayList<TaskReward> rewards = new java.util.ArrayList<>();
             if (row.has("rewards") && row.get("rewards").isJsonArray()) for (var rewardElement : row.getAsJsonArray("rewards")) {
                 rewards.add(parseTaskReward(rewardElement.getAsJsonObject()));
             }
-            tasks.add(new TaskDefinition(row.get("id").getAsString(), row.get("title").getAsString(),
-                    row.get("description").getAsString(), row.get("category").getAsString(),
-                    row.has("has_position") && row.get("has_position").getAsBoolean(), row.get("x").getAsInt(), row.get("y").getAsInt(),
-                    row.getAsJsonArray("requires").asList().stream().map(value -> value.getAsString()).toList(),
-                    row.getAsJsonArray("archive_entries").asList().stream().map(value -> value.getAsString()).toList(),
-                    row.get("total").getAsInt(), row.has("has_rewards") && row.get("has_rewards").getAsBoolean(),
-                    row.has("icon_item") ? row.get("icon_item").getAsString() : "",
-                    row.has("icon_entity") ? row.get("icon_entity").getAsString() : "",
-                    !row.has("green_tint") || !row.get("green_tint").isJsonPrimitive() || row.get("green_tint").getAsBoolean(),
-                    !row.has("render_mob_from_spawn_egg") || !row.get("render_mob_from_spawn_egg").isJsonPrimitive() || row.get("render_mob_from_spawn_egg").getAsBoolean(),
-                    TaskAppearance.parse(row), List.copyOf(objectives), List.copyOf(rewards), row.has("icon_texture") ? row.get("icon_texture").getAsString() : "",
+            tasks.add(new TaskDefinition(row.get("id").getAsString(), string(row, "title"), string(row, "description"), string(row, "category"),
+                    flag(row, "has_position", false), integer(row, "x", 0), integer(row, "y", 0),
+                    strings(row, "requires"), strings(row, "archive_entries"),
+                    integer(row, "total", 0), flag(row, "has_rewards", false),
+                    string(row, "icon_item"), string(row, "icon_entity"),
+                    flag(row, "green_tint", true), flag(row, "render_mob_from_spawn_egg", true),
+                    TaskAppearance.parse(row), List.copyOf(objectives), List.copyOf(rewards), string(row, "icon_texture"),
                     strings(row, "connects"), strings(row, "showcase"), strings(row, "requires_any")));
         }
         java.util.ArrayList<LinkDefinition> links = new java.util.ArrayList<>();
         if (root.has("links") && root.get("links").isJsonArray()) for (var element : root.getAsJsonArray("links")) {
             var row = element.getAsJsonObject();
-            links.add(new LinkDefinition(row.get("id").getAsString(), row.get("title").getAsString(), row.get("description").getAsString(),
-                    row.get("category").getAsString(), row.get("link_category").getAsString(), row.get("link_group").getAsString(),
-                    row.has("has_position") && row.get("has_position").getAsBoolean(), row.get("x").getAsInt(), row.get("y").getAsInt(),
-                    row.get("icon_item").getAsString(), row.get("icon_entity").getAsString(),
+            links.add(new LinkDefinition(row.get("id").getAsString(), string(row, "title"), string(row, "description"),
+                    string(row, "category"), string(row, "link_category"), string(row, "link_group"),
+                    flag(row, "has_position", false), integer(row, "x", 0), integer(row, "y", 0),
+                    string(row, "icon_item"), string(row, "icon_entity"),
                     row.has("green_tint") && row.get("green_tint").isJsonPrimitive() ? row.get("green_tint").getAsBoolean() : null,
                     row.has("render_mob_from_spawn_egg") && row.get("render_mob_from_spawn_egg").isJsonPrimitive() ? row.get("render_mob_from_spawn_egg").getAsBoolean() : null,
                     TaskAppearance.parse(row), strings(row, "requires"), strings(row, "connects")));
@@ -124,19 +159,17 @@ public final class ComputerTasksClientState {
         if (root.has("categories") && root.get("categories").isJsonArray()) for (var categoryElement : root.getAsJsonArray("categories")) {
             var category = categoryElement.getAsJsonObject();
             String id = category.get("id").getAsString();
-            categories.put(id, new CategoryInfo(id, category.get("title").getAsString(), category.get("icon_item").getAsString(),
-                    category.get("icon_entity").getAsString(), category.get("sort_order").getAsInt(), category.get("group").getAsString(),
-                    !category.has("green_tint") || !category.get("green_tint").isJsonPrimitive() || category.get("green_tint").getAsBoolean(),
-                    !category.has("render_mob_from_spawn_egg") || !category.get("render_mob_from_spawn_egg").isJsonPrimitive() || category.get("render_mob_from_spawn_egg").getAsBoolean()));
+            categories.put(id, new CategoryInfo(id, string(category, "title"), string(category, "icon_item"),
+                    string(category, "icon_entity"), integer(category, "sort_order", 0), string(category, "group"),
+                    flag(category, "green_tint", true), flag(category, "render_mob_from_spawn_egg", true)));
         }
         java.util.LinkedHashMap<String, GroupInfo> groups = new java.util.LinkedHashMap<>();
         if (root.has("groups") && root.get("groups").isJsonArray()) for (var groupElement : root.getAsJsonArray("groups")) {
             var group = groupElement.getAsJsonObject();
             String id = group.get("id").getAsString();
-            groups.put(id, new GroupInfo(id, group.get("title").getAsString(), group.get("icon_item").getAsString(),
-                    group.get("icon_entity").getAsString(), group.get("sort_order").getAsInt(), group.get("collapsed").getAsBoolean(),
-                    !group.has("green_tint") || !group.get("green_tint").isJsonPrimitive() || group.get("green_tint").getAsBoolean(),
-                    !group.has("render_mob_from_spawn_egg") || !group.get("render_mob_from_spawn_egg").isJsonPrimitive() || group.get("render_mob_from_spawn_egg").getAsBoolean()));
+            groups.put(id, new GroupInfo(id, string(group, "title"), string(group, "icon_item"),
+                    string(group, "icon_entity"), integer(group, "sort_order", 0), flag(group, "collapsed", false),
+                    flag(group, "green_tint", true), flag(group, "render_mob_from_spawn_egg", true)));
         }
         java.util.LinkedHashMap<String, RewardPoolInfo> rewardPools = new java.util.LinkedHashMap<>();
         if (root.has("reward_pools") && root.get("reward_pools").isJsonArray()) for (var poolElement : root.getAsJsonArray("reward_pools")) {
@@ -144,8 +177,8 @@ public final class ComputerTasksClientState {
             java.util.ArrayList<RewardPoolEntryInfo> entries = new java.util.ArrayList<>();
             if (pool.has("entries") && pool.get("entries").isJsonArray()) for (var entryElement : pool.getAsJsonArray("entries")) {
                 var entry = entryElement.getAsJsonObject();
-                entries.add(new RewardPoolEntryInfo(entry.get("item").getAsString(), entry.get("pool").getAsString(),
-                        entry.get("weight").getAsInt(), entry.get("count").getAsInt()));
+                entries.add(new RewardPoolEntryInfo(string(entry, "item"), string(entry, "pool"),
+                        integer(entry, "weight", 1), integer(entry, "count", 1)));
             }
             rewardPools.put(pool.get("id").getAsString(), new RewardPoolInfo(pool.get("id").getAsString(), List.copyOf(entries)));
         }
@@ -156,6 +189,22 @@ public final class ComputerTasksClientState {
     private static List<String> strings(JsonObject row, String key) {
         if (!row.has(key) || !row.get(key).isJsonArray()) return List.of();
         return row.getAsJsonArray(key).asList().stream().map(value -> value.getAsString()).toList();
+    }
+
+    private static String string(JsonObject row, String key) {
+        return row.has(key) && row.get(key).isJsonPrimitive() ? row.get(key).getAsString() : "";
+    }
+
+    private static int integer(JsonObject row, String key, int fallback) {
+        return row.has(key) && row.get(key).isJsonPrimitive() ? row.get(key).getAsInt() : fallback;
+    }
+
+    private static long number(JsonObject row, String key, long fallback) {
+        return row.has(key) && row.get(key).isJsonPrimitive() ? row.get(key).getAsLong() : fallback;
+    }
+
+    private static boolean flag(JsonObject row, String key, boolean fallback) {
+        return row.has(key) && row.get(key).isJsonPrimitive() ? row.get(key).getAsBoolean() : fallback;
     }
 
     private static TaskRow linkRow(LinkDefinition link, Definitions definitions, Map<String, TaskRow> tasksById, List<TaskRow> tasks) {
@@ -198,16 +247,47 @@ public final class ComputerTasksClientState {
             java.util.ArrayList<TaskReward> optionRewards = new java.util.ArrayList<>();
             if (option.has("rewards") && option.get("rewards").isJsonArray()) for (var rewardElement : option.getAsJsonArray("rewards"))
                 optionRewards.add(parseTaskReward(rewardElement.getAsJsonObject()));
-            options.add(new RewardOption(option.get("id").getAsString(), option.get("title").getAsString(), List.copyOf(optionRewards)));
+            options.add(new RewardOption(option.get("id").getAsString(), string(option, "title"), List.copyOf(optionRewards)));
         }
-        return new TaskReward(reward.get("type").getAsString(), reward.get("item").getAsString(),
-                reward.get("count").getAsInt(), reward.get("experience").getAsInt(), reward.get("target").getAsString(),
-                reward.get("subject").getAsString(), reward.has("pool") ? reward.get("pool").getAsString() : "",
-                reward.has("mode") ? reward.get("mode").getAsString() : "", reward.has("antcoins") ? reward.get("antcoins").getAsLong() : 0L,
+        return new TaskReward(reward.get("type").getAsString(), string(reward, "item"),
+                integer(reward, "count", 1), integer(reward, "experience", 0), string(reward, "target"),
+                string(reward, "subject"), string(reward, "pool"), string(reward, "mode"), number(reward, "antcoins", 0L),
                 List.copyOf(options));
     }
 
+    private static ClaimSummary parseClaimSummary(String json) {
+        try {
+            var root = JsonParser.parseString(json).getAsJsonObject();
+            Map<String, Integer> items = new java.util.LinkedHashMap<>();
+            long antcoins = 0L;
+            int experience = 0;
+            int levels = 0;
+            int other = 0;
+            if (root.has("receipt") && root.get("receipt").isJsonArray()) for (var element : root.getAsJsonArray("receipt")) {
+                var reward = element.getAsJsonObject();
+                switch (string(reward, "type")) {
+                    case "item" -> items.merge(string(reward, "item"), integer(reward, "count", 0), Integer::sum);
+                    case "antcoins" -> antcoins += number(reward, "amount", 0L);
+                    case "experience" -> experience += integer(reward, "points", 0);
+                    case "experience_levels" -> levels += integer(reward, "levels", 0);
+                    default -> other++;
+                }
+            }
+            List<String> failed = strings(root, "failed");
+            return new ClaimSummary(++noticeSequence, string(root, "error"), strings(root, "claimed").size(), failed.size(), failed,
+                    integer(root, "crates", 0), java.util.Collections.unmodifiableMap(items), antcoins, experience, levels, other);
+        } catch (RuntimeException ignored) {
+            return new ClaimSummary(++noticeSequence, "invalid", 0, 0, List.of(), 0, Map.of(), 0L, 0, 0, 0);
+        }
+    }
+
+    private static void refreshPinsFromServer() {
+        STATE_HASHES.remove(ComputerWorkspaceClientKey.of());
+        ComputerNetworking.requestTasks(requestToken());
+    }
+
     private static void applyState(String key, Definitions definitions, JsonObject root) {
+        PINNED.put(key, strings(root, "pinned"));
         if (root.has("team") && root.get("team").isJsonObject()) {
             var team = root.getAsJsonObject("team");
             TEAMS.put(key, new TeamInfo(team.get("id").getAsString(),
@@ -250,11 +330,11 @@ public final class ComputerTasksClientState {
                 complete |= goal > 0 && value >= goal;
                 objectives.add(new TaskObjective(objective.description(), value, objective.count(), objective.optional(), objective.item(), goal, complete));
             }
-            rows.add(new TaskRow(definition.id(), definition.title(), definition.description(), row.get("available").getAsBoolean(),
-                    row.get("complete").getAsBoolean(), row.get("visible").getAsBoolean(), definition.category(),
+            rows.add(new TaskRow(definition.id(), definition.title(), definition.description(), flag(row, "available", false),
+                    flag(row, "complete", false), flag(row, "visible", false), definition.category(),
                     definition.hasPosition(), definition.x(), definition.y(), definition.requires(), definition.archiveEntries(),
-                    row.get("done").getAsInt(), definition.total(), definition.hasRewards(),
-                    row.get("claimable").getAsBoolean(), row.get("claimed").getAsBoolean(),
+                    integer(row, "done", 0), definition.total(), definition.hasRewards(),
+                    flag(row, "claimable", false), flag(row, "claimed", false),
                     definition.iconItem(), definition.iconEntity(), definition.greenTint(), definition.renderMobFromSpawnEgg(), definition.appearance(),
                     List.copyOf(objectives), definition.rewards(), definition.iconTexture(), definition.connects(), "", "", definition.showcase(), definition.requiresAny()));
         }
@@ -263,9 +343,29 @@ public final class ComputerTasksClientState {
         List<TaskRow> taskRows = List.copyOf(rows);
         for (LinkDefinition link : definitions.links()) rows.add(linkRow(link, definitions, tasksById, taskRows));
         TASKS.put(key, List.copyOf(rows));
+        if (!key.equals("workspace:unbound")) {
+            Map<String, String> lookup = new java.util.HashMap<>();
+            for (boolean finished : new boolean[] {false, true}) for (TaskRow row : taskRows) {
+                if (row.complete() != finished || !row.visible() || !(row.available() || row.complete())) continue;
+                for (TaskObjective objective : row.objectives()) if (!objective.item().isBlank()) lookup.putIfAbsent(objective.item(), row.id());
+            }
+            ArchiveLookup.rememberTasks(lookup);
+        }
     }
 
     public static List<TaskRow> get() { return TASKS.getOrDefault(ComputerWorkspaceClientKey.of(), List.of()); }
+    public static List<String> pinned() { return PINNED.getOrDefault(ComputerWorkspaceClientKey.of(), List.of()); }
+    public static boolean isPinned(String taskId) { return pinned().contains(taskId); }
+    public static void setPinnedLocally(String taskId, boolean pinned) {
+        String key = ComputerWorkspaceClientKey.of();
+        java.util.ArrayList<String> next = new java.util.ArrayList<>(PINNED.getOrDefault(key, List.of()));
+        if (pinned ? next.contains(taskId) : !next.remove(taskId)) return;
+        if (pinned) next.add(taskId);
+        PINNED.put(key, List.copyOf(next));
+        revision++;
+    }
+    public static ClaimSummary claimSummary() { return claimSummary; }
+    public static PinNotice pinNotice() { return pinNotice; }
     public static boolean hasSnapshot() { return RECEIVED.contains(ComputerWorkspaceClientKey.of()); }
     public static boolean hasError() { return ERRORS.contains(ComputerWorkspaceClientKey.of()); }
     public static TeamInfo team() { return TEAMS.get(ComputerWorkspaceClientKey.of()); }
@@ -294,7 +394,7 @@ public final class ComputerTasksClientState {
         var id = net.minecraft.resources.Identifier.tryParse(category);
         return id == null ? null : definitions.get(id.toString());
     }
-    public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); REWARD_POOLS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
+    public static void clear() { String key = ComputerWorkspaceClientKey.of(); TASKS.remove(key); PINNED.remove(key); RECEIVED.remove(key); ERRORS.remove(key); TEAMS.remove(key); INVITES.remove(key); TEAM_STATUS.remove(key); CATEGORIES.remove(key); GROUPS.remove(key); REWARD_POOLS.remove(key); DEFINITIONS.remove(key); STATE_HASHES.remove(key); revision++; }
     public static void clearTransient() { TEAM_STATUS.remove(ComputerWorkspaceClientKey.of()); }
     private record Definitions(String hash, List<TaskDefinition> tasks, Map<String, CategoryInfo> categories, Map<String, GroupInfo> groups,
                                Map<String, RewardPoolInfo> rewardPools, List<LinkDefinition> links) { }
@@ -323,4 +423,9 @@ public final class ComputerTasksClientState {
     public record RewardPoolEntryInfo(String item, String pool, int weight, int count) { }
     public record TeamInfo(String id, boolean owner, String ownerName, List<String> members) { }
     public record TeamInvite(String id, String ownerName, String inviterName) { }
+    public record ClaimSummary(long sequence, String error, int claimed, int failed, List<String> failedIds, int crates, Map<String, Integer> items,
+                               long antcoins, int experience, int levels, int other) {
+        public int itemCount() { return items.values().stream().mapToInt(Integer::intValue).sum(); }
+    }
+    public record PinNotice(long sequence, String status, String taskId) { }
 }

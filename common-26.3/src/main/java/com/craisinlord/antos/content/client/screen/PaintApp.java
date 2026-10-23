@@ -2,6 +2,8 @@ package com.craisinlord.antos.content.client.screen;
 
 import com.craisinlord.antos.content.client.palette.Ui;
 import com.google.gson.JsonObject;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
+import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
 import com.craisinlord.antos.content.computer.ComputerFileSystem;
@@ -37,6 +39,7 @@ final class PaintApp extends ComputerApp {
     final State state = new State();
     final AppKit kit = new AppKit(this);
     private final FileDialog dialog = new FileDialog(this, kit);
+    private final LocalDraftRecovery recovery = new LocalDraftRecovery(this, kit, "paint");
     private int canvasX;
     private int canvasY;
     private int pixelSize = 1;
@@ -105,6 +108,7 @@ final class PaintApp extends ComputerApp {
         String path = state.pendingPath;
         state.pendingPath = "";
         if (!success) {
+            AntOSUiSounds.play(Cue.ERROR);
             notice(tr("notice.failed", AppKit.fileError(error)), Ui.ERROR);
             return;
         }
@@ -114,6 +118,7 @@ final class PaintApp extends ComputerApp {
         }
         state.savedPixels = state.pendingPixels;
         markChanged();
+        AntOSUiSounds.play(Cue.SAVE);
         notice(tr("notice.saved"), Ui.TEXT);
         ComputerNetworking.listFiles();
     }
@@ -137,6 +142,7 @@ final class PaintApp extends ComputerApp {
         renderFooter(g, x, y + h - 10, w);
         if (state.menuOpen) renderMenu(g, x, y, w, h);
         dialog.render(g, x, y, w, h);
+        recovery.render(g, x, y, w, h, this::recoverDraft);
         kit.drawTooltip(g, x, y, x + w, y + h);
     }
 
@@ -501,10 +507,12 @@ final class PaintApp extends ComputerApp {
     }
 
     boolean type(Window window, char codePoint, int modifiers) {
+        if (recovery.active()) return true;
         return dialog.active() && dialog.type(codePoint);
     }
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
+        if (recovery.active()) return recovery.key(keyCode);
         if (dialog.active()) return dialog.key(keyCode, modifiers);
         if (keyCode == InputConstants.KEY_ESCAPE && state.menuOpen) {
             state.menuOpen = false;
@@ -715,6 +723,39 @@ final class PaintApp extends ComputerApp {
         String pendingName = "";
         boolean[] pendingPixels = new boolean[AntPaintCanvas.PIXEL_COUNT];
         int pendingSerial;
+    }
+
+    void checkpoint() {
+        if (!state.dirty) { recovery.checkpoint(null); return; }
+        JsonObject draft = new JsonObject();
+        draft.addProperty("path", state.path);
+        draft.addProperty("name", state.name);
+        draft.addProperty("file_id", state.fileId);
+        draft.addProperty("pixels", Base64.getEncoder().encodeToString(state.canvas.pack()));
+        byte[] saved = new byte[AntPaintCanvas.PACKED_LENGTH];
+        for (int i = 0; i < state.savedPixels.length; i++) if (state.savedPixels[i]) saved[i / 8] |= (byte) (1 << (i % 8));
+        draft.addProperty("saved_pixels", Base64.getEncoder().encodeToString(saved));
+        recovery.checkpoint(draft);
+    }
+
+    private void recoverDraft(JsonObject draft) {
+        AntPaintCanvas canvas = AntPaintCanvas.unpack(Base64.getDecoder().decode(ComputerResume.string(draft, "pixels")));
+        String saved = ComputerResume.string(draft, "saved_pixels");
+        boolean[] savedPixels = saved.isEmpty() ? new boolean[AntPaintCanvas.PIXEL_COUNT]
+                : AntPaintCanvas.unpack(Base64.getDecoder().decode(saved)).copyPixels();
+        String path = ComputerResume.string(draft, "path");
+        state.path = path.startsWith("/") && !com.craisinlord.antos.content.computer.ComputerFileSystem.isProtected(path) ? path : "";
+        state.name = safeName(ComputerResume.string(draft, "name"), State.UNTITLED);
+        state.fileId = ComputerResume.string(draft, "file_id");
+        state.canvas = canvas;
+        state.savedPixels = savedPixels;
+        state.history.clear();
+        state.dirty = true;
+        state.menuOpen = false;
+        state.pendingOpenPath = "";
+        resumePath = "";
+        cancelStroke();
+        notice(Component.translatable("computer.antos.recovery.restored").getString(), Ui.ACCENT);
     }
 
     JsonObject saveResume() {

@@ -147,6 +147,25 @@ tasks.register('compileDisplayTests', JavaCompile) {
 
 
 
+def taskPinsTestClasses = layout.buildDirectory.dir('classes/java/taskPinsTest')
+
+tasks.register('compileTaskPinsTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files('../common-1.20.1/src/test/java/com/craisinlord/antos/content/computer/TaskPinsAndClaimsTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = taskPinsTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+tasks.register('taskPinsAndClaimsTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies pinned task storage and Claim All reward crate packing.'
+    dependsOn tasks.named('compileTaskPinsTests')
+    classpath = files(taskPinsTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
+    mainClass = 'com.craisinlord.antos.content.computer.TaskPinsAndClaimsTest'
+}
+
 def merchantTestClasses = layout.buildDirectory.dir('classes/java/merchantTest')
 
 tasks.register('compileMerchantTests', JavaCompile) {
@@ -164,4 +183,38 @@ tasks.register('merchantTest', JavaExec) {
     classpath = files(merchantTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
     mainClass = 'com.craisinlord.antos.content.merchant.MerchantStoreTest'
     args '--rules-only'
+}
+
+def configTestClasses = layout.buildDirectory.dir('classes/java/configTest')
+
+tasks.register('compileConfigTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files('../common-1.20.1/src/test/java/com/craisinlord/antos/config/NotificationHistoryTest.java',
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/config/DesktopPreferencesTest.java',
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/content/client/screen/DesktopQolAuditTest.java',
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/content/client/screen/DesktopViewportTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = configTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+tasks.register('notificationHistoryTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies notification history storage, read state, and reload.'
+    dependsOn tasks.named('compileConfigTests')
+    classpath = files(configTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
+    mainClass = 'com.craisinlord.antos.config.NotificationHistoryTest'
+}
+
+['desktopPreferencesTest': 'com.craisinlord.antos.config.DesktopPreferencesTest',
+ 'desktopQolAuditTest': 'com.craisinlord.antos.content.client.screen.DesktopQolAuditTest',
+ 'desktopViewportTest': 'com.craisinlord.antos.content.client.screen.DesktopViewportTest'].each { name, testClass ->
+    tasks.register(name, JavaExec) {
+        group = 'verification'
+        description = 'Verifies desktop preferences, draft recovery, and the desktop viewport.'
+        dependsOn tasks.named('compileConfigTests')
+        classpath = files(configTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
+        mainClass = testClass
+    }
 }

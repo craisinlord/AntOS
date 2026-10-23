@@ -33,6 +33,8 @@ public final class ComputerWorkspaceData extends SavedData {
     private static final String TEAMS_TAG = "Teams";
     private static final String TEAM_INVITES_TAG = "TeamInvites";
     private static final String CLAIMED_REWARDS_TAG = "ClaimedTaskRewards";
+    private static final String PINNED_TASKS_TAG = "PinnedTasks";
+    public static final int MAX_PINNED_TASKS = 5;
     private static final String PENDING_ANTOS_GRANTS_TAG = "PendingAntOSGrants";
     private static final int ACCOUNT_SCHEMA = 1;
     private static final int PASSWORD_ITERATIONS = 160_000;
@@ -58,6 +60,7 @@ public final class ComputerWorkspaceData extends SavedData {
     private final Map<UUID, UUID> teamByAccount = new LinkedHashMap<>();
     private final Map<UUID, TeamInvite> teamInvites = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> claimedTaskRewards = new LinkedHashMap<>();
+    private final Map<UUID, Set<ResourceLocation>> pinnedTasks = new LinkedHashMap<>();
     private final Map<UUID, Set<PendingAntOSGrant>> pendingAntOSGrants = new LinkedHashMap<>();
 
     public static ComputerWorkspaceData access(MinecraftServer server) {
@@ -255,6 +258,21 @@ public final class ComputerWorkspaceData extends SavedData {
                     catch (RuntimeException ignored) { }
                 }
                 data.claimedTaskRewards.put(accountId, claimed);
+            } catch (RuntimeException ignored) { }
+        }
+        ListTag pinnedRows = tag.getList(PINNED_TASKS_TAG, 10);
+        for (int index = 0; index < pinnedRows.size(); index++) {
+            CompoundTag row = pinnedRows.getCompound(index);
+            try {
+                UUID accountId = UUID.fromString(row.getString("Account"));
+                if (!data.accounts.containsKey(accountId)) continue;
+                Set<ResourceLocation> pinned = new LinkedHashSet<>();
+                ListTag ids = row.getList("Tasks", 8);
+                for (int idIndex = 0; idIndex < ids.size() && pinned.size() < MAX_PINNED_TASKS; idIndex++) {
+                    try { pinned.add(ResourceLocation.parse(ids.getString(idIndex))); }
+                    catch (RuntimeException ignored) { }
+                }
+                if (!pinned.isEmpty()) data.pinnedTasks.put(accountId, pinned);
             } catch (RuntimeException ignored) { }
         }
         ListTag pendingRows = tag.getList(PENDING_ANTOS_GRANTS_TAG, 10);
@@ -629,6 +647,32 @@ public final class ComputerWorkspaceData extends SavedData {
         return changed;
     }
 
+    public synchronized List<ResourceLocation> pinnedTasks(UUID accountId) {
+        return List.copyOf(pinnedTasks.getOrDefault(accountId, Set.of()));
+    }
+
+    public synchronized boolean isTaskPinned(UUID accountId, ResourceLocation taskId) {
+        return pinnedTasks.getOrDefault(accountId, Set.of()).contains(taskId);
+    }
+
+    public synchronized PinResult setTaskPinned(UUID accountId, ResourceLocation taskId, boolean pinned) {
+        if (accountId == null || taskId == null || !accounts.containsKey(accountId)) return PinResult.INVALID;
+        Set<ResourceLocation> current = pinnedTasks.computeIfAbsent(accountId, ignored -> new LinkedHashSet<>());
+        if (!pinned) {
+            boolean removed = current.remove(taskId);
+            if (current.isEmpty()) pinnedTasks.remove(accountId);
+            if (removed) setDirty();
+            return removed ? PinResult.CHANGED : PinResult.UNCHANGED;
+        }
+        if (current.contains(taskId)) return PinResult.UNCHANGED;
+        if (current.size() >= MAX_PINNED_TASKS) return PinResult.FULL;
+        current.add(taskId);
+        setDirty();
+        return PinResult.CHANGED;
+    }
+
+    public enum PinResult { CHANGED, UNCHANGED, FULL, INVALID }
+
     private void persistTeamProgressToAccount(Team team, UUID accountId) {
         ComputerAccountShard shard = accountShard(accountId);
         if (shard == null) return;
@@ -924,6 +968,14 @@ public final class ComputerWorkspaceData extends SavedData {
             row.put("Tasks", ids); claims.add(row);
         }
         tag.put(CLAIMED_REWARDS_TAG, claims);
+        ListTag pins = new ListTag();
+        for (Map.Entry<UUID, Set<ResourceLocation>> entry : pinnedTasks.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            CompoundTag row = new CompoundTag(); row.putString("Account", entry.getKey().toString());
+            ListTag ids = new ListTag(); entry.getValue().forEach(id -> ids.add(net.minecraft.nbt.StringTag.valueOf(id.toString())));
+            row.put("Tasks", ids); pins.add(row);
+        }
+        tag.put(PINNED_TASKS_TAG, pins);
         ListTag pendingRows = new ListTag();
         for (Map.Entry<UUID, Set<PendingAntOSGrant>> entry : pendingAntOSGrants.entrySet()) {
             for (PendingAntOSGrant grant : entry.getValue()) {

@@ -185,7 +185,7 @@ final class AppKit {
         } finally {
             g.pose().popPose();
         }
-        if (hover && !tip.isEmpty()) tooltip = tip;
+        if (hovered(x, y, w, h) && !tip.isEmpty()) tooltip = tip;
         if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 
@@ -221,7 +221,8 @@ final class AppKit {
     void drawTooltip(GuiGraphics g, int left, int top, int right, int bottom) {
         if (tooltip.isEmpty()) return;
         int availableWidth = Math.max(1, right - left - 10);
-        var lines = app.font.split(Component.literal(tooltip), availableWidth);
+        String hint = app.screen.lookupHint();
+        var lines = app.font.split(Component.literal(hint.isEmpty() ? tooltip : tooltip + "\n" + hint), availableWidth);
         int count = Math.min(lines.size(), Math.max(1, (bottom - top - 6) / 11));
         int width = Math.min(right - left, lines.stream().limit(count).mapToInt(app.font::width).max().orElse(0) + 10);
         int height = count * 11 + 6;

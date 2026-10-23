@@ -95,6 +95,14 @@ tasks.register('accountTest', JavaExec) {
     mainClass = 'com.craisinlord.antos.content.computer.ComputerWorkspaceDataAccountTest'
 }
 
+tasks.register('taskPinsAndClaimsTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies pinned task storage and Claim All reward crate packing.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.computer.TaskPinsAndClaimsTest'
+}
+
 tasks.register('taskAppearanceTest', JavaExec) {
     group = 'verification'
     description = 'Runs task appearance parsing and shape geometry tests.'
@@ -154,7 +162,11 @@ tasks.register('diskDefinitionTest', JavaExec) {
 }
 
 ['configMigrationTest': 'com.craisinlord.antos.config.ConfigMigrationTest',
- 'desktopPreferencesTest': 'com.craisinlord.antos.config.DesktopPreferencesTest'].each { name, testClass ->
+ 'desktopPreferencesTest': 'com.craisinlord.antos.config.DesktopPreferencesTest',
+ 'notificationHistoryTest': 'com.craisinlord.antos.config.NotificationHistoryTest',
+ 'desktopQolAuditTest': 'com.craisinlord.antos.content.client.screen.DesktopQolAuditTest',
+ 'desktopViewportTest': 'com.craisinlord.antos.content.client.screen.DesktopViewportTest',
+ 'windowBoundsTest': 'com.craisinlord.antos.content.client.screen.WindowBoundsTest'].each { name, testClass ->
     tasks.register(name, JavaExec) {
         group = 'verification'
         description = 'Verifies AntOS pack config and player settings storage.'

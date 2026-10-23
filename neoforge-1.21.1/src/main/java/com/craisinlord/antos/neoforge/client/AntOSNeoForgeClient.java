@@ -69,6 +69,7 @@ public final class AntOSNeoForgeClient {
 
     private static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
         ArchiveLookup.tick();
+        com.craisinlord.antos.content.client.TaskTrackerHud.tick();
     }
 
     @SubscribeEvent
@@ -76,6 +77,13 @@ public final class AntOSNeoForgeClient {
         net.minecraft.client.KeyMapping key = ArchiveLookup.create(org.lwjgl.glfw.GLFW.GLFW_KEY_W);
         key.setKeyConflictContext(net.neoforged.neoforge.client.settings.KeyConflictContext.GUI);
         event.register(key);
+        event.register(com.craisinlord.antos.content.client.TaskTrackerHud.createKey());
+    }
+
+    @SubscribeEvent
+    public static void registerGuiLayers(net.neoforged.neoforge.client.event.RegisterGuiLayersEvent event) {
+        event.registerAboveAll(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(AntOS.MODID, "task_tracker"),
+                (graphics, delta) -> com.craisinlord.antos.content.client.TaskTrackerHud.render(graphics));
     }
 
     private static void onScreenInit(ScreenEvent.Init.Post event) {

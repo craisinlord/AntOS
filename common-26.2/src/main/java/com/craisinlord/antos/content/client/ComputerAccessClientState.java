@@ -13,6 +13,7 @@ public final class ComputerAccessClientState {
 
     public static void clearAll() {
         RESULTS.clear();
+        ComputerDesktopClientState.clearAll();
         DiskRewardsClientState.clearAll();
         ComputerProgramClientState.clearAll();
         ComputerTasksClientState.clearAll();
@@ -27,6 +28,11 @@ public final class ComputerAccessClientState {
     }
 
     public static void update(ComputerAccessResultPayload result) {
+        String previewPrefix = com.craisinlord.antos.content.network.ComputerAccessPayload.DISPLAY_PREVIEW + "\0";
+        if (result.data().startsWith(previewPrefix)) {
+            com.craisinlord.antos.content.client.screen.DisplayPreviewScreen.receive(result.data().substring(previewPrefix.length()));
+            return;
+        }
         DiskRewardsClientState.update(result);
         ComputerProgramClientState.update(result);
         com.craisinlord.antos.content.client.game.BlockleClientState.update(result);
@@ -37,6 +43,7 @@ public final class ComputerAccessClientState {
         AntazonClientState.update(result);
         MerchantClientState.update(result);
         ComputerNotificationClientState.update(result);
+        ComputerDesktopClientState.update(result);
         if (result.data().startsWith(com.craisinlord.antos.content.network.ComputerAccessPayload.ARCHIVE_STATE + "\0")) {
             String[] envelope = result.data().split("\u0000", 4);
             if (envelope.length >= 3) {

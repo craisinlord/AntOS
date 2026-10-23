@@ -47,6 +47,7 @@ public final class AntOSNeoForge {
         NeoForge.EVENT_BUS.addListener(this::onServerTick);
         NeoForge.EVENT_BUS.addListener(this::onServerStopped);
         NeoForge.EVENT_BUS.addListener(this::onPlayerLogout);
+        NeoForge.EVENT_BUS.addListener(this::onPlayerLogin);
         NeoForge.EVENT_BUS.addListener(this::onAdvancementEarned);
         AntmailEventData.registerListeners();
         AntmailEventData.setAdvancementEvents(true);
@@ -59,6 +60,7 @@ public final class AntOSNeoForge {
         com.craisinlord.antos.content.antazon.AntazonCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntcoinCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.computer.AccountCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.guide.DisplayCommands.register(event.getDispatcher());
     }
     private void registerReloadListeners(AddServerReloadListenersEvent event) {
         event.addListener(net.minecraft.resources.Identifier.fromNamespaceAndPath(AntOS.MODID, "computer_guide"), ComputerGuideData.instance());
@@ -71,9 +73,11 @@ public final class AntOSNeoForge {
 
     private void onServerTick(ServerTickEvent.Post event) {
         var server = event.getServer();
+        com.craisinlord.antos.content.guide.DisplayCommands.tick(server);
         FieldGuideCompat.tick(server);
         FloppyTextureSync.tick(server);
         com.craisinlord.antos.content.network.JeiSync.tick(server);
+        com.craisinlord.antos.content.network.DisplaySync.tick(server);
         AntmailEventData.onTick(server);
         com.craisinlord.antos.content.computer.ComputerLocationObjectives.tick(server);
         com.craisinlord.antos.content.computer.ComputerPrograms.tick(server);
@@ -86,6 +90,7 @@ public final class AntOSNeoForge {
     }
 
     private void onServerStopped(ServerStoppedEvent event) {
+        com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
         FieldGuideCompat.shutdown();
         com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
     }
@@ -93,6 +98,12 @@ public final class AntOSNeoForge {
     private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(player);
+        }
+    }
+
+    private void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            com.craisinlord.antos.content.network.ComputerAccessHandler.sendLookup(player);
         }
     }
 }

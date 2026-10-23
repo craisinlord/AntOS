@@ -1,6 +1,7 @@
 package com.craisinlord.antos.content.client.game;
 
 import com.craisinlord.antos.api.client.game.ComputerGame;
+import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.palette.Ui;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -327,6 +328,8 @@ public final class FliptrisProgram implements ComputerGame.Session {
     }
 
     private static void sound(net.minecraft.sounds.SoundEvent event, float pitch, float volume) {
-        Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(event, pitch, volume));
+        var preferences = AntOSSettings.preferences();
+        if (!preferences.interfaceSounds || preferences.interfaceVolume <= 0) return;
+        Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(event, pitch, volume * preferences.interfaceVolume / 100.0F));
     }
 }

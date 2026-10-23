@@ -490,6 +490,11 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 entry.lookup().forEach(lookup::add);
                 object.add("lookup", lookup);
             }
+            if (!entry.lookupRecipes().isEmpty()) {
+                JsonArray lookupRecipes = new JsonArray();
+                entry.lookupRecipes().forEach(lookupRecipes::add);
+                object.add("lookup_recipes", lookupRecipes);
+            }
             entryArray.add(object);
         });
         root.add("entries", entryArray);
@@ -1034,7 +1039,17 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 && object.get("unlocked_by_default").getAsBoolean();
         target.put(id, new Entry(id, type, category, title, subtitle, description, item, entity, enchantment, recipe, structure, structureTag, dimension, searchRadius, locator,
                 coverItem, coverEntity, coverPotion, rotation, renderScale, greenTint, unlockedByDefault, gallery(object.get("gallery")),
-                string(object, "gallery_title", ""), folder, boundedSortOrder(object), lookupIds(object.get("lookup"))));
+                string(object, "gallery_title", ""), folder, boundedSortOrder(object), lookupIds(object.get("lookup")),
+                recipeTypeIds(object.get("lookup_recipes"))));
+    }
+
+    private static List<String> recipeTypeIds(JsonElement element) {
+        List<String> result = new ArrayList<>();
+        for (String value : strings(element)) {
+            String trimmed = value.trim();
+            if (!trimmed.isEmpty() && ResourceLocation.tryParse(trimmed) != null && !result.contains(trimmed)) result.add(trimmed);
+        }
+        return result;
     }
 
     private static List<String> lookupIds(JsonElement element) {
@@ -1063,6 +1078,18 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 ResourceLocation previous = claimed.putIfAbsent(id, entry.id());
                 if (previous != null && !previous.equals(entry.id()))
                     AntOS.LOGGER.warn("Archive entries {} and {} both look up {}; {} wins", previous, entry.id(), id, previous);
+            }
+        }
+        Map<String, ResourceLocation> stations = new HashMap<>();
+        for (Entry entry : entries.values()) {
+            for (String type : entry.lookupRecipes()) {
+                ResourceLocation id = ResourceLocation.tryParse(type);
+                if (id == null || !net.minecraft.core.registries.BuiltInRegistries.RECIPE_TYPE.containsKey(id)
+                        && !net.minecraft.core.registries.BuiltInRegistries.RECIPE_SERIALIZER.containsKey(id))
+                    AntOS.LOGGER.warn("Archive entry {} looks up recipes of missing type {}", entry.id(), type);
+                ResourceLocation previous = stations.putIfAbsent(type, entry.id());
+                if (previous != null && !previous.equals(entry.id()))
+                    AntOS.LOGGER.warn("Archive entries {} and {} both look up {} recipes; their shared outputs open neither", previous, entry.id(), type);
             }
         }
     }
@@ -1675,9 +1702,20 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                          String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
                          String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
                          boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, ResourceLocation folder, int sortOrder,
-                         List<String> lookup) {
+                         List<String> lookup, List<String> lookupRecipes) {
         public Entry {
             lookup = lookup == null ? List.of() : List.copyOf(lookup);
+            lookupRecipes = lookupRecipes == null ? List.of() : List.copyOf(lookupRecipes);
+        }
+        public Entry(ResourceLocation id, String type, String category, String titleKey, String subtitleKey,
+                     List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
+                     String recipeId, String structureId, String structureTagId, String dimensionId, int searchRadius, String locatorId, String coverItemId,
+                     String coverEntityId, String coverPotionId, float rotation, float renderScale, boolean greenTint,
+                     boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, ResourceLocation folder, int sortOrder,
+                     List<String> lookup) {
+            this(id, type, category, titleKey, subtitleKey, descriptionKeys, itemId, entityId, enchantmentId, recipeId, structureId, structureTagId,
+                    dimensionId, searchRadius, locatorId, coverItemId, coverEntityId, coverPotionId, rotation, renderScale, greenTint, unlockedByDefault,
+                    gallery, galleryTitleKey, folder, sortOrder, lookup, List.of());
         }
         public Entry(ResourceLocation id, String type, String category, String titleKey, String subtitleKey,
                      List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,
@@ -1686,7 +1724,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                      boolean unlockedByDefault, List<GalleryItem> gallery, String galleryTitleKey, ResourceLocation folder, int sortOrder) {
             this(id, type, category, titleKey, subtitleKey, descriptionKeys, itemId, entityId, enchantmentId, recipeId, structureId, structureTagId,
                     dimensionId, searchRadius, locatorId, coverItemId, coverEntityId, coverPotionId, rotation, renderScale, greenTint, unlockedByDefault,
-                    gallery, galleryTitleKey, folder, sortOrder, List.of());
+                    gallery, galleryTitleKey, folder, sortOrder, List.of(), List.of());
         }
         public Entry(ResourceLocation id, String type, String category, String titleKey, String subtitleKey,
                      List<String> descriptionKeys, String itemId, String entityId, String enchantmentId,

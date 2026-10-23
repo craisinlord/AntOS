@@ -36,8 +36,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.glfw.GLFW;
 
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.WIDTH;
-import static com.craisinlord.antos.content.client.screen.ComputerScreen.HEIGHT;
 
 final class AntmailApp extends ComputerApp {
     private static final long STATUS_DURATION_MS = 6000L;
@@ -708,12 +706,12 @@ final class AntmailApp extends ComputerApp {
     }
 
     private void startReply(AntmailMessage message) {
-        String subject = message.subject();
+        String subject = localizedMailText(message.subject());
         if (!subject.regionMatches(true, 0, "Re:", 0, 3)) subject = "Re: " + subject;
         if (subject.length() > com.craisinlord.antos.content.antmail.AntmailValidation.MAX_SUBJECT_LENGTH) {
             subject = subject.substring(0, com.craisinlord.antos.content.antmail.AntmailValidation.MAX_SUBJECT_LENGTH);
         }
-        String body = "\n\n-------- " + message.sender().fullAddress() + " wrote --------\n" + message.body();
+        String body = "\n\n-------- " + message.sender().fullAddress() + " wrote --------\n" + localizedMailText(message.body());
         if (body.length() > com.craisinlord.antos.content.antmail.AntmailValidation.MAX_BODY_LENGTH) {
             body = body.substring(0, com.craisinlord.antos.content.antmail.AntmailValidation.MAX_BODY_LENGTH);
         }
@@ -739,6 +737,11 @@ final class AntmailApp extends ComputerApp {
     }
 
     private String localizedMailText(String value) {
+        if (value != null && value.startsWith("computer.antos.merchant.receipt.")) {
+            int end = value.indexOf("\n\n");
+            String[] parts = (end < 0 ? value : value.substring(0, end)).split("\u001F", -1);
+            return Component.translatable(parts[0], (Object[]) java.util.Arrays.copyOfRange(parts, 1, parts.length)).getString() + (end < 0 ? "" : value.substring(end));
+        }
         return value != null && value.startsWith("antazon.") ? Component.translatable(value).getString() : value;
     }
 
@@ -934,12 +937,14 @@ final class AntmailApp extends ComputerApp {
     }
 
     private AntmailMessage selectedMessage(AntmailAnternetResultPayload result) {
-        List<AntmailMessage> messages = mailboxMessages(result, state.sent);
-        if (state.messageIndex < 0 || state.messageIndex >= messages.size()) return null;
-        AntmailMessage summary = messages.get(state.messageIndex);
-        AntmailMessage detail = AntmailClientState.getMessage(summary.id());
-        if (detail == null) requestMissingDetail(summary.id());
-        return detail == null ? summary : detail;
+        if (state.messageId == null) return null;
+        AntmailMessage detail = AntmailClientState.getMessage(state.messageId);
+        if (detail != null) return detail;
+        requestMissingDetail(state.messageId);
+        for (AntmailMessage summary : mailboxMessages(result, state.sent)) {
+            if (summary.id().equals(state.messageId)) return summary;
+        }
+        return null;
     }
 
     private void requestMissingDetail(java.util.UUID id) {
@@ -951,19 +956,10 @@ final class AntmailApp extends ComputerApp {
     }
 
     private void openMessage(AntmailMessage message, String originMode) {
-        List<AntmailMessage> source = mailboxMessages(AntmailClientState.getMailbox(), originMode.equals("sent"));
-        int index = -1;
-        for (int i = 0; i < source.size(); i++) {
-            if (source.get(i).id().equals(message.id())) {
-                index = i;
-                break;
-            }
-        }
-        if (index < 0) return;
         clearStatus();
         state.originMode = originMode;
         state.sent = originMode.equals("sent");
-        state.messageIndex = index;
+        state.messageId = message.id();
         state.mode = "message";
         state.detailScroll = 0;
         state.attachmentHits.clear();
@@ -979,7 +975,7 @@ final class AntmailApp extends ComputerApp {
     private void returnToOrigin() {
         state.mode = state.originMode.isBlank() ? "inbox" : state.originMode;
         state.sent = state.mode.equals("sent");
-        state.messageIndex = -1;
+        state.messageId = null;
         state.detailScroll = 0;
     }
 
@@ -1063,7 +1059,7 @@ final class AntmailApp extends ComputerApp {
             state.sent = false;
             state.page = 0;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             state.ghosts.clear();
             requestState(true);
         } else if (screen.inside(contentX + folderSlotWidth, contentY, folderSlotWidth, 20, mouseX, mouseY)) {
@@ -1076,7 +1072,7 @@ final class AntmailApp extends ComputerApp {
             state.sent = true;
             state.page = 0;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (screen.inside(contentX + folderSlotWidth * 2, contentY, folderSlotWidth, 20, mouseX, mouseY)) {
             state.moreOpen = false;
@@ -1088,7 +1084,7 @@ final class AntmailApp extends ComputerApp {
             state.sent = false;
             state.page = 0;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (screen.inside(contentX + folderSlotWidth * 3, contentY, folderSlotWidth, 20, mouseX, mouseY)) {
             state.moreOpen = !state.moreOpen;
@@ -1100,7 +1096,7 @@ final class AntmailApp extends ComputerApp {
             state.mode = "archive";
             state.sent = false;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
                 navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 38,
@@ -1110,7 +1106,7 @@ final class AntmailApp extends ComputerApp {
             state.mode = "trash";
             state.sent = false;
             state.listScroll = 0;
-            state.messageIndex = -1;
+            state.messageId = null;
             requestState(true);
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
                 navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 56,
@@ -1429,7 +1425,7 @@ final class AntmailApp extends ComputerApp {
         if (state.mode.equals("compose")) {
             float scale = screen.uiScale();
             double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
-            int windowX = -WIDTH / 2 + screen.windowLocalX(window), windowY = -HEIGHT / 2 + screen.windowLocalY(window);
+            int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
             int contentX = windowX + 8, contentY = windowY + 28, contentH = screen.windowHeight(window) - 34;
             int contentW = screen.windowWidth(window) - 16;
             AntmailComposeLayout composeLayout = composeLayout(contentY, contentH, contentW);
@@ -1440,7 +1436,7 @@ final class AntmailApp extends ComputerApp {
         } else if (state.mode.equals("message")) {
             float scale = screen.uiScale();
             double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
-            int windowX = -WIDTH / 2 + screen.windowLocalX(window), windowY = -HEIGHT / 2 + screen.windowLocalY(window);
+            int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
             int contentX = windowX + 8, contentY = windowY + 28, contentW = screen.windowWidth(window) - 16;
             AntmailMessage message = selectedMessage(AntmailClientState.getMailbox());
             boolean showRetry = message != null && state.sent && !message.deliveryStatus().equals("DELIVERED");
@@ -1975,7 +1971,7 @@ final class AntmailApp extends ComputerApp {
         int cursor;
         int selectionStart = -1;
         boolean sent;
-        int messageIndex = -1;
+        UUID messageId;
         long openedAt;
         UUID selfDeletingId;
         final List<UUID> ghosts = new ArrayList<>();
@@ -2039,7 +2035,7 @@ final class AntmailApp extends ComputerApp {
         state.sent = mode.equals("sent");
         state.page = 0;
         state.listScroll = 0;
-        state.messageIndex = -1;
+        state.messageId = null;
     }
 
 }

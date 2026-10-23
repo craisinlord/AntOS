@@ -1,6 +1,8 @@
 package com.craisinlord.antos.content.client.screen;
 
 import com.craisinlord.antos.content.client.palette.Ui;
+import com.craisinlord.antos.content.client.AntOSUiSounds;
+import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.content.client.screen.ComputerScreen.Window;
 import com.craisinlord.antos.content.antmail.AntmailWire;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
@@ -646,6 +648,7 @@ final class TerminalApp extends ComputerApp {
         if (terminalResult == null) return;
         busy = false;
         boolean failed = terminalResult.result() == ComputerAccessResultPayload.INVALID;
+        if (failed) AntOSUiSounds.play(Cue.ERROR);
         try {
             var terminal = AntmailWire.decodeTag(terminalResult.data().substring(3));
             state.directory = terminal.getStringOr("Directory", "");
@@ -769,6 +772,7 @@ final class TerminalApp extends ComputerApp {
         if (busy && passwordDisk == null) return;
         if (passwordDisk != null) {
             if (state.input.isEmpty()) return;
+            AntOSUiSounds.play(Cue.COMMAND);
             add(COMMAND, promptLabel() + displayInput());
             if (state.input.equalsIgnoreCase("cancel")) add(SYSTEM, TerminalText.of("client.decrypt_cancelled"));
             else {
@@ -786,6 +790,7 @@ final class TerminalApp extends ComputerApp {
         clearInput();
         add(COMMAND, echo);
         if (input.isEmpty()) return;
+        AntOSUiSounds.play(Cue.COMMAND);
         remember(input);
         String[] parts = input.split("\\s+", 3);
         if (parts[0].equalsIgnoreCase("decrypt")) {

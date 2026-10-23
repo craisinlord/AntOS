@@ -49,11 +49,13 @@ public final class AntOSJeiPlugin implements IModPlugin {
     @Override
     public void onRuntimeAvailable(IJeiRuntime runtime) {
         JeiRecipes.runtimeAvailable(runtime);
+        com.craisinlord.antos.content.client.JeiBridge.set(new JeiHandoff(runtime));
     }
 
     @Override
     public void onRuntimeUnavailable() {
         JeiRecipes.runtimeUnavailable();
+        com.craisinlord.antos.content.client.JeiBridge.set(null);
     }
 
     private static ItemStack computer() {
