@@ -260,7 +260,7 @@ final class DisksApp extends ComputerApp {
         }
         for (var game : ComputerGameRegistry.all()) {
             if (!disk.id().equals(game.diskId())) continue;
-            boolean available = installed.contains(disk.id()) || ComputerGuideData.unlockAllGameEntries() || game.includedByDefault();
+            boolean available = installed.contains(disk.id()) || ComputerGuideData.unlockAllGameEntries() || AntOSSettings.gameIncluded(game.id().toString(), game.includedByDefault());
             line = detailLink(g, x, line, w - 8, tr("game") + " / " + game.title() + (available ? "" : " / " + tr("reinsert")), available ? "GAMES" : "", bodyY, bodyY + bodyH, () -> screen.open("GAMES"));
             contentCount++;
         }

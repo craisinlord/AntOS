@@ -1308,7 +1308,7 @@
   "computer.antos.app.merchant.name": "MERCHANT",
   "computer.antos.app.merchant.window_title": "MERCHANT",
   "computer.antos.app.merchant.title": "TRADE WITH OTHER PLAYERS",
-  "computer.antos.app.merchant.description": "Browse player listings or sell your own items. Choose item currencies or AntCoins, then receive purchases through physical delivery. Collect payments and returned stock with Deliver Here.",
+  "computer.antos.app.merchant.description": "Browse player listings or sell your own items.",
   "computer.antos.merchant.browse": "BROWSE",
   "computer.antos.merchant.mine": "MY TRADES",
   "computer.antos.merchant.deliveries": "DELIVERIES",

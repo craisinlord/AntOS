@@ -588,7 +588,6 @@ final class SettingsApp extends ComputerApp {
         buttonRow(g, tr("accessibility.reset_hint"), tr("accessibility.reset"), false, () ->
                 AntOSSettings.updatePreferences(p -> {
                     p.displayBrightness = "standard";
-                    p.uiSize = "standard";
                     p.uiScalePercent = 100;
                     p.reduceEffects = false;
                     p.resumeSession = true;

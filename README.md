@@ -37,10 +37,12 @@ AntOS keeps its settings in two files:
 
 | File | Contents | Ship it in a modpack? |
 | --- | --- | --- |
-| `config/antos.json` | Pack and server settings | Yes. AntOS creates it on first launch and never rewrites it afterwards. |
+| `config/antos.json` | Pack and server settings | Yes. AntOS creates it on first launch. When an update adds settings, AntOS adds them to the file with their defaults and keeps every value you set. |
 | `antos/client.json` (in the game directory, next to `config/`) | Each player's preferences, last username, tour progress, collapsed task groups, resume layouts, and terminal history | No. It belongs to the player, and AntOS writes it as they play. |
 
 Restart the game or server after editing `config/antos.json`. On a multiplayer server, the server's file decides every top-level setting and sends those settings to players when they open a computer. The `client` section only affects the game it's installed in.
+
+AntOS checks each setting on its own. A misspelled name, a value of the wrong type (such as `"yes"` instead of `true`), a fractional or negative number, or a preference value AntOS doesn't know logs a warning that names the setting, and only that setting falls back to its default. AntOS leaves the bad value in the file so you can fix it. A file that isn't valid JSON is left untouched, and every setting uses its default until it's fixed.
 
 ```json
 {
@@ -57,7 +59,6 @@ Restart the game or server after editing `config/antos.json`. On a multiplayer s
     "netherBreakout": true,
     "flappyGhast": true,
     "ore2048": true,
-    "redstoneRush": true,
     "pistonPush": true
   },
   "gameRewards": {
@@ -72,7 +73,6 @@ Restart the game or server after editing `config/antos.json`. On a multiplayer s
     "flappyGhast40": 15,
     "ore2048Diamond": 5,
     "ore2048Beacon": 25,
-    "redstoneRush": 10,
     "pistonPush": 5,
     "pistonPushPar": 15
   },
@@ -95,6 +95,11 @@ Restart the game or server after editing `config/antos.json`. On a multiplayer s
   "client": {
     "inventoryComputerButton": false,
     "defaultPreferences": {}
+  },
+  "jei": {
+    "antazonPrices": true,
+    "sellValues": true,
+    "taskRewards": true
   }
 }
 ```
@@ -105,17 +110,20 @@ Restart the game or server after editing `config/antos.json`. On a multiplayer s
 | `unlockAllGameEntries` | Server | `false` | Unlocks every registered game without its disk. |
 | `showIntroductionEntry` | Server (synced) | `true` | Shows the built-in "SYSTEM INITIALIZED" Introduction page in every Archive. |
 | `archiveLookupRequiresPhone` | Server (synced) | `true` | The Look Up in Archive key only works while an Antroid phone is in the player's inventory. |
-| `builtInGames.<game>` | Server (synced) | `true` | Installs that game on every computer: `chess`, `minesweeper`, `cakeStack`, `fliptris`, `netherBreakout`, `flappyGhast`, `ore2048`, `redstoneRush`, `pistonPush`. Set to `false` to require the matching disk instead (`antos:chess`, `antos:cake_stack`, `antos:flappy_ghast`, and so on). AntOS doesn't define those disks; a pack that turns this off supplies the disk JSON and its drops. |
-| `gameRewards.<mode>` | Server | see above | AntCoins paid once per mode per profile per Minecraft day. `0` disables that reward. Nothing is paid or shown while Antazon is disabled. `blockle`: solving Blockle. `chessEasy` to `chessExpert`: winning Chess at that level. `minesweeperSmall`, `minesweeperLarge`: clearing that board. `flappyGhast15`, `flappyGhast40`: reaching 15 or 40 points. `ore2048Diamond`, `ore2048Beacon`: making a diamond block (512) or a beacon (2048). `redstoneRush`: clearing level 5. `pistonPush`: clearing a level for the first time. `pistonPushPar`: clearing a world 2+ level at par. Configs from older versions that still have a top-level `blockleDailyAntcoinReward` keep that value as `gameRewards.blockle`. |
+| `builtInGames.<game>` | Server (synced) | `true` | Installs that game on every computer: `chess`, `minesweeper`, `cakeStack`, `fliptris`, `netherBreakout`, `flappyGhast`, `ore2048`, `pistonPush`. Set to `false` to require the matching disk instead (`antos:chess`, `antos:cake_stack`, `antos:flappy_ghast`, and so on). AntOS doesn't define those disks; a pack that turns this off supplies the disk JSON and its drops. Games from other mods use their full ID as the key, for example `"examplemod:snake": true` to install it on every computer or `false` to require its disk. A game that isn't listed keeps the default its mod gives it. |
+| `gameRewards.<mode>` | Server | see above | AntCoins paid once per mode per profile per Minecraft day. `0` disables that reward. Nothing is paid or shown while Antazon is disabled. `blockle`: solving Blockle. `chessEasy` to `chessExpert`: winning Chess at that level. `minesweeperSmall`, `minesweeperLarge`: clearing that board. `flappyGhast15`, `flappyGhast40`: reaching 15 or 40 points. `ore2048Diamond`, `ore2048Beacon`: making a diamond block (512) or a beacon (2048). `pistonPush`: clearing a level for the first time. `pistonPushPar`: clearing a world 2+ level at par. Games from other mods add their own modes with full IDs, such as `"examplemod:snake_win": 20`; see [Native games](#native-games). A top-level `blockleDailyAntcoinReward` from older versions is moved to `gameRewards.blockle`. |
 | `sendAntazonUnlockEmail` | Server | `true` | Sends the Antazon Dispatch email when listings unlock. |
 | `passwordHintAfterFailures` | Server | `3` | Wrong passwords in a row before the sign-in screen shows the account's password hint. Counted per player and username until a successful sign-in. `0` never shows hints. |
-| `desktopApps.<app>` | Server (synced) | `true` | Set to `false` to hide an app. **Antazon and Tasks default to `false`**; set `desktopApps.antazon` and `desktopApps.tasks` to `true` to enable them. A config that omits `disks` keeps the Disks Library enabled. |
-| `client.inventoryComputerButton` | Client | `false` | Adds a button to the inventory screen that opens AntOS. |
-| `client.defaultPreferences` | Client | `{}` | Starting preferences for players who don't have an `antos/client.json` yet. It takes any of the preference keys described below, for example `{"theme": "amber", "uiSize": "large"}`. Keys you leave out, or set to invalid values, use the built-in defaults. Changing it later doesn't affect players who already have settings. |
+| `desktopApps.<app>` | Server (synced) | `true` | Set to `false` to hide an app. **Antazon, Merchant and Tasks default to `false`**; set `desktopApps.antazon`, `desktopApps.merchant` and `desktopApps.tasks` to `true` to enable them. |
+| `client.inventoryComputerButton` | Client | `false` | Adds a button to the inventory screen that opens AntOS. A top-level `inventoryComputerButton` from older versions is moved here. |
+| `client.defaultPreferences` | Client | `{}` | Starting preferences for players who don't have an `antos/client.json` yet. It takes any of the preference keys described below, for example `{"theme": "amber", "uiScalePercent": 115}`. Keys you leave out use the built-in defaults, and invalid values log a warning and use them too. Changing it later doesn't affect players who already have settings. |
+| `jei.antazonPrices` | Server | `true` | With JEI installed, shows the Antazon Listings category. Hidden while Antazon is disabled. |
+| `jei.sellValues` | Server | `true` | With JEI installed, shows the Antazon Selling category. Hidden while Antazon is disabled. |
+| `jei.taskRewards` | Server | `true` | With JEI installed, shows the Task Rewards category. Hidden while Tasks is disabled. |
 
 #### Upgrading from older versions
 
-Older versions kept player data in `config/antos.json`. The first time an updated client starts, AntOS moves that data into `antos/client.json`, removes it from `config/antos.json`, and marks the file `"configVersion": 2`. Players keep their settings.
+Older versions kept player data in `config/antos.json`. The first time an updated client starts, AntOS moves that data into `antos/client.json`, removes it from `config/antos.json`, and marks the file `"configVersion": 2`. Players keep their settings. The old `uiSize` preference becomes `uiScalePercent` the next time AntOS saves a player's settings.
 
 **Modpack authors:** if your pack ships an older `config/antos.json`, it contains your own username, preferences, and history. Players would receive them on their first launch of the update. Before you publish the update, delete `config/antos.json`, launch once to generate a clean file, copy your settings into it, and ship that file.
 
@@ -1280,6 +1288,8 @@ ArchiveLocatorRegistry.register(
 ### Native games
 
 Register code-based games with `ComputerGameRegistry`. Each game has a namespaced ID and an installing disk ID, and its session implements `tick`, `render`, `keyPressed`, and `charTyped`. Sessions can also override `mouseClicked(mouseX, mouseY, button)` and the `render` overload that takes `mouseX, mouseY`; both use coordinates relative to the game area's top-left corner. The game area is the Games window below its BACK header: 374×190 by default and 396×178 maximized. Lay out from the `width` and `height` passed to `render`; drawing is clipped to that area. See `ComputerGame` and `ComputerGameRegistry`.
+
+A game's `includedByDefault()` decides whether it's installed without its disk, and pack authors can override that with `builtInGames.<namespace:id>` in `config/antos.json`. To pay a daily AntCoin reward, call `ComputerGameRewards.claim(mode)` from the game when the player earns it, with a namespaced mode such as `examplemod:snake_win`. The server pays it at most once per mode, per profile, per Minecraft day, and only when the pack lists the mode in `gameRewards`. `ComputerGameRewards.reward(mode)` returns the configured amount, or `0` when it isn't listed or Antazon is disabled.
 
 AntOS ships Blockle, Chess (four AI levels), Minesweeper (two board sizes), Cake Stack and Nether Breakout. Chess and Minesweeper are adapted from Create: Cybernetics by Perigrine3 under the MIT License; see `licenses/createcybernetics-MIT.txt`.
 

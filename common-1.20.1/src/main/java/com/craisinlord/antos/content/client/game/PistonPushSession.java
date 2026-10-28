@@ -13,6 +13,8 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -176,7 +178,7 @@ public final class PistonPushSession implements ComputerGame.Session {
             progress = (System.currentTimeMillis() - animationStart) / (float) Math.max(1L, animationLength);
             if (progress >= 1.0F) animation = null;
         }
-        graphics.enableScissor(fieldLeft, fieldTop, fieldLeft + fieldWidth, fieldTop + fieldHeight);
+        scissor(graphics, fieldLeft, fieldTop, fieldLeft + fieldWidth, fieldTop + fieldHeight);
         PistonPushRenderer.render(graphics, board, left, boardTop, tile, animation, progress);
         graphics.disableScissor();
         if (side) renderSide(graphics, font, right - 7 - SIDE_WIDTH, fieldTop + 2, SIDE_WIDTH, fieldHeight - 4, bestText, best, mouseX, mouseY);
@@ -209,6 +211,14 @@ public final class PistonPushSession implements ComputerGame.Session {
         buttons.button(graphics, font, x + PAD, buttonsTop + step, inner, Component.translatable(KEY + "restart"), mouseX, mouseY, this::restart);
         buttons.button(graphics, font, x + PAD, buttonsTop + step * 2, inner, Component.translatable(KEY + "levels"), mouseX, mouseY, this::openLevels);
         buttons.button(graphics, font, x + PAD, buttonsTop + step * 3, inner, Component.translatable(KEY + "help"), mouseX, mouseY, this::showTip);
+    }
+
+    private static void scissor(GuiGraphics graphics, int left, int top, int right, int bottom) {
+        Matrix4f matrix = graphics.pose().last().pose();
+        Vector3f start = matrix.transformPosition(left, top, 0.0F, new Vector3f());
+        Vector3f end = matrix.transformPosition(right, bottom, 0.0F, new Vector3f());
+        graphics.enableScissor((int) Math.floor(Math.min(start.x, end.x)), (int) Math.floor(Math.min(start.y, end.y)),
+                (int) Math.ceil(Math.max(start.x, end.x)), (int) Math.ceil(Math.max(start.y, end.y)));
     }
 
     private static void stat(GuiGraphics graphics, Font font, int x, int y, int width, String label, String value, int color) {

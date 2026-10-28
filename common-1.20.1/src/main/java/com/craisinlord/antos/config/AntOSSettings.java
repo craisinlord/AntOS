@@ -6,13 +6,17 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 
 import java.io.Reader;
 import java.io.Writer;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +30,10 @@ public final class AntOSSettings {
     private static final String NETWORK_KEY = "antosSettings";
     private static final List<String> PLAYER_KEYS = List.of("preferences", "lastAnternetUsername", "initialBootSeen",
             "completedComputerTours", "taskGroupCollapsed", "resumeSnapshots", "terminalHistory");
+    private static final String LEGACY_MAIL_KEY = "antazonUnlockEmailsSent";
+    private static final Set<String> MAP_SECTIONS = Set.of("builtInGames", "gameRewards");
+    private static final String DEFAULT_PREFERENCES_PATH = "client.defaultPreferences";
+    private static final List<String> LEGACY_PREFERENCES = List.of("uiSize", "screenPalette", "softText");
     private static volatile PackConfig pack = new PackConfig().withDefaults();
     private static volatile SharedSettings synced;
     private static ClientState state = new ClientState().withDefaults();
@@ -44,12 +52,214 @@ public final class AntOSSettings {
                 AntOS.LOGGER.info("Created AntOS configuration at {}", configFile);
                 return;
             }
-            pack = PackConfig.from(readJson(configFile));
+            JsonObject root = readJson(configFile);
+            JsonObject migrated = migrateLegacyKeys(root);
+            JsonObject defaults = GSON.toJsonTree(new PackConfig().withDefaults()).getAsJsonObject();
+            List<String> problems = new ArrayList<>();
+            pack = PackConfig.from(sanitize(migrated, defaults, "", problems));
+            problems.forEach(problem -> AntOS.LOGGER.warn("{}: {}", configFile.getFileName(), problem));
+            List<String> added = new ArrayList<>();
+            JsonObject completed = complete(migrated, defaults, "", added);
+            if (!completed.equals(root)) updateConfig(configFile, completed, added);
         } catch (Exception exception) {
             AntOS.LOGGER.error("Could not load AntOS configuration from {}; using defaults for this session and leaving the file untouched",
                     configFile, exception);
             pack = new PackConfig().withDefaults();
         }
+    }
+
+    private static void updateConfig(Path configFile, JsonObject completed, List<String> added) {
+        try {
+            write(configFile, completed);
+            if (added.isEmpty()) AntOS.LOGGER.info("Moved old AntOS settings in {} to their current names", configFile);
+            else AntOS.LOGGER.info("Added new AntOS settings to {}: {}", configFile, String.join(", ", added));
+        } catch (Exception exception) {
+            AntOS.LOGGER.warn("Could not add new settings to {}; their defaults apply", configFile, exception);
+        }
+    }
+
+    private static JsonObject migrateLegacyKeys(JsonObject root) {
+        JsonObject migrated = root.deepCopy();
+        moveLegacyKey(migrated, "blockleDailyAntcoinReward", "gameRewards", "blockle");
+        moveLegacyKey(migrated, "inventoryComputerButton", "client", "inventoryComputerButton");
+        return migrated;
+    }
+
+    private static void moveLegacyKey(JsonObject root, String legacyKey, String section, String key) {
+        if (!root.has(legacyKey)) return;
+        JsonElement target = root.get(section);
+        if (target != null && !target.isJsonObject()) return;
+        JsonElement value = root.remove(legacyKey);
+        JsonObject object = target == null ? new JsonObject() : target.getAsJsonObject();
+        if (!object.has(key)) object.add(key, value);
+        root.add(section, object);
+    }
+
+    private static JsonObject sanitize(JsonObject value, JsonObject defaults, String path, List<String> problems) {
+        JsonObject clean = new JsonObject();
+        boolean map = MAP_SECTIONS.contains(path);
+        for (Map.Entry<String, JsonElement> entry : value.entrySet()) {
+            String key = entry.getKey();
+            String name = path.isEmpty() ? key : path + "." + key;
+            JsonElement expected = defaults.get(key);
+            if (expected == null && path.isEmpty() && key.equals(LEGACY_MAIL_KEY)) {
+                if (stringArray(entry.getValue())) clean.add(key, entry.getValue());
+                else problems.add("\"" + name + "\" should be a list of names; it is ignored");
+                continue;
+            }
+            if (expected == null && path.isEmpty() && PLAYER_KEYS.contains(key)) continue;
+            if (expected == null && map && key.startsWith(AntOS.MODID + ":")) {
+                problems.add("\"" + name + "\" should be written as \"" + path + "." + configKey(key) + "\"; it is ignored");
+                continue;
+            }
+            if (expected == null && map && key.contains(":") && !defaults.entrySet().isEmpty()) {
+                JsonElement accepted = accept(entry.getValue(), defaults.entrySet().iterator().next().getValue(), name, "it is ignored", true, problems);
+                if (accepted != null) clean.add(key, accepted);
+                continue;
+            }
+            if (expected == null) {
+                problems.add(unknownKey(name, key, defaults, map));
+                continue;
+            }
+            JsonElement accepted = accept(entry.getValue(), expected, name, "using the default (" + expected + ")", true, problems);
+            if (accepted != null) clean.add(key, accepted);
+        }
+        return clean;
+    }
+
+    private static String unknownKey(String name, String key, JsonObject defaults, boolean map) {
+        String suggestion = defaults.keySet().stream().filter(candidate -> candidate.equalsIgnoreCase(key)).findFirst().orElse(null);
+        String message = "unknown setting \"" + name + "\"";
+        if (suggestion != null) message += " (did you mean \"" + suggestion + "\"?)";
+        else if (map) message += " (games from other mods use their full ID, such as \"examplemod:snake\")";
+        return message + "; it is ignored";
+    }
+
+    private static JsonElement accept(JsonElement value, JsonElement expected, String name, String fallback, boolean packSetting, List<String> problems) {
+        if (expected.isJsonObject()) {
+            if (!value.isJsonObject()) {
+                problems.add("\"" + name + "\" should be a section in braces; using its defaults");
+                return null;
+            }
+            if (name.equals(DEFAULT_PREFERENCES_PATH)) return sanitizePreferences(value.getAsJsonObject(), name, problems);
+            return sanitize(value.getAsJsonObject(), expected.getAsJsonObject(), name, problems);
+        }
+        JsonPrimitive want = expected.getAsJsonPrimitive();
+        JsonPrimitive primitive = value.isJsonPrimitive() ? value.getAsJsonPrimitive() : null;
+        if (want.isBoolean()) {
+            if (primitive != null && primitive.isBoolean()) return value;
+            problems.add("\"" + name + "\" should be true or false, not " + value + "; " + fallback);
+            return null;
+        }
+        if (want.isString()) {
+            if (primitive != null && primitive.isString()) return value;
+            problems.add("\"" + name + "\" should be text in quotes, not " + value + "; " + fallback);
+            return null;
+        }
+        if (!wholeNumber(primitive, want.getAsNumber() instanceof Integer)) {
+            problems.add("\"" + name + "\" should be a whole number, not " + value + "; " + fallback);
+            return null;
+        }
+        if (packSetting && primitive.getAsBigDecimal().signum() < 0) {
+            problems.add("\"" + name + "\" should be 0 or more, not " + value + "; " + fallback);
+            return null;
+        }
+        return value;
+    }
+
+    private static boolean wholeNumber(JsonPrimitive value, boolean intRange) {
+        if (value == null || !value.isNumber()) return false;
+        BigDecimal number;
+        try {
+            number = value.getAsBigDecimal();
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+        if (number.signum() != 0 && number.stripTrailingZeros().scale() > 0) return false;
+        BigDecimal min = BigDecimal.valueOf(intRange ? Integer.MIN_VALUE : Long.MIN_VALUE);
+        BigDecimal max = BigDecimal.valueOf(intRange ? Integer.MAX_VALUE : Long.MAX_VALUE);
+        return number.compareTo(min) >= 0 && number.compareTo(max) <= 0;
+    }
+
+    private static boolean stringArray(JsonElement value) {
+        if (!value.isJsonArray()) return false;
+        for (JsonElement element : value.getAsJsonArray()) {
+            if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) return false;
+        }
+        return true;
+    }
+
+    private static JsonObject sanitizePreferences(JsonObject value, String path, List<String> problems) {
+        Preferences defaults = new Preferences();
+        defaults.normalize();
+        JsonObject expected = GSON.toJsonTree(defaults).getAsJsonObject();
+        JsonObject clean = new JsonObject();
+        for (Map.Entry<String, JsonElement> entry : value.entrySet()) {
+            String key = entry.getKey();
+            String name = path + "." + key;
+            if (LEGACY_PREFERENCES.contains(key)) {
+                if (entry.getValue().isJsonPrimitive()) clean.add(key, entry.getValue());
+                else problems.add("\"" + name + "\" should be a single value; it is ignored");
+                continue;
+            }
+            JsonElement want = expected.get(key);
+            if (want == null) {
+                problems.add(unknownKey(name, key, expected, false));
+                continue;
+            }
+            JsonElement accepted = accept(entry.getValue(), want, name, "using the default (" + want + ")", false, problems);
+            if (accepted != null) clean.add(key, accepted);
+        }
+        Preferences parsed = GSON.fromJson(clean, Preferences.class);
+        parsed.normalize();
+        JsonObject normalized = GSON.toJsonTree(parsed).getAsJsonObject();
+        boolean legacyBrightness = clean.has("screenPalette") || clean.has("softText");
+        for (Map.Entry<String, JsonElement> entry : clean.entrySet()) {
+            String key = entry.getKey();
+            if (LEGACY_PREFERENCES.contains(key) || legacyBrightness && key.equals("displayBrightness")) continue;
+            JsonElement result = normalized.get(key);
+            if (!entry.getValue().equals(result)) problems.add("\"" + path + "." + key + "\" can't be " + entry.getValue() + "; using " + result);
+        }
+        return clean;
+    }
+
+    private static JsonObject complete(JsonObject value, JsonObject defaults, String path, List<String> added) {
+        JsonObject result = new JsonObject();
+        for (Map.Entry<String, JsonElement> entry : defaults.entrySet()) {
+            String key = entry.getKey();
+            String name = path.isEmpty() ? key : path + "." + key;
+            JsonElement current = value.get(key);
+            if (current == null) {
+                result.add(key, entry.getValue().deepCopy());
+                added.add(name);
+            } else if (current.isJsonObject() && entry.getValue().isJsonObject() && !name.equals(DEFAULT_PREFERENCES_PATH)) {
+                result.add(key, complete(current.getAsJsonObject(), entry.getValue().getAsJsonObject(), name, added));
+            } else {
+                result.add(key, current);
+            }
+        }
+        value.entrySet().forEach(entry -> {
+            if (!result.has(entry.getKey())) result.add(entry.getKey(), entry.getValue());
+        });
+        return result;
+    }
+
+    private static String configKey(String id) {
+        if (id == null) return "";
+        String path = id;
+        if (id.startsWith(AntOS.MODID + ":")) path = id.substring(AntOS.MODID.length() + 1);
+        else if (id.contains(":")) return id;
+        StringBuilder key = new StringBuilder();
+        boolean upper = false;
+        for (char character : path.toCharArray()) {
+            if (character == '_') {
+                upper = true;
+                continue;
+            }
+            key.append(upper ? Character.toUpperCase(character) : character);
+            upper = false;
+        }
+        return key.toString();
     }
 
     public static synchronized void loadClientState(Path stateFile, Path legacyConfigFile) {
@@ -91,7 +301,9 @@ public final class AntOSSettings {
         for (int attempt = 1; ; attempt++) {
             try (Reader reader = Files.newBufferedReader(file)) {
                 JsonElement element = JsonParser.parseReader(reader);
-                return element != null && element.isJsonObject() ? element.getAsJsonObject() : new JsonObject();
+                if (element == null || element.isJsonNull()) return new JsonObject();
+                if (!element.isJsonObject()) throw new IllegalStateException(file.getFileName() + " should contain one section in braces");
+                return element.getAsJsonObject();
             } catch (java.io.IOException exception) {
                 if (attempt >= READ_ATTEMPTS) throw exception;
                 Thread.sleep(100L * attempt);
@@ -391,43 +603,20 @@ public final class AntOSSettings {
     }
 
     public static long blockleDailyAntcoinReward() {
-        return Math.max(0L, shared().gameRewards.blockle);
+        Long reward = shared().gameRewards.get("blockle");
+        return reward == null ? 0L : Math.max(0L, reward);
     }
 
-    public static boolean gameBuiltIn(String gameId) {
-        BuiltInGames games = shared().builtInGames;
-        return switch (gameId) {
-            case "chess" -> games.chess;
-            case "minesweeper" -> games.minesweeper;
-            case "cake_stack" -> games.cakeStack;
-            case "fliptris" -> games.fliptris;
-            case "nether_breakout" -> games.netherBreakout;
-            case "flappy_ghast" -> games.flappyGhast;
-            case "ore_2048" -> games.ore2048;
-            case "redstone_rush" -> games.redstoneRush;
-            case "piston_push" -> games.pistonPush;
-            default -> false;
-        };
+    public static boolean gameIncluded(String gameId, boolean fallback) {
+        Boolean included = shared().builtInGames.get(configKey(gameId));
+        return included == null ? fallback : included;
     }
 
     public static long gameAntcoinReward(String mode) {
-        GameRewards rewards = shared().gameRewards;
-        return switch (mode) {
-            case "chess_easy" -> Math.max(0L, rewards.chessEasy);
-            case "chess_normal" -> Math.max(0L, rewards.chessNormal);
-            case "chess_hard" -> Math.max(0L, rewards.chessHard);
-            case "chess_expert" -> Math.max(0L, rewards.chessExpert);
-            case "minesweeper_small" -> Math.max(0L, rewards.minesweeperSmall);
-            case "minesweeper_large" -> Math.max(0L, rewards.minesweeperLarge);
-            case "flappy_ghast_15" -> Math.max(0L, rewards.flappyGhast15);
-            case "flappy_ghast_40" -> Math.max(0L, rewards.flappyGhast40);
-            case "ore_2048_diamond" -> Math.max(0L, rewards.ore2048Diamond);
-            case "ore_2048_beacon" -> Math.max(0L, rewards.ore2048Beacon);
-            case "redstone_rush" -> Math.max(0L, rewards.redstoneRush);
-            case "piston_push" -> Math.max(0L, rewards.pistonPush);
-            case "piston_push_par" -> Math.max(0L, rewards.pistonPushPar);
-            default -> -1L;
-        };
+        String key = configKey(mode);
+        if (key.equals("blockle")) return -1L;
+        Long reward = shared().gameRewards.get(key);
+        return reward == null ? -1L : Math.max(0L, reward);
     }
 
     public static int passwordHintAfterFailures() {
@@ -486,8 +675,8 @@ public final class AntOSSettings {
         private boolean archiveLookupRequiresPhone = true;
         private boolean sendAntazonUnlockEmail = true;
         private int passwordHintAfterFailures = 3;
-        private BuiltInGames builtInGames = new BuiltInGames();
-        private GameRewards gameRewards = new GameRewards();
+        private Map<String, Boolean> builtInGames = defaultBuiltInGames();
+        private Map<String, Long> gameRewards = defaultGameRewards();
         private DesktopApps desktopApps = new DesktopApps();
         private PackClient client = new PackClient();
         private JeiIntegration jei = new JeiIntegration();
@@ -496,21 +685,12 @@ public final class AntOSSettings {
 
         private static PackConfig from(JsonObject root) {
             PackConfig loaded = GSON.fromJson(root, PackConfig.class);
-            PackConfig config = (loaded == null ? new PackConfig() : loaded).withDefaults();
-            boolean rewardsHaveBlockle = root.get("gameRewards") instanceof JsonObject rewards && rewards.has("blockle");
-            if (!rewardsHaveBlockle && root.has("blockleDailyAntcoinReward")) {
-                config.gameRewards.blockle = root.get("blockleDailyAntcoinReward").getAsLong();
-            }
-            boolean clientHasButton = root.get("client") instanceof JsonObject client && client.has("inventoryComputerButton");
-            if (!clientHasButton && root.has("inventoryComputerButton")) {
-                config.client.inventoryComputerButton = root.get("inventoryComputerButton").getAsBoolean();
-            }
-            return config;
+            return (loaded == null ? new PackConfig() : loaded).withDefaults();
         }
 
         private PackConfig withDefaults() {
-            if (builtInGames == null) builtInGames = new BuiltInGames();
-            if (gameRewards == null) gameRewards = new GameRewards();
+            builtInGames = withDefaultEntries(builtInGames, defaultBuiltInGames());
+            gameRewards = withDefaultEntries(gameRewards, defaultGameRewards());
             if (desktopApps == null) desktopApps = new DesktopApps();
             if (client == null) client = new PackClient();
             if (jei == null) jei = new JeiIntegration();
@@ -550,8 +730,8 @@ public final class AntOSSettings {
 
     private static final class SharedSettings {
         private boolean archiveLookupRequiresPhone = true;
-        private BuiltInGames builtInGames = new BuiltInGames();
-        private GameRewards gameRewards = new GameRewards();
+        private Map<String, Boolean> builtInGames = defaultBuiltInGames();
+        private Map<String, Long> gameRewards = defaultGameRewards();
         private DesktopApps desktopApps = new DesktopApps();
 
         private static SharedSettings of(PackConfig config) {
@@ -564,11 +744,45 @@ public final class AntOSSettings {
         }
 
         private SharedSettings withDefaults() {
-            if (builtInGames == null) builtInGames = new BuiltInGames();
-            if (gameRewards == null) gameRewards = new GameRewards();
+            builtInGames = withDefaultEntries(builtInGames, defaultBuiltInGames());
+            gameRewards = withDefaultEntries(gameRewards, defaultGameRewards());
             if (desktopApps == null) desktopApps = new DesktopApps();
             return this;
         }
+    }
+
+    private static <T> Map<String, T> withDefaultEntries(Map<String, T> values, Map<String, T> defaults) {
+        Map<String, T> merged = new LinkedHashMap<>(defaults);
+        if (values != null) values.forEach((key, value) -> {
+            if (key != null && value != null) merged.put(key, value);
+        });
+        return merged;
+    }
+
+    private static Map<String, Boolean> defaultBuiltInGames() {
+        Map<String, Boolean> games = new LinkedHashMap<>();
+        for (String game : List.of("chess", "minesweeper", "cakeStack", "fliptris", "netherBreakout", "flappyGhast", "ore2048", "pistonPush")) {
+            games.put(game, true);
+        }
+        return games;
+    }
+
+    private static Map<String, Long> defaultGameRewards() {
+        Map<String, Long> rewards = new LinkedHashMap<>();
+        rewards.put("blockle", 10L);
+        rewards.put("chessEasy", 5L);
+        rewards.put("chessNormal", 10L);
+        rewards.put("chessHard", 20L);
+        rewards.put("chessExpert", 40L);
+        rewards.put("minesweeperSmall", 5L);
+        rewards.put("minesweeperLarge", 15L);
+        rewards.put("flappyGhast15", 5L);
+        rewards.put("flappyGhast40", 15L);
+        rewards.put("ore2048Diamond", 5L);
+        rewards.put("ore2048Beacon", 25L);
+        rewards.put("pistonPush", 5L);
+        rewards.put("pistonPushPar", 15L);
+        return rewards;
     }
 
     private static final class ClientState {
@@ -625,7 +839,7 @@ public final class AntOSSettings {
         public int interfaceVolume = 60;
         private String screenPalette;
         private Boolean softText;
-        public String uiSize = "standard";
+        private String uiSize;
         public Integer uiScalePercent;
         public String mailAlerts = "toast";
         public boolean mailSound = true;
@@ -666,7 +880,6 @@ public final class AntOSSettings {
             copy.quietNotifications = quietNotifications;
             copy.interfaceSounds = interfaceSounds;
             copy.interfaceVolume = interfaceVolume;
-            copy.uiSize = uiSize;
             copy.uiScalePercent = uiScalePercent;
             copy.mailAlerts = mailAlerts;
             copy.mailSound = mailSound;
@@ -705,8 +918,8 @@ public final class AntOSSettings {
             if (iconColor == null || !List.of("accent", "neutral").contains(iconColor)) iconColor = "accent";
             if (wallpaperColors == null || !List.of("match", "original").contains(wallpaperColors)) wallpaperColors = "match";
             if (customColors == null) customColors = "";
-            if (uiSize == null || !List.of("standard", "large", "largest").contains(uiSize)) uiSize = "standard";
             uiScalePercent = uiScalePercent == null ? legacyUiScale(uiSize) : normalizeUiScale(uiScalePercent);
+            uiSize = null;
             if (mailAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(mailAlerts)) mailAlerts = "toast";
             if (taskAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(taskAlerts)) taskAlerts = "actionbar";
             if (taskMapZoom == null || !TASK_MAP_ZOOMS.contains(taskMapZoom)) taskMapZoom = "75";
@@ -722,35 +935,6 @@ public final class AntOSSettings {
             paintBrush = Math.max(1, Math.min(3, paintBrush));
             interfaceVolume = Math.max(0, Math.min(100, interfaceVolume));
         }
-    }
-
-    private static final class BuiltInGames {
-        private boolean chess = true;
-        private boolean minesweeper = true;
-        private boolean cakeStack = true;
-        private boolean fliptris = true;
-        private boolean netherBreakout = true;
-        private boolean flappyGhast = true;
-        private boolean ore2048 = true;
-        private boolean redstoneRush = true;
-        private boolean pistonPush = true;
-    }
-
-    private static final class GameRewards {
-        private long chessEasy = 5L;
-        private long chessNormal = 10L;
-        private long chessHard = 20L;
-        private long chessExpert = 40L;
-        private long minesweeperSmall = 5L;
-        private long minesweeperLarge = 15L;
-        private long blockle = 10L;
-        private long flappyGhast15 = 5L;
-        private long flappyGhast40 = 15L;
-        private long ore2048Diamond = 5L;
-        private long ore2048Beacon = 25L;
-        private long redstoneRush = 10L;
-        private long pistonPush = 5L;
-        private long pistonPushPar = 15L;
     }
 
     private static final class DesktopApps {

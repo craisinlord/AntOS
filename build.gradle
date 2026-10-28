@@ -100,6 +100,12 @@ subprojects {
     tasks.matching { it.name == 'compileJava' }.configureEach { dependsOn(uiColorCheck) }
 }
 
+configure(subprojects.findAll { it.name.startsWith('common-') }) {
+    ['compileJava', 'compileTestJava', 'test'].each { taskName ->
+        tasks.named(taskName) { enabled = false }
+    }
+}
+
 def deliveryArrivalTestClasses = layout.buildDirectory.dir('classes/java/deliveryArrivalTest')
 tasks.register('compileDeliveryArrivalTests', JavaCompile) {
     source files(

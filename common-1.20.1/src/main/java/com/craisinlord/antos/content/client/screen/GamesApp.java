@@ -299,7 +299,7 @@ final class GamesApp extends ComputerApp {
         List<ResourceLocation> disks = screen.physicalDisks();
         var activated = ComputerArchiveUnlockClientState.activatedDisks();
         if (ComputerGuideData.unlockAllGameEntries()) return ComputerGameRegistry.all().stream().toList();
-        return ComputerGameRegistry.all().stream().filter(game -> game.includedByDefault() || game.diskId() != null && disks.contains(game.diskId()) && activated.contains(game.diskId())).toList();
+        return ComputerGameRegistry.all().stream().filter(game -> com.craisinlord.antos.config.AntOSSettings.gameIncluded(game.id().toString(), game.includedByDefault()) || game.diskId() != null && disks.contains(game.diskId()) && activated.contains(game.diskId())).toList();
     }
 
     private List<ComputerProgramClientState.Definition> installedPrograms() {

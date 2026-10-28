@@ -33,7 +33,6 @@ public final class AntOSComputerGames {
         registerBuiltIn("cake_stack", "CAKE STACK", GameIcons.CAKE_STACK, CakeStackProgram::new);
         registerBuiltIn("nether_breakout", "NETHER BREAKOUT", GameIcons.NETHER_BREAKOUT, NetherBreakoutSession::new);
         registerBuiltIn("fliptris", "FLIPTRIS", GameIcons.FLIPTRIS, FliptrisProgram::new);
-        registerBuiltIn("redstone_rush", "REDSTONE RUSH", GameIcons.REDSTONE_RUSH, RedstoneRushSession::new);
         registerBuiltIn("flappy_ghast", "FLAPPY GHAST", GameIcons.FLAPPY_GHAST, FlappyGhastProgram::new);
         registerBuiltIn("ore_2048", "ORE 2048", GameIcons.ORE_2048, Ore2048Session::new);
         registerBuiltIn("piston_push", "PISTON PUSH", GameIcons.PISTON_PUSH, PistonPushSession::new);
@@ -45,7 +44,7 @@ public final class AntOSComputerGames {
         ComputerGameRegistry.register(new ComputerGame() {
             @Override public Identifier id() { return id; }
             @Override public Identifier diskId() { return id; }
-            @Override public boolean includedByDefault() { return com.craisinlord.antos.config.AntOSSettings.gameBuiltIn(name); }
+            @Override public boolean includedByDefault() { return com.craisinlord.antos.config.AntOSSettings.gameIncluded(id.toString(), true); }
             @Override public String title() { return title; }
             @Override public GameIcon icon() { return icon; }
             @Override public Session create() { return factory.get(); }

@@ -18,6 +18,10 @@ public final class ConfigMigrationTest {
             seedsPackDefaults(directory.resolve("defaults"));
             keepsUnreadableConfig(directory.resolve("broken"));
             usesServerSettings(directory.resolve("synced"));
+            addsMissingSettings(directory.resolve("upgrade"));
+            keepsGoodValuesBesideBadOnes(directory.resolve("invalid"));
+            acceptsOtherModGames(directory.resolve("modded"));
+            movesLegacyKeys(directory.resolve("legacy"));
             System.out.println("Config migration checks passed");
         } finally {
             Files.walk(directory).sorted(java.util.Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
@@ -82,11 +86,13 @@ public final class ConfigMigrationTest {
         Files.writeString(config, packFile);
         Files.writeString(state, "{\"lastAnternetUsername\":\"player\",\"preferences\":{\"theme\":\"lavender\"}}");
         AntOSSettings.loadConfig(config);
+        String loaded = Files.readString(config);
         AntOSSettings.loadClientState(state, config);
         check(AntOSSettings.lastAnternetUsername().equals("player"), "existing client state wins over the pack config");
         AntOSSettings.updatePreferences(p -> p.theme = "white");
         AntOSSettings.setLastAnternetUsername("player2");
-        check(Files.readString(config).equals(packFile), "pack config is never rewritten once client state exists");
+        check(Files.readString(config).equals(loaded), "pack config is never rewritten once client state exists");
+        check(JsonParser.parseString(loaded).getAsJsonObject().has("lastAnternetUsername"), "unknown keys stay in the pack config");
         check(AntOSSettings.preferences().theme.equals("white"), "preference changes go to client state");
     }
 
@@ -101,7 +107,7 @@ public final class ConfigMigrationTest {
         String before = Files.readString(config);
         AntOSSettings.updatePreferences(p -> p.theme = "blue");
         AntOSSettings.loadConfig(config);
-        check(Files.readString(config).equals(before), "loading an existing pack config never writes it");
+        check(Files.readString(config).equals(before), "loading a complete pack config never writes it");
     }
 
     private static void merchantTutorialState(Path directory) throws Exception {
@@ -141,7 +147,7 @@ public final class ConfigMigrationTest {
         AntOSSettings.loadConfig(config);
         AntOSSettings.loadClientState(state, config);
         var preferences = AntOSSettings.preferences();
-        check(preferences.theme.equals("amber") && preferences.uiSize.equals("large"), "pack defaults seed a new player");
+        check(preferences.theme.equals("amber") && preferences.uiScalePercent == 115, "pack defaults seed a new player");
         check(preferences.taskMapZoom.equals("75") && preferences.interfaceSounds, "invalid or missing defaults fall back");
         AntOSSettings.updatePreferences(p -> p.theme = "green");
         Files.writeString(config, "{\"client\":{\"defaultPreferences\":{\"theme\":\"blue\"}}}");
@@ -172,10 +178,110 @@ public final class ConfigMigrationTest {
         AntOSSettings.loadConfig(config);
         check(!AntOSSettings.appEnabled("ANTAZON"), "local config applies before joining");
         AntOSSettings.applyNetworkSettings(server);
-        check(AntOSSettings.appEnabled("ANTAZON") && AntOSSettings.gameAntcoinReward("chess_easy") == 99 && !AntOSSettings.gameBuiltIn("chess"),
+        check(AntOSSettings.appEnabled("ANTAZON") && AntOSSettings.gameAntcoinReward("chess_easy") == 99 && !AntOSSettings.gameIncluded("antos:chess", true),
                 "server settings override the local config");
         AntOSSettings.clearNetworkSettings();
-        check(!AntOSSettings.appEnabled("ANTAZON") && AntOSSettings.gameBuiltIn("chess"), "local config returns after disconnecting");
+        check(!AntOSSettings.appEnabled("ANTAZON") && AntOSSettings.gameIncluded("antos:chess", true), "local config returns after disconnecting");
+    }
+
+    private static void addsMissingSettings(Path directory) throws Exception {
+        Files.createDirectories(directory);
+        Path config = directory.resolve("antos.json");
+        Files.writeString(config, """
+                {
+                  "configVersion": 2,
+                  "passwordHintAfterFailures": 5,
+                  "desktopApps": { "antazon": true },
+                  "builtInGames": { "chess": false },
+                  "client": { "defaultPreferences": { "theme": "amber" } }
+                }
+                """);
+        AntOSSettings.loadConfig(config);
+        JsonObject updated = JsonParser.parseString(Files.readString(config)).getAsJsonObject();
+        check(updated.get("passwordHintAfterFailures").getAsInt() == 5, "existing values survive the upgrade");
+        check(updated.getAsJsonObject("desktopApps").get("antazon").getAsBoolean(), "existing section values survive the upgrade");
+        check(updated.getAsJsonObject("desktopApps").has("merchant") && updated.getAsJsonObject("desktopApps").has("tasks"), "missing apps are added");
+        check(!updated.getAsJsonObject("builtInGames").get("chess").getAsBoolean() && updated.getAsJsonObject("builtInGames").has("pistonPush"), "missing games are added");
+        check(updated.has("jei") && updated.has("gameRewards") && updated.has("showIntroductionEntry"), "missing sections are added");
+        check(updated.getAsJsonObject("client").getAsJsonObject("defaultPreferences").entrySet().size() == 1, "default preferences are left as written");
+        String completed = Files.readString(config);
+        AntOSSettings.loadConfig(config);
+        check(Files.readString(config).equals(completed), "a completed config is not written again");
+    }
+
+    private static void keepsGoodValuesBesideBadOnes(Path directory) throws Exception {
+        Files.createDirectories(directory);
+        Path config = directory.resolve("antos.json");
+        Path state = directory.resolve("antos").resolve("client.json");
+        Files.writeString(config, """
+                {
+                  "passwordHintAfterFailures": "three",
+                  "unlockAllArchiveEntries": true,
+                  "desktopApps": { "antazon": "yes", "tasks": true },
+                  "desktopapps": { "merchant": true },
+                  "gameRewards": { "chessEasy": -4, "chessHard": 2.5, "chessNormal": 12 },
+                  "builtInGames": { "chesss": false, "antos:chess": false },
+                  "jei": [],
+                  "client": { "inventoryComputerButton": 1, "defaultPreferences": { "theme": 3, "interfaceVolume": 140, "mailAlerts": "toast", "favoriteColor": "red" } }
+                }
+                """);
+        AntOSSettings.loadConfig(config);
+        check(AntOSSettings.passwordHintAfterFailures() == 3 && AntOSSettings.unlockAllArchiveEntries(), "a bad value only resets itself");
+        check(!AntOSSettings.appEnabled("ANTAZON") && AntOSSettings.appEnabled("TASKS"), "a bad app switch keeps the other apps");
+        check(!AntOSSettings.appEnabled("MERCHANT"), "misspelled sections are ignored");
+        check(AntOSSettings.gameAntcoinReward("chess_easy") == 5 && AntOSSettings.gameAntcoinReward("chess_hard") == 20
+                && AntOSSettings.gameAntcoinReward("chess_normal") == 12, "negative and fractional rewards use their defaults");
+        check(AntOSSettings.gameIncluded("antos:chess", true), "misspelled and namespaced built-in game keys are ignored");
+        check(AntOSSettings.jeiAntazonPrices() && !AntOSSettings.inventoryComputerButtonEnabled(), "bad sections and switches use their defaults");
+        AntOSSettings.loadClientState(state, config);
+        var preferences = AntOSSettings.preferences();
+        check(preferences.theme.equals("green") && preferences.interfaceVolume == 100, "bad default preferences are corrected");
+        JsonObject updated = JsonParser.parseString(Files.readString(config)).getAsJsonObject();
+        check(updated.get("passwordHintAfterFailures").getAsString().equals("three") && updated.has("desktopapps"), "bad values stay in the file for the author to fix");
+    }
+
+    private static void acceptsOtherModGames(Path directory) throws Exception {
+        Files.createDirectories(directory);
+        Path config = directory.resolve("antos.json");
+        Files.writeString(config, """
+                {
+                  "builtInGames": { "examplemod:snake": true, "examplemod:maze": false },
+                  "gameRewards": { "examplemod:snake_win": 30, "blockle": 4 }
+                }
+                """);
+        AntOSSettings.loadConfig(config);
+        check(AntOSSettings.gameIncluded("examplemod:snake", false) && !AntOSSettings.gameIncluded("examplemod:maze", true), "other mods' games can be installed or removed");
+        check(AntOSSettings.gameIncluded("examplemod:other", true) && !AntOSSettings.gameIncluded("examplemod:other", false), "unlisted games keep their own default");
+        check(AntOSSettings.gameAntcoinReward("examplemod:snake_win") == 30 && AntOSSettings.gameAntcoinReward("examplemod:unknown") == -1, "other mods' reward modes are configurable");
+        check(AntOSSettings.gameAntcoinReward("antos:chess_expert") == 40 && AntOSSettings.gameAntcoinReward("chess_expert") == 40, "built-in modes accept both spellings");
+        check(AntOSSettings.gameAntcoinReward("blockle") == -1 && AntOSSettings.blockleDailyAntcoinReward() == 4, "Blockle is only paid through its own puzzle");
+        JsonObject server = new JsonObject();
+        AntOSSettings.encodeNetworkSettings(server);
+        Files.writeString(config, "{}");
+        AntOSSettings.loadConfig(config);
+        AntOSSettings.applyNetworkSettings(server);
+        check(AntOSSettings.gameAntcoinReward("examplemod:snake_win") == 30 && AntOSSettings.gameIncluded("antos:chess", false), "modded entries and defaults reach clients");
+        AntOSSettings.clearNetworkSettings();
+    }
+
+    private static void movesLegacyKeys(Path directory) throws Exception {
+        Files.createDirectories(directory);
+        Path config = directory.resolve("antos.json");
+        Path state = directory.resolve("antos").resolve("client.json");
+        Files.writeString(config, "{\"configVersion\":2,\"blockleDailyAntcoinReward\":25,\"inventoryComputerButton\":true,\"antazonUnlockEmailsSent\":[\"ant\"]}");
+        AntOSSettings.loadConfig(config);
+        JsonObject updated = JsonParser.parseString(Files.readString(config)).getAsJsonObject();
+        check(AntOSSettings.blockleDailyAntcoinReward() == 25 && AntOSSettings.inventoryComputerButtonEnabled(), "old key values still apply");
+        check(!updated.has("blockleDailyAntcoinReward") && updated.getAsJsonObject("gameRewards").get("blockle").getAsLong() == 25, "the old Blockle reward moves into gameRewards");
+        check(!updated.has("inventoryComputerButton") && updated.getAsJsonObject("client").get("inventoryComputerButton").getAsBoolean(), "the old inventory button moves into client");
+        check(AntOSSettings.legacyAntazonUnlockEmails().contains("ant") && updated.has("antazonUnlockEmailsSent"), "the old Antazon mail list stays for worlds that have not imported it");
+        Files.createDirectories(state.getParent());
+        Files.writeString(state, "{\"preferences\":{\"uiSize\":\"largest\"}}");
+        AntOSSettings.loadClientState(state, config);
+        check(AntOSSettings.uiScalePercent() == 130, "the old interface size still applies");
+        AntOSSettings.updatePreferences(p -> p.theme = "blue");
+        JsonObject saved = JsonParser.parseString(Files.readString(state)).getAsJsonObject().getAsJsonObject("preferences");
+        check(!saved.has("uiSize") && saved.get("uiScalePercent").getAsInt() == 130, "the old interface size is replaced by uiScalePercent");
     }
 
     private static void check(boolean condition, String message) {

@@ -190,6 +190,7 @@ def configTestClasses = layout.buildDirectory.dir('classes/java/configTest')
 tasks.register('compileConfigTests', JavaCompile) {
     dependsOn tasks.named('compileJava')
     source files('../common-1.20.1/src/test/java/com/craisinlord/antos/config/NotificationHistoryTest.java',
+            '../common-1.20.1/src/test/java/com/craisinlord/antos/config/ConfigMigrationTest.java',
             '../common-1.20.1/src/test/java/com/craisinlord/antos/config/DesktopPreferencesTest.java',
             '../common-1.20.1/src/test/java/com/craisinlord/antos/content/client/screen/DesktopQolAuditTest.java',
             '../common-1.20.1/src/test/java/com/craisinlord/antos/content/client/screen/DesktopViewportTest.java')
@@ -207,7 +208,8 @@ tasks.register('notificationHistoryTest', JavaExec) {
     mainClass = 'com.craisinlord.antos.config.NotificationHistoryTest'
 }
 
-['desktopPreferencesTest': 'com.craisinlord.antos.config.DesktopPreferencesTest',
+['configMigrationTest': 'com.craisinlord.antos.config.ConfigMigrationTest',
+ 'desktopPreferencesTest': 'com.craisinlord.antos.config.DesktopPreferencesTest',
  'desktopQolAuditTest': 'com.craisinlord.antos.content.client.screen.DesktopQolAuditTest',
  'desktopViewportTest': 'com.craisinlord.antos.content.client.screen.DesktopViewportTest'].each { name, testClass ->
     tasks.register(name, JavaExec) {

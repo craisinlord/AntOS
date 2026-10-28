@@ -171,10 +171,12 @@ public final class FlappyGhastRenderer {
             g.fill(left, gapBottom, right, gapBottom + 1, Ui.alpha(Ui.TEXT_BRIGHT, 0x30));
             if (pillar.hasQuartz()) {
                 double bob = Math.sin(time * 0.2 + pillar.gapCentre()) * 1.5;
-                double size = 12;
+                int size = Math.max(8, Math.round(12 * field.unit));
+                int qx = left + tile - size / 2;
+                int qy = field.iy(pillar.quartzY() + bob) - size / 2;
                 g.pose().pushPose();
-                g.pose().translate(field.px(pillar.quartzCentreX() - size / 2), field.py(pillar.quartzY() - size / 2 + bob), 20.0F);
-                float scale = (float) (size * field.unit / 16.0);
+                g.pose().translate(qx, qy, 20.0F);
+                float scale = size / 16.0F;
                 g.pose().scale(scale, scale, 1.0F);
                 g.renderItem(Tiles.QUARTZ, 0, 0);
                 g.pose().popPose();
