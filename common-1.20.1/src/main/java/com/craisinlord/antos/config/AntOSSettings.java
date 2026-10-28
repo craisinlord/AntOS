@@ -391,7 +391,7 @@ public final class AntOSSettings {
     }
 
     public static long blockleDailyAntcoinReward() {
-        return Math.max(0L, shared().blockleDailyAntcoinReward);
+        return Math.max(0L, shared().gameRewards.blockle);
     }
 
     public static boolean gameBuiltIn(String gameId) {
@@ -402,6 +402,10 @@ public final class AntOSSettings {
             case "cake_stack" -> games.cakeStack;
             case "fliptris" -> games.fliptris;
             case "nether_breakout" -> games.netherBreakout;
+            case "flappy_ghast" -> games.flappyGhast;
+            case "ore_2048" -> games.ore2048;
+            case "redstone_rush" -> games.redstoneRush;
+            case "piston_push" -> games.pistonPush;
             default -> false;
         };
     }
@@ -415,6 +419,13 @@ public final class AntOSSettings {
             case "chess_expert" -> Math.max(0L, rewards.chessExpert);
             case "minesweeper_small" -> Math.max(0L, rewards.minesweeperSmall);
             case "minesweeper_large" -> Math.max(0L, rewards.minesweeperLarge);
+            case "flappy_ghast_15" -> Math.max(0L, rewards.flappyGhast15);
+            case "flappy_ghast_40" -> Math.max(0L, rewards.flappyGhast40);
+            case "ore_2048_diamond" -> Math.max(0L, rewards.ore2048Diamond);
+            case "ore_2048_beacon" -> Math.max(0L, rewards.ore2048Beacon);
+            case "redstone_rush" -> Math.max(0L, rewards.redstoneRush);
+            case "piston_push" -> Math.max(0L, rewards.pistonPush);
+            case "piston_push_par" -> Math.max(0L, rewards.pistonPushPar);
             default -> -1L;
         };
     }
@@ -475,7 +486,6 @@ public final class AntOSSettings {
         private boolean archiveLookupRequiresPhone = true;
         private boolean sendAntazonUnlockEmail = true;
         private int passwordHintAfterFailures = 3;
-        private long blockleDailyAntcoinReward = 10L;
         private BuiltInGames builtInGames = new BuiltInGames();
         private GameRewards gameRewards = new GameRewards();
         private DesktopApps desktopApps = new DesktopApps();
@@ -487,6 +497,10 @@ public final class AntOSSettings {
         private static PackConfig from(JsonObject root) {
             PackConfig loaded = GSON.fromJson(root, PackConfig.class);
             PackConfig config = (loaded == null ? new PackConfig() : loaded).withDefaults();
+            boolean rewardsHaveBlockle = root.get("gameRewards") instanceof JsonObject rewards && rewards.has("blockle");
+            if (!rewardsHaveBlockle && root.has("blockleDailyAntcoinReward")) {
+                config.gameRewards.blockle = root.get("blockleDailyAntcoinReward").getAsLong();
+            }
             boolean clientHasButton = root.get("client") instanceof JsonObject client && client.has("inventoryComputerButton");
             if (!clientHasButton && root.has("inventoryComputerButton")) {
                 config.client.inventoryComputerButton = root.get("inventoryComputerButton").getAsBoolean();
@@ -535,7 +549,6 @@ public final class AntOSSettings {
     }
 
     private static final class SharedSettings {
-        private long blockleDailyAntcoinReward = 10L;
         private boolean archiveLookupRequiresPhone = true;
         private BuiltInGames builtInGames = new BuiltInGames();
         private GameRewards gameRewards = new GameRewards();
@@ -543,7 +556,6 @@ public final class AntOSSettings {
 
         private static SharedSettings of(PackConfig config) {
             SharedSettings settings = new SharedSettings();
-            settings.blockleDailyAntcoinReward = config.blockleDailyAntcoinReward;
             settings.archiveLookupRequiresPhone = config.archiveLookupRequiresPhone;
             settings.builtInGames = config.builtInGames;
             settings.gameRewards = config.gameRewards;
@@ -718,6 +730,10 @@ public final class AntOSSettings {
         private boolean cakeStack = true;
         private boolean fliptris = true;
         private boolean netherBreakout = true;
+        private boolean flappyGhast = true;
+        private boolean ore2048 = true;
+        private boolean redstoneRush = true;
+        private boolean pistonPush = true;
     }
 
     private static final class GameRewards {
@@ -727,6 +743,14 @@ public final class AntOSSettings {
         private long chessExpert = 40L;
         private long minesweeperSmall = 5L;
         private long minesweeperLarge = 15L;
+        private long blockle = 10L;
+        private long flappyGhast15 = 5L;
+        private long flappyGhast40 = 15L;
+        private long ore2048Diamond = 5L;
+        private long ore2048Beacon = 25L;
+        private long redstoneRush = 10L;
+        private long pistonPush = 5L;
+        private long pistonPushPar = 15L;
     }
 
     private static final class DesktopApps {

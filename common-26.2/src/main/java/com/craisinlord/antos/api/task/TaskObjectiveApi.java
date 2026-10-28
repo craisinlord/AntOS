@@ -8,7 +8,6 @@ import net.minecraft.server.level.ServerPlayer;
 public final class TaskObjectiveApi {
     private TaskObjectiveApi() { }
 
-    /** Records matching objective progress. Call on the logical server. */
     public static boolean record(ServerPlayer player, ComputerBlockEntity computer,
                                  Identifier type, Identifier target, int amount) {
         if (player == null || computer == null || target == null || amount <= 0

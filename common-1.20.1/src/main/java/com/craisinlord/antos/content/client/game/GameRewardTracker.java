@@ -9,6 +9,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 
 final class GameRewardTracker {
+    private final java.util.Set<String> claimed = new java.util.HashSet<>();
     private long seenRevision;
     private Component popup;
     private long popupUntil;
@@ -20,6 +21,10 @@ final class GameRewardTracker {
 
     void claim(String mode) {
         ComputerNetworking.claimGameReward(mode);
+    }
+
+    void claimOnce(String mode) {
+        if (claimed.add(mode)) claim(mode);
     }
 
     void tick() {

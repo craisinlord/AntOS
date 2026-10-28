@@ -24,11 +24,6 @@ import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Mail-triggered Antazon-style crate drops ({@code "delivery"} on a mail definition). Items use the vanilla
- * item stack JSON ({@code id}, {@code count}, {@code components}); an {@code explorer_map} entry builds a
- * treasure map to the nearest structure (ID or {@code #tag}) in the reader's current dimension.
- */
 public final class AntmailPackages {
     private static final int MAP_SEARCH_RADIUS = 100;
 

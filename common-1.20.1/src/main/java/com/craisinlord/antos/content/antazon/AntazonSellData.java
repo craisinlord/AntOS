@@ -15,7 +15,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Data-driven item values for Antazon Sell. */
 public final class AntazonSellData extends SimplePreparableReloadListener<List<AntazonSellData.Source>> {
     private static final String DIRECTORY = "antazon/sell";
     private static final AntazonSellData INSTANCE = new AntazonSellData();

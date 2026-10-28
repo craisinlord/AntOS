@@ -185,7 +185,6 @@ public final class AntazonServerData extends SavedData {
                 }
             } catch (RuntimeException ignored) { }
         }
-        // Saves from before the purchased index only have the order history to go on.
         for (Order order : data.orders) data.recordPurchase(order);
         data.trimHistory();
         data.rebuildReviewIndex();

@@ -49,6 +49,7 @@ public final class CakeStackProgram implements ComputerGame.Session {
 
     @Override
     public void render(GuiGraphics graphics, Font font, int x, int y, int width, int height) {
+        best = (int) Math.max(best, GameData.best("cake_stack"));
         CakeStackRenderer.render(graphics, font, x, y, width, height, layers, currentX, currentWidth, score, best,
                 streak, gameOver, greenTint, ticks, offcutX, offcutWidth, offcutTicks, perfectPulseTicks);
     }
@@ -89,6 +90,7 @@ public final class CakeStackProgram implements ComputerGame.Session {
             gameOver = true;
             overTicks = 0;
             best = Math.max(best, score);
+            GameData.submitBest("cake_stack", best);
             offcutX = currentX;
             offcutWidth = currentWidth;
             offcutTicks = 10;

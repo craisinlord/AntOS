@@ -21,20 +21,10 @@ import java.util.UUID;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Data-driven Antmail: {@code data/<ns>/antmail/message/*.json} definitions and
- * {@code data/<ns>/antmail/pool/*.json} random-mail pools.
- *
- * <p>Every trigger goes through the per-address schedule: a fired definition is queued with a due day
- * ({@code delay}), then delivered once its {@code conditions} pass and its {@code deliver_window} is open.
- * Definitions with {@code once} (the default for every trigger except {@code random}) are claimed on
- * delivery and never queue twice.
- */
 public final class AntmailEventData extends SimplePreparableReloadListener<AntmailEventData.Loaded> {
     private static final AntmailEventData INSTANCE = new AntmailEventData();
     private static volatile Map<ResourceLocation, Definition> definitions = Map.of();
     private static volatile Map<ResourceLocation, Pool> pools = Map.of();
-    /** Definition ids grouped by trigger type, and by "type value" for value-keyed triggers; rebuilt on reload. */
     private static volatile TriggerIndex triggers = new TriggerIndex(Map.of(), Map.of(), Map.of());
     private static final int RANDOM_MAIL_BATCH = 16;
     private static final int ADVANCEMENT_EVENT_BACKFILL_TICKS = 40;
@@ -56,7 +46,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         return definitions.keySet().stream().sorted(Comparator.comparing(ResourceLocation::toString)).toList();
     }
 
-    /** Fires the configured event path, preserving each matching definition's normal conditions and delay. */
     public static int triggerEvent(ServerPlayer player, String type, String value) {
         if (player == null || type == null || value == null) return 0;
         AntmailServerData data = AntmailServerData.access(player.server);
@@ -67,7 +56,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         return matches.size();
     }
 
-    /** Delivers a specific definition immediately, bypassing its trigger conditions, delay, and delivery window. */
     public static AntmailDeliveryResult.Status sendDefinition(ServerPlayer player, ResourceLocation id) {
         if (player == null || id == null) return AntmailDeliveryResult.Status.FAILED;
         Definition definition = definitions.get(id);
@@ -90,8 +78,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         com.craisinlord.antos.content.antazon.AntazonUnlockMail.registerListener();
     }
 
-    // ---------------------------------------------------------------- triggers
-
     public static void onTick(MinecraftServer server) {
         long dayTime = server.overworld().getDayTime();
         long day = dayTime / 24000L;
@@ -106,8 +92,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
             processSchedule(server, data, online);
         }
         if (tick % 40 == 0) {
-            // Polling keeps advancement mail working on loaders without an advancement event, and backfills
-            // anything earned before the player had an address.
             boolean backfill = !advancementEvents || tick % ADVANCEMENT_EVENT_BACKFILL_TICKS == 0;
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
                 if (backfill) backfillAdvancements(player);
@@ -127,7 +111,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         fireMatching(player.server, data, address, "advancement", advancement.getId().toString());
     }
 
-    /** Called when a player signs into an Anternet account (create, login or Face ID). */
     public static void onSession(ServerPlayer player, com.craisinlord.antos.content.computer.ComputerWorkspaceData.AccountInfo account) {
         AntmailServerData data = AntmailServerData.access(player.server);
         data.linkAccount(player.getUUID(), account.accountId());
@@ -273,8 +256,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         return candidates.get(candidates.size() - 1);
     }
 
-    // ---------------------------------------------------------------- scheduling + delivery
-
     private static void fire(MinecraftServer server, AntmailServerData data, AntmailAddress address, ResourceLocation id, Definition definition) {
         if (definition == null || data.isScheduled(address, id) || definition.once() && data.isClaimed(address, id)) return;
         long now = server.overworld().getDayTime();
@@ -400,8 +381,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         }
     }
 
-    // ---------------------------------------------------------------- conditions
-
     private static boolean conditionsPass(Pass pass, AntmailAddress address, ServerPlayer player, Definition definition) {
         Conditions conditions = definition.conditions();
         if (conditions == null) return true;
@@ -429,8 +408,6 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         progress.mergeFrom(workspaces.progress(account.workspaceId()));
         return workspaces.effectiveProgress(account.accountId(), progress).isComplete(taskId);
     }
-
-    // ---------------------------------------------------------------- loading
 
     @Override
     protected Loaded prepare(ResourceManager manager, ProfilerFiller profiler) {

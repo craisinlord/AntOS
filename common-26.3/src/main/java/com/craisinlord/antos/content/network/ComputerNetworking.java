@@ -71,7 +71,8 @@ public final class ComputerNetworking {
                     ComputerAccessPayload.TASK_CLAIM_REWARD, ComputerAccessPayload.TEAM_CREATE,
                     ComputerAccessPayload.TEAM_INVITE, ComputerAccessPayload.TEAM_ACCEPT_INVITE,
                     ComputerAccessPayload.TEAM_DECLINE_INVITE, ComputerAccessPayload.TEAM_LEAVE,
-                    ComputerAccessPayload.TEAM_DISBAND, ComputerAccessPayload.TASK_CLAIM_ALL, ComputerAccessPayload.TASK_PIN -> true;
+                    ComputerAccessPayload.TEAM_DISBAND, ComputerAccessPayload.TASK_CLAIM_ALL, ComputerAccessPayload.TASK_PIN,
+                    ComputerAccessPayload.GAME_DATA -> true;
             default -> false;
         };
     }
@@ -220,6 +221,10 @@ public final class ComputerNetworking {
 
     public static void claimGameReward(String mode) {
         send(ComputerAccessPayload.GAME_REWARD, mode);
+    }
+
+    public static void gameData(String request) {
+        send(ComputerAccessPayload.GAME_DATA, request);
     }
 
     public static void requestAntazon() {

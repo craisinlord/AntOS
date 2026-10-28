@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Register games during client initialization. */
 public final class ComputerGameRegistry {
     private static final Map<ResourceLocation, ComputerGame> GAMES = new LinkedHashMap<>();
 

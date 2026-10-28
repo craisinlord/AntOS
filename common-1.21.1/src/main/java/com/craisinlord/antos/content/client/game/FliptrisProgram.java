@@ -68,6 +68,7 @@ public final class FliptrisProgram implements ComputerGame.Session {
         g.fill(x, y, right, y + height, Ui.GAME_FILL);
         g.renderOutline(x, y, width - 1, height - 1, Ui.GAME_OUTLINE);
         String scoreText = tr("computer.antos.fliptris.score", score);
+        best = (int) Math.max(best, GameData.best("fliptris"));
         String bestText = tr("computer.antos.fliptris.best", best);
         g.drawString(font, fit(font, tr("computer.antos.fliptris.title"), width - font.width(scoreText) - 21), x + 7, y + 4, Ui.TEXT_STRONG, false);
         g.drawString(font, scoreText, right - font.width(scoreText) - 7, y + 4, Ui.TEXT, false);
@@ -179,6 +180,7 @@ public final class FliptrisProgram implements ComputerGame.Session {
         gameOver = true;
         overTicks = 0;
         best = Math.max(best, score);
+        GameData.submitBest("fliptris", best);
         sound(SoundEvents.NOTE_BLOCK_BASS.value(), 0.6F, 0.4F);
     }
 

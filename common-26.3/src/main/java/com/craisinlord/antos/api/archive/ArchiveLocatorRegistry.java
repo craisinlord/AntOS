@@ -8,10 +8,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Custom coordinate lookups for archive entries whose target is not a vanilla structure.
- * An entry opts in with {@code "locator": "<id>"} and {@code "dimension": "<dimension>"}.
- */
 public final class ArchiveLocatorRegistry {
     private static final Map<Identifier, Locator> LOCATORS = new ConcurrentHashMap<>();
 
@@ -27,7 +23,6 @@ public final class ArchiveLocatorRegistry {
 
     @FunctionalInterface
     public interface Locator {
-        /** Runs on the server thread. Returns the nearest target to {@code origin}, or null when none is in range. */
         BlockPos locate(ServerLevel level, BlockPos origin);
     }
 }

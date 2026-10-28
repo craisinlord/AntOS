@@ -79,7 +79,6 @@ public final class AntmailServerData extends SavedData {
             if (tag.contains("Mailboxes")) legacy.put("Mailboxes", tag.getCompoundOrEmpty("Mailboxes"));
             if (tag.contains("Pending")) legacy.put("Pending", tag.getListOrEmpty("Pending"));
             AntmailMailboxStore restored = AntmailMailboxStore.fromTag(tag.getCompoundOrEmpty("Mailboxes"));
-            // Older saves kept a retry queue for undeliverable mail; fold anything left in it into the inboxes once.
             ListTag pendingTags = tag.getListOrEmpty("Pending");
             for (int i = 0; i < pendingTags.size(); i++) {
                 try {
@@ -774,5 +773,4 @@ public final class AntmailServerData extends SavedData {
         }
     }
 }
-
 

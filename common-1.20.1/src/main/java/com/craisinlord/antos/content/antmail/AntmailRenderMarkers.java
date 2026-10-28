@@ -7,7 +7,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Converts explicit Archive-style render markers in mail into portable attachments. */
 public final class AntmailRenderMarkers {
     private static final Pattern MARKER = Pattern.compile("@(item|entity|enchantment|potion|recipe|display|archive):([a-z0-9_.-]+:[a-z0-9_./-]+)");
     private static final Set<String> KINDS = Set.of("item", "entity", "enchantment", "potion", "recipe", "display", "archive");
@@ -43,7 +42,6 @@ public final class AntmailRenderMarkers {
 
     public record Segment(SegmentKind kind, String text) { }
 
-    /** Splits {@code [glitch]text[/glitch]} and {@code [redact]text[/redact]} presentation markup out of mail text. */
     public static List<Segment> segments(String text) {
         List<Segment> segments = new ArrayList<>();
         if (text == null || text.isEmpty()) return segments;
@@ -58,7 +56,6 @@ public final class AntmailRenderMarkers {
         return segments;
     }
 
-    /** Mail text with presentation markup removed, for single-line previews. */
     public static String stripStyleMarkers(String text) {
         return text == null ? "" : STYLE_MARKER.matcher(text).replaceAll("$2");
     }

@@ -13,6 +13,12 @@ public final class GameIcons {
     public static final GameIcon NETHER_BREAKOUT = GameIcon.layered(GameIcon.item(Identifier.withDefaultNamespace("nether_gold_ore")),
             GameIcon.item(Identifier.withDefaultNamespace("fire_charge")));
     public static final GameIcon FLIPTRIS = GameIcon.custom(GameIcons::fliptris);
+    public static final GameIcon PISTON_PUSH = GameIcon.item(Identifier.withDefaultNamespace("piston"));
+    public static final GameIcon REDSTONE_RUSH = GameIcon.layered(GameIcon.item(Identifier.withDefaultNamespace("redstone_lamp")),
+            GameIcon.item(Identifier.withDefaultNamespace("redstone")));
+    public static final GameIcon FLAPPY_GHAST = GameIcon.custom(FlappyGhastRenderer::paintIcon);
+    public static final GameIcon ORE_2048 = GameIcon.layered(GameIcon.item(Identifier.withDefaultNamespace("diamond_ore")),
+            GameIcon.item(Identifier.withDefaultNamespace("beacon")));
     public static final GameIcon QUIZ = GameIcon.item(Identifier.withDefaultNamespace("writable_book"));
     public static final GameIcon ADVENTURE = GameIcon.item(Identifier.withDefaultNamespace("compass"));
     public static final GameIcon PROGRAM = GameIcon.sprite(Identifier.fromNamespaceAndPath("antos", "textures/gui/desktop/terminal.png"));

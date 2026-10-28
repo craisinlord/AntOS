@@ -18,7 +18,6 @@ public final class AntmailGlitchText {
 
     private AntmailGlitchText() { }
 
-    /** Builds the styled body; pass the result to {@code font.split} and then {@link #animate} each line. */
     public static Component body(String text, boolean corrupted, int plainColor) {
         MutableComponent root = Component.empty();
         for (AntmailRenderMarkers.Segment segment : AntmailRenderMarkers.segments(text)) {

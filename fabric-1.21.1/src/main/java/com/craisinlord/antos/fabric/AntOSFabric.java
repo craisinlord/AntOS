@@ -41,7 +41,6 @@ public final class AntOSFabric implements ModInitializer {
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> com.craisinlord.antos.content.network.ComputerAccessHandler.sendLookup(handler.player));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
                 com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));
-        // Fabric has no advancement event; AntmailEventData.onTick polls earned advancements instead.
         AntmailEventData.registerListeners();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             TaskDebugCommands.register(dispatcher);

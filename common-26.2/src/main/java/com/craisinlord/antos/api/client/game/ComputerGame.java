@@ -4,21 +4,17 @@ import net.minecraft.client.gui.Font;
 import com.craisinlord.antos.content.client.ThemedGraphics;
 import net.minecraft.resources.Identifier;
 
-/** Public client API for games displayed in the AntOS Games app. */
 public interface ComputerGame {
-    /** Stable game ID, namespaced by the registering mod. */
     Identifier id();
 
     Identifier diskId();
 
     default boolean includedByDefault() { return false; }
 
-    /** Display name shown in the Games app. */
     String title();
 
     default GameIcon icon() { return GameIcon.DEFAULT; }
 
-    /** Creates per-open-game state for this computer. */
     Session create();
 
     interface Session {

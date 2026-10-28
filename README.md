@@ -4,7 +4,7 @@ AntOS adds an ant-themed computer to Minecraft 1.21.1. Its desktop includes an A
 
 This README is the reference for modpack developers. The fastest way to start is to copy [`examples/datapack-template`](examples/datapack-template), which has a working example of everything below.
 
-The development workspace also contains forward-port targets for Minecraft 26.1, 26.2, and 26.3 on Fabric and NeoForge. Those targets are under active porting and are not release-ready until their build and runtime parity checks pass. See [`docs/PORTING_26.md`](docs/PORTING_26.md) for the project layout and Gradle tasks.
+The development workspace also contains forward-port targets for Minecraft 26.1, 26.2, and 26.3 on Fabric and NeoForge. Those ports are still in progress and not ready for release. See [`docs/PORTING_26.md`](docs/PORTING_26.md) for the project layout and Gradle tasks.
 
 ## Contents
 
@@ -49,19 +49,32 @@ Restart the game or server after editing `config/antos.json`. On a multiplayer s
   "unlockAllGameEntries": false,
   "showIntroductionEntry": true,
   "archiveLookupRequiresPhone": true,
-  "blockleDailyAntcoinReward": 10,
   "builtInGames": {
     "chess": true,
     "minesweeper": true,
-    "nether_breakout": true
+    "cakeStack": true,
+    "fliptris": true,
+    "netherBreakout": true,
+    "flappyGhast": true,
+    "ore2048": true,
+    "redstoneRush": true,
+    "pistonPush": true
   },
   "gameRewards": {
+    "blockle": 10,
     "chessEasy": 5,
     "chessNormal": 10,
     "chessHard": 20,
     "chessExpert": 40,
     "minesweeperSmall": 5,
-    "minesweeperLarge": 15
+    "minesweeperLarge": 15,
+    "flappyGhast15": 5,
+    "flappyGhast40": 15,
+    "ore2048Diamond": 5,
+    "ore2048Beacon": 25,
+    "redstoneRush": 10,
+    "pistonPush": 5,
+    "pistonPushPar": 15
   },
   "sendAntazonUnlockEmail": true,
   "passwordHintAfterFailures": 3,
@@ -92,10 +105,8 @@ Restart the game or server after editing `config/antos.json`. On a multiplayer s
 | `unlockAllGameEntries` | Server | `false` | Unlocks every registered game without its disk. |
 | `showIntroductionEntry` | Server (synced) | `true` | Shows the built-in "SYSTEM INITIALIZED" Introduction page in every Archive. |
 | `archiveLookupRequiresPhone` | Server (synced) | `true` | The Look Up in Archive key only works while an Antroid phone is in the player's inventory. |
-| `blockleDailyAntcoinReward` | Server | `10` | AntCoins for solving Blockle, once per profile per Minecraft day. A popup shows the award. `0` disables it. No AntCoins are awarded or shown while Antazon is disabled. |
-| `builtInGames.chess`, `builtInGames.minesweeper` | Server (synced) | `true` | Installs Chess or Minesweeper on every computer. Set to `false` to require the matching disk instead (`antos:chess`, `antos:minesweeper`). AntOS doesn't define those disks; a pack that turns this off supplies the disk JSON and its drops. |
-| `builtInGames.nether_breakout` | Server (synced) | `true` | Installs Nether Breakout on every computer. Set to `false` to require the `antos:nether_breakout` disk instead. |
-| `gameRewards.<mode>` | Server | see above | AntCoins for winning a Chess level or a Minesweeper size, once per mode per profile per Minecraft day. `0` disables that reward. Nothing is paid while Antazon is disabled. |
+| `builtInGames.<game>` | Server (synced) | `true` | Installs that game on every computer: `chess`, `minesweeper`, `cakeStack`, `fliptris`, `netherBreakout`, `flappyGhast`, `ore2048`, `redstoneRush`, `pistonPush`. Set to `false` to require the matching disk instead (`antos:chess`, `antos:cake_stack`, `antos:flappy_ghast`, and so on). AntOS doesn't define those disks; a pack that turns this off supplies the disk JSON and its drops. |
+| `gameRewards.<mode>` | Server | see above | AntCoins paid once per mode per profile per Minecraft day. `0` disables that reward. Nothing is paid or shown while Antazon is disabled. `blockle`: solving Blockle. `chessEasy` to `chessExpert`: winning Chess at that level. `minesweeperSmall`, `minesweeperLarge`: clearing that board. `flappyGhast15`, `flappyGhast40`: reaching 15 or 40 points. `ore2048Diamond`, `ore2048Beacon`: making a diamond block (512) or a beacon (2048). `redstoneRush`: clearing level 5. `pistonPush`: clearing a level for the first time. `pistonPushPar`: clearing a world 2+ level at par. Configs from older versions that still have a top-level `blockleDailyAntcoinReward` keep that value as `gameRewards.blockle`. |
 | `sendAntazonUnlockEmail` | Server | `true` | Sends the Antazon Dispatch email when listings unlock. |
 | `passwordHintAfterFailures` | Server | `3` | Wrong passwords in a row before the sign-in screen shows the account's password hint. Counted per player and username until a successful sign-in. `0` never shows hints. |
 | `desktopApps.<app>` | Server (synced) | `true` | Set to `false` to hide an app. **Antazon and Tasks default to `false`**; set `desktopApps.antazon` and `desktopApps.tasks` to `true` to enable them. A config that omits `disks` keeps the Disks Library enabled. |
@@ -110,11 +121,9 @@ Older versions kept player data in `config/antos.json`. The first time an update
 
 ### Pause and interface sounds
 
-In AntOS **Settings → Accessibility**, **Pause world while AntOS is open** pauses a private single-player world while using the computer or Antroid Phone, including sign-in and the introduction tour. It defaults to off. Multiplayer and worlds opened to LAN keep running. The preference takes effect immediately and is saved locally for that Minecraft installation.
+**Settings → Accessibility → Pause world while AntOS is open** pauses a single-player world while a computer or Antroid Phone is open. It's off by default and does nothing in multiplayer or LAN worlds. AntOS itself keeps running while paused, but world-time things like scheduled deliveries and daily rewards wait until the world resumes. Encrypted-disk retry cooldowns use real time, so they still count down.
 
-AntOS apps and GUI animations continue while paused. World-time features, such as scheduled deliveries and daily rewards, wait for the world to resume. Encrypted-disk password retry cooldowns use elapsed time so they can expire while paused.
-
-**Settings → Notifications → Interface sounds** controls the retro clicks and tones for buttons, windows, login, saves, terminal commands, disk activation, and Antazon transactions. Window open and close sounds use quiet, lower-register beeps with softened high frequencies. Antazon plays a rising confirmation after an accepted order or checkout and a separate lower confirmation after a successful sale; rejected transactions play the error cue. A checkout plays one cue for the whole response, including partially accepted carts, and an empty cart is silent. Interface sounds default to enabled at 60% volume. The volume choices run from 0% to 100%; **Preview** plays the sound set at the selected volume. Minecraft's Master volume also applies. Mail and task notification sounds keep their separate controls. There are no typing, hover, or continuous background sounds.
+**Settings → Notifications → Interface sounds** turns the retro UI sounds on or off (buttons, windows, login, saves, terminal commands, disks, and Antazon orders and sales). They're on at 60% by default, and **Preview** plays them at the chosen volume. Minecraft's Master volume also applies. Mail and task notification sounds have their own settings.
 
 These client preferences are stored under `preferences` in `antos/client.json`:
 
@@ -132,31 +141,31 @@ Resource packs can replace `assets/antos/sounds/ui/<name>.ogg` or override `asse
 
 **Settings → Personalize → Look** picks how AntOS is drawn. It only changes your own view.
 
-The first time AntOS opens after sign-in, **Choose your look** shows Terminal and Graphite side by side as live previews. Click one (or use the arrow keys) to pick it, then **Continue**. Until you continue, AntOS stays in Terminal, including the boot and sign-in screens. It appears once per Minecraft installation, before the introduction tour, and is saved as `lookChosen` in the preferences.
+The first time AntOS opens after sign-in, **Choose your look** lets the player pick Terminal or Graphite before the introduction tour. This only happens once per Minecraft installation and is saved as `lookChosen`.
 
 | Look | What it does |
 | --- | --- |
-| Terminal | The default green-screen look. Frames, headings, and body text use calmer greens; the bright neon is kept for highlights, focus, progress, and icons. The Personalize theme tints everything, and **Screen brightness** (Standard, Soft, Dim) tones it down further. |
-| Graphite | Deeper charcoal backgrounds with brighter text contrast, like a modern dark mode. The theme only sets the accent color used for highlights, focus, progress, and icons. |
+| Terminal | The default green-screen look. The Personalize theme tints everything, and **Screen brightness** (Standard, Soft, Dim) tones it down. |
+| Graphite | A charcoal dark mode. The theme only sets the accent color. |
 | Custom | Eight colors you choose: Desktop, Window, Panel, Text, Muted text, Accent, Icons, and Error. Type a hex code such as `313338`. Every other interface color is derived from these eight. A row warns when Text, Muted text, or Accent falls below a 4.5:1 contrast ratio against Window. **Start from** fills all eight from Graphite or Terminal. **Copy** and **Paste** share colors as a code such as `antos:141518,202124,191A1D,DBDEE1,B5BAC1,65FF65,65FF65,FA777C`. |
 
 In **Settings → Personalize**, **Icon color** shows app icons in the accent color or in neutral grays. Custom uses its own Icons color instead. **Wallpaper colors** set to **Match look** recolors image wallpapers to the current look by brightness; **Original** shows them unchanged. The built-in wallpaper always follows the look.
 
-**Resume where I left off** is on by default. Closing AntOS keeps you signed in for the rest of the session and reopens your windows, their positions, and each app's place: the Files folder, the open text or paint file, the Settings category, the Antazon page, the Antmail folder, and the open Archive entry. The layout is also saved per account in `antos/client.json`, so it comes back the next time you sign in after rejoining. Running games aren't restored. Staying signed in is per Minecraft player, so other players at the same computer still see the sign-in screen. Opening a computer that belongs to a different account shows that computer's sign-in screen. Turn the option off to sign out every time you close AntOS.
+**Resume where I left off** is on by default. Closing AntOS keeps you signed in for the rest of the session, and reopening it brings back your windows and where you were in each app. The layout is also saved per account in `antos/client.json`, so it survives rejoining. Games aren't restored. Staying signed in is per player, so anyone else using the same computer still has to sign in. Turn the option off to sign out every time you close AntOS.
 
-**Settings → Accessibility → AntOS interface size** has a slider from **50% to 150%**, in 5% steps. Drag the bar and release to apply; the interface stays still while dragging. The **-** and **+** buttons adjust one step, including through keyboard focus, and **100%** restores the standard size. AntOS always caps the result to fit the screen, independently of Minecraft's GUI scale. Existing Standard, Large, and Largest settings migrate to 100%, 115%, and 130% respectively. The percentage is saved as `uiScalePercent` in `antos/client.json` and can also be supplied through `client.defaultPreferences`.
+**Settings → Accessibility → AntOS interface size** scales the interface from 50% to 150% in 5% steps. It's always capped to fit the screen. Old Standard, Large, and Largest settings become 100%, 115%, and 130%. It's saved as `uiScalePercent` and can be set in `client.defaultPreferences`.
 
-On 1.21.1, **Settings → Accessibility → Full-screen desktop** fills the Minecraft viewport with AntOS. It defaults to off and is saved as `fullscreenDesktop`. Extra space increases the desktop and maximized app area. Desktop icons, labels, and notification badges grow together in a four-column grid that fits all twelve apps. Interface size still controls app text and buttons. **Windowed** in the top bar returns to the normal menu. **Reset layout** brings open windows back into view. Double-click a window title bar to maximize or restore it; closing or minimizing the active window focuses the next visible window.
+On 1.21.1, **Settings → Accessibility → Full-screen desktop** makes AntOS fill the whole game window. It's off by default and saved as `fullscreenDesktop`. **Windowed** in the top bar switches back, and **Reset layout** pulls any off-screen windows back into view. Double-click a title bar to maximize or restore a window.
 
-The search field at the top of Settings finds settings across categories and jumps to the selected control. **Notices** in the desktop top bar opens **Settings → Notifications → History**, with the latest 100 mail, task, and accepted Antazon order or sale notices, newest first. Notices have timestamps and read status, and can open the relevant app. **Mark all read** clears the unread count; **Clear history** asks for a second click. **Notifications → Preferences → Quiet mode** suppresses mail and task notification popups and sounds while keeping their history. It defaults to off and is saved as `quietNotifications`.
+Settings has a search bar. **Notices** in the top bar opens **Settings → Notifications → History**, which keeps the last 100 mail, task, and Antazon notices. **Quiet mode** (saved as `quietNotifications`) hides mail and task popups and sounds but still records them in the history.
 
-The Archive toolbar has a star button to bookmark an open article or show bookmarked articles while browsing. **R** shows the 20 most recently opened articles. Both lists only show currently accessible content. **Settings → Apps → Recently opened Archive articles → Clear history** clears the recent list. Archive search, view mode, and scroll position, plus the Files sort order, are included in session restore.
+In the Archive, the star button bookmarks the open article or lists your bookmarks, and **R** lists the 20 most recently opened articles. Clear the recent list under **Settings → Apps → Recently opened Archive articles**.
 
-Text Editor and Paint keep local recovery drafts approximately every two seconds while AntOS is open and when closing an app or the desktop. Reopening an app after restarting offers **Restore draft** or **Discard draft**. Restore returns the unsaved work to the editor without saving over the server file. Notification history, bookmarks, recent articles, and drafts are stored per account workspace in `antos/client.json`; these are player data and should not be shipped with a modpack.
+Text Editor and Paint save recovery drafts every couple of seconds. If the game closes with unsaved work, reopening the app offers **Restore draft** or **Discard draft**. Notification history, bookmarks, recent articles, and drafts are player data in `antos/client.json`, so don't ship that file in a modpack.
 
-**Reduce screen effects** stops the flickering and scrambling text in corrupted Antmail messages. The Rainbow theme is unaffected.
+**Reduce screen effects** turns off the flickering, scrambled text in corrupted Antmail messages.
 
-**Settings → Apps → Tasks** controls the category sidebar independently of interface size and map zoom. It starts collapsed and opens on click, using Narrow width, Small text, Compact rows, and visible progress counts. Choose Hover to open it with the pointer or Always to keep it open. The sidebar pin also saves the Always setting; selecting a category closes an unpinned sidebar. Reset Sidebar restores these compact defaults.
+**Settings → Apps → Tasks** controls the Tasks category sidebar. By default it's collapsed and opens on click; it can also open on hover or stay open. Pinning the sidebar is the same as choosing Always.
 
 The sidebar preferences in `antos/client.json` are `taskSidebarBehavior` (`click`, `hover`, `always`), `taskSidebarWidth` (`narrow`, `standard`, `wide`), `taskSidebarText` (`small`, `normal`, `large`), `taskSidebarSpacing` (`compact`, `comfortable`), and `taskSidebarCounts` (`true` or `false`). These keys also work in `client.defaultPreferences`.
 
@@ -178,9 +187,7 @@ The sidebar preferences in `antos/client.json` are `taskSidebarBehavior` (`click
 
 Accounts can store an optional **password hint**, set when the account is created or later in **Settings → Account → Password hint**. The hint can't contain the password. After `passwordHintAfterFailures` wrong passwords in a row, the sign-in screen shows it under the error. Anyone who tries can see it, so it shouldn't give the password away.
 
-If a player forgets their password, an operator can reset it with `/antos account resetpassword` (see [Commands](#commands)). The player is signed out everywhere and gets an Antmail notice. A temporary password must be replaced at the next sign-in before AntOS can be used.
-
-Window borders focus and raise the clicked window and block clicks to apps or desktop icons behind it. Borders do not resize windows. Scrolling over a window's frame or title bar cannot scroll another window underneath it.
+If a player forgets their password, an operator can reset it with `/antos account resetpassword` (see [Commands](#commands)). The player is signed out everywhere and gets an Antmail notice. A temporary password has to be changed at the next sign-in.
 
 ## Quick start
 
@@ -324,7 +331,7 @@ Entries are normally unlocked by a disk's `entries`, a task's `archive` reward, 
 
 ### Archive folders
 
-Folders organize Archive entries using any structure the pack author chooses: chapters, locations, research topics, mods, or something else. AntOS never assigns folders automatically based on a mod or namespace. Folders are separate from an entry's `category` and from floppy disk categories.
+Folders group Archive entries however you like: by chapter, location, topic, mod, and so on. AntOS never puts entries in folders on its own. Folders have nothing to do with an entry's `category` or with disk categories.
 
 Define a folder at `data/<namespace>/computer/archive_folder/<path>.json`. For example, `data/examplemod/computer/archive_folder/field_research.json`:
 
@@ -369,19 +376,16 @@ To add a subfolder, define another folder such as `data/examplemod/computer/arch
 }
 ```
 
-An entry with `"folder": "examplemod:creatures"` then appears under `Archive > Field Research > Creatures`. Folder IDs and parent relationships are explicit; a slash in a folder's JSON path does not create a parent relationship automatically.
+An entry with `"folder": "examplemod:creatures"` then shows up under `Archive > Field Research > Creatures`. Parents only come from `parent`; putting a folder file in a subdirectory doesn't nest it.
 
-The Archive root shows top-level folders first, followed by loose entries. Opening a folder shows its visible subfolders first, followed by entries assigned directly to it. Each group uses `sort_order`, displayed title, and ID ordering. A parent may contain both subfolders and its own entries. Folder counts include all unlocked entries beneath that folder, including entries in its subfolders. Folder artwork keeps a recognizable folder silhouette and renders its configured `icon_item` centered inside the folder without a background box, including modded items and resource-pack item textures. Entry covers retain their item, entity, potion, enchantment, and recipe previews, with a document icon when no preview is available.
+- Folders are listed before entries, and both are sorted by `sort_order`, then title, then ID. A folder can hold subfolders and entries at the same time.
+- Folder counts include entries in subfolders.
+- Folders don't unlock anything. A folder stays hidden until something inside it is unlocked.
+- Searching inside a folder also searches its subfolders.
+- Each entry goes in one folder, and folders only nest one level deep (`Archive > Folder > Subfolder`).
+- Entries pointing at a missing folder, and folders with a missing parent, a cycle, or too much nesting, show up at the root with a warning in the log.
 
-Archive opens in list view in a wider default window. The toolbar switches between list and gallery views; maximizing preserves the selected view. Gallery columns adapt to the available width. The chosen view remains available throughout the current computer session, and switching views retains the focused entry where possible.
-
-Each breadcrumb segment is clickable, so `Archive > Field Research > Creatures` can return directly to either ancestor. Long paths collapse earlier segments into a menu while retaining the current location. Hovering truncated titles or paths reveals their full text. Back returns to the previous view, including searches, opened entries, and breadcrumb jumps, restoring its search, focus, view mode, and scroll position. Up follows the folder hierarchy; from an entry it opens that entry's assigned folder, or the root for a loose entry. Escape leaves an entry, unfocuses search, or moves up one folder level, in that order.
-
-Use `Ctrl+F` to focus search, `Tab`/`Shift+Tab` to move between controls and content, arrow keys to focus entries, and `Enter` to open them. `Home` and `End` select the first or last entry. Gallery navigation follows the visual rows and columns. While reading, arrow keys, `Page Up`/`Page Down`, `Home`, and `End` scroll the article. The article view has its own scrollbar, wrapping titles and subtitles, and separated text and preview sections.
-
-Searching at the root searches all unlocked entries. Searching inside a parent searches that folder and its subfolders; searching inside a subfolder searches only that subfolder. Results show their full folder path. Empty folders stay hidden until an entry anywhere beneath them becomes available, so a parent with no direct entries can still appear when a subfolder has an unlocked entry. Folders do not unlock entries: disks, tasks, and other existing unlock sources continue to control availability.
-
-Each entry can belong to one folder. The maximum hierarchy is `Archive > Folder > Subfolder`. Existing folders without `parent` stay at the root, and existing entries without `folder` stay loose at the root. Entries referencing missing folders also appear at the root, with a warning in the server log. Missing or invalid parents, self-parenting, cycles, and excessive nesting promote the affected folders to the root with warnings; their assigned entries are retained. Validation uses the original parent graph, so descendants of a broken parent chain are also promoted, independently of file load order. Folder definitions, parent relationships, and entry assignments sync from the server with the rest of the Archive data.
+Players can switch between list and gallery views, click any part of the breadcrumb to jump back up, and use `Ctrl+F`, arrow keys, `Enter`, and `Escape` to get around.
 
 ### Galleries
 
@@ -1073,31 +1077,23 @@ When tasks, disks, or terminal commands unlock listings, Antazon Dispatch sends 
 
 ## MERCHANT
 
-MERCHANT is the player marketplace and the last desktop app. It is disabled by default. Enable it with `desktopApps.merchant: true`; it works independently of Antazon and appears in the initial AntOS app tour when enabled. Disabling it retains market stock, receipts, and pending shipments.
+MERCHANT is a marketplace where players trade with each other. It's off by default; turn it on with `desktopApps.merchant: true`. It doesn't need Antazon. Turning it off later keeps all listings, receipts, and pending shipments.
 
-**Browse** searches items, mod IDs, and sellers. Prices have a separate column, and opening a listing preserves the browse position. Filter by accepted payment or **Can Pay**; when a payment currency is selected, Can Pay checks that specific currency. Sorting by price requires choosing one payment currency. Prices in different items have no implied exchange rate.
+**Selling.** **+ List** picks an item from your inventory, how many go in each lot, how many lots, and what you'll accept as payment. You can accept several payments (any one of them pays), using any item or AntCoins. The whole stock is taken from your inventory when you publish.
 
-Choose **+ List** to select an inventory item, set quantity per lot and the number of lots, add alternative payments, and review the listing. Publishing deposits all offered stock immediately. Items with the same exact components/tags can be combined across the main inventory; equipment and nested inventories are not scanned. Sellers can request any registered plain item or AntCoins, including items they do not possess. Alternatives mean **OR**, and there is no fixed four-option limit.
+**Buying.** **Browse** searches by item, mod, or seller, and can filter by payment or by what you can afford. Pick a payment and how many lots, check the summary, and confirm. Item payments have to be the plain item, so a renamed or enchanted copy won't be taken as payment. AntCoins come from the same wallet as Antazon.
 
-Buyers select a payment and number of lots, review separate **You Receive** and **You Give** panels, and confirm. Quantity fields support typing and step buttons. A stock change clears confirmation and requires another review. Item payments require the plain default item; named, enchanted, damaged, or filled variants are not silently consumed as ordinary currency. Actual listed items retain their full item data. AntCoins use the same account wallet as Antazon; enabling MERCHANT alone does not change existing Antazon-dependent coin rewards.
+**Delivery.** Purchases drop near the buyer like Antazon deliveries. Payments a seller receives and stock they cancel wait under **Deliveries** until they choose **Deliver Here**. Once items are on the ground they can be lost like any other dropped item. Very large shipments are split into batches.
 
-Purchased goods request falling delivery immediately when conditions allow. Seller item payments and canceled stock wait in **Deliveries** until the account user chooses **Deliver Here**. Shipments fall and release loose items using the existing reward-drop behavior. Once dispatched, loose items are subject to normal Minecraft world hazards; there is no protected parcel or automatic replacement. Unsafe requests remain queued. Exceptionally large shipments split into safe batches, with the remainder kept in Deliveries. Pending shipments are shown by default; switch to **All Shipments** for dispatched history.
+**My Trades** shows your active listings and trade history. Receipts arrive by Antmail, and a desktop badge shows when something is waiting in Deliveries. A short tutorial runs the first time a player opens MERCHANT; the TUTORIAL button shows it again. Dead or spectating players can browse but can't trade.
 
-**My Trades** shows active listings and links to trade history. Antmail sends purchase/sale receipts with an **Open MERCHANT Deliveries** link. A desktop badge marks pending shipments. Window navigation, filters, listing drafts, and unconfirmed request identities are included in account resume data.
-
-Listings show the seller's current Antmail display name and item avatar, with the same initials fallback as Antmail. Listing details show the stable account address, and trade history identifies both buyer and seller. Profiles load directly with market results, including for offline sellers, without requiring the Antmail app to be open. Seller searches match both account names and current display names.
-
-The first time a workspace opens MERCHANT, a four-page quick start explains browsing, repeatable lots, alternative payments, and physical delivery. Skip it or complete it to dismiss it for that workspace. The TUTORIAL button reopens the guide without clearing a listing draft. Tutorial completion is stored locally with player settings. The welcome card, segmented tabs, wallet header, controls, and review panels follow Antazon's layout and styling. Signed-in players may browse while dead or in Spectator mode; publishing, buying, cancelling stock, and requesting delivery require a living player outside Spectator mode. Read-only browsing does not trigger transaction recovery.
-
-Market data is stored in the world's `data/antos_merchant.json`. Back it up with player data and the world's wallet data. Writes use atomic replacement, requests are deduplicated per account, and inventory/wallet transactions retain a recovery journal until saving completes. If recovery detects conflicting inventory or balances, trading stops rather than guessing which property to remove.
+Market data is saved in the world's `data/antos_merchant.json`, so back it up along with player data. If the server crashes in the middle of a trade, AntOS can replay it from a saved journal. When the inventory or balance doesn't match what it expects, it stops that player's trading instead of guessing.
 
 Operator commands:
 
 - `/antos merchant status` reports market totals and any interrupted transaction's Minecraft player UUID.
 - `/antos merchant recover <player>` retries a saved transaction for an online player when inventory and balances match its recorded before/after states.
-- `/antos merchant return <listing>` cancels an active listing by UUID and queues its unsold stock for the seller, including while the app is disabled.
-
-The shared persistence/rules suite is `merchantTest` in each Fabric target and in the standalone Forge 1.20.1 build. It covers malformed requests, duplicate request conflicts, acknowledgement ordering, exact currency filtering, and large shipment batching. Fabric additionally tests actual item variants; the standalone Forge task runs the rules without launching its game event bus.
+- `/antos merchant return <listing>` cancels an active listing by UUID and sends its unsold stock back to the seller's Deliveries. This works while the app is disabled.
 
 ## Terminal commands
 
@@ -1285,7 +1281,7 @@ ArchiveLocatorRegistry.register(
 
 Register code-based games with `ComputerGameRegistry`. Each game has a namespaced ID and an installing disk ID, and its session implements `tick`, `render`, `keyPressed`, and `charTyped`. Sessions can also override `mouseClicked(mouseX, mouseY, button)` and the `render` overload that takes `mouseX, mouseY`; both use coordinates relative to the game area's top-left corner. The game area is the Games window below its BACK header: 374×190 by default and 396×178 maximized. Lay out from the `width` and `height` passed to `render`; drawing is clipped to that area. See `ComputerGame` and `ComputerGameRegistry`.
 
-AntOS ships Blockle, Chess (four AI levels), Minesweeper (two board sizes), Cake Stack and Nether Breakout. Nether Breakout uses Minecraft block and item sprites, follows the active AntOS palette, and uses pitch-shifted versions of the existing CC0 interface sounds. Move the pickaxe with the mouse, press Space to launch, P to pause, and M to toggle effects. Lives automatically continue after a short respawn. Chess and Minesweeper are adapted from Create: Cybernetics by Perigrine3 under the MIT License; see `licenses/createcybernetics-MIT.txt`.
+AntOS ships Blockle, Chess (four AI levels), Minesweeper (two board sizes), Cake Stack and Nether Breakout. Chess and Minesweeper are adapted from Create: Cybernetics by Perigrine3 under the MIT License; see `licenses/createcybernetics-MIT.txt`.
 
 ### Custom objectives
 
@@ -1318,9 +1314,7 @@ The `/antos tasks` commands without a player argument act on your own signed-in 
 
 ## How AntOS behaves in play
 
-What players experience, so you can design around it:
-
-- **Profiles, not devices.** Computers and Antroid Phones are access devices. Players sign in with an Anternet username and password, and everything (files, preferences, task and Archive progress, disks, rewards, mailbox, wallet) is saved to that profile in the server world. Profiles don't transfer between servers. Players can share credentials to share a profile; there are no read-only permissions.
+- **Profiles, not devices.** Computers and Antroid Phones are access devices. Players sign in with an Anternet username and password, and everything (files, preferences, task and Archive progress, disks, rewards, mailbox, wallet) is saved to that profile in the server world. Profiles don't transfer between servers. Players can share a profile by sharing the password, but there's no read-only access.
 - **Disks.** Inserting a disk adds it to the profile. **EJECT DISK** in the Disks Library drops it at the player; permanent unlocks are kept and one-time rewards are never repeated. Inserting an already-installed disk leaves it in hand with **Already installed**. Phones can queue disks before sign-in and return duplicates. Disks on older computers migrate into a profile the first time it's opened there.
 - **Disks Library.** Disks are grouped by category with collection counts, search, and filters. Undiscovered disks show as silhouettes with `???`, and search never reveals them. Disk pages link to their entries, tasks, wallpapers, games, files, and Antazon listings. Links to disabled apps are inactive.
 - **Tasks app.** Drag to pan, scroll or Shift+scroll to move, and Ctrl+wheel or `-`/`+` to zoom. **CENTER** frames the tab and **FIND**/Ctrl+F searches. Locked tasks show a lock, and a `!` marks claimable rewards. Clicking a prerequisite opens it; one in another tab asks first. Clicking an item icon shows its recipe.

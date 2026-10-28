@@ -137,11 +137,6 @@ public final class AntmailMailbox {
         return toPageTag(folder, page, query, unreadOnly, attachmentsOnly, true, Integer.MAX_VALUE);
     }
 
-    /**
-     * A folder snapshot for the client: list-form messages (short body preview, no attachment payloads) plus drafts.
-     * The request key (folder, query, filters) is echoed back so the client can reuse it for "unchanged" checks.
-     * {@code draftAttachments} and {@code maxRows} let the caller shrink an oversized snapshot to fit the packet cap.
-     */
     public CompoundTag toPageTag(int folder, int page, String query, boolean unreadOnly, boolean attachmentsOnly,
                                  boolean draftAttachments, int maxRows) {
         CompoundTag tag = new CompoundTag();
@@ -258,5 +253,4 @@ public final class AntmailMailbox {
         return messages.stream().anyMatch(message -> message.id().equals(id));
     }
 }
-
 

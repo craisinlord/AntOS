@@ -13,6 +13,12 @@ public final class GameIcons {
     public static final GameIcon NETHER_BREAKOUT = GameIcon.layered(GameIcon.item(new ResourceLocation("minecraft", "nether_gold_ore")),
             GameIcon.item(new ResourceLocation("minecraft", "fire_charge")));
     public static final GameIcon FLIPTRIS = GameIcon.custom(GameIcons::fliptris);
+    public static final GameIcon PISTON_PUSH = GameIcon.item(new ResourceLocation("minecraft", "piston"));
+    public static final GameIcon REDSTONE_RUSH = GameIcon.layered(GameIcon.item(new ResourceLocation("minecraft", "redstone_lamp")),
+            GameIcon.item(new ResourceLocation("minecraft", "redstone")));
+    public static final GameIcon FLAPPY_GHAST = GameIcon.custom(FlappyGhastRenderer::paintIcon);
+    public static final GameIcon ORE_2048 = GameIcon.layered(GameIcon.item(new ResourceLocation("minecraft", "diamond_ore")),
+            GameIcon.item(new ResourceLocation("minecraft", "beacon")));
     public static final GameIcon QUIZ = GameIcon.item(new ResourceLocation("minecraft", "writable_book"));
     public static final GameIcon ADVENTURE = GameIcon.item(new ResourceLocation("minecraft", "compass"));
     public static final GameIcon PROGRAM = GameIcon.sprite(new ResourceLocation("antos", "textures/gui/desktop/terminal.png"));

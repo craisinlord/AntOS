@@ -73,9 +73,25 @@ public final class RewardDropEntity extends Entity {
         return entityData.get(DELIVERY_HIDDEN);
     }
 
-    public float deliveryScale() {
+    public float deliveryScale(float partialTick) {
         int ticks = entityData.get(PORTAL_TICKS);
-        return ticks == 0 ? 1.0F : Math.max(0.0F, Math.min(1.0F, (ticks - DeliveryArrival.OPEN_TICKS) / 5.0F));
+        return DeliveryArrival.packageScale(ticks == 0 ? 0.0F : ticks + partialTick);
+    }
+
+    public float portalRadius(float partialTick) {
+        int ticks = entityData.get(PORTAL_TICKS);
+        return (float) DeliveryArrival.PORTAL_RADIUS * DeliveryArrival.portalSize(ticks == 0 ? 0.0F : ticks + partialTick);
+    }
+
+    public float portalOffset(float partialTick) {
+        return (float) (entityData.get(PORTAL_Y) - Mth.lerp(partialTick, yOld, getY()));
+    }
+
+    public AABB portalBounds() {
+        double y = entityData.get(PORTAL_Y);
+        double radius = DeliveryArrival.PORTAL_RADIUS;
+        return getBoundingBox().minmax(new AABB(getX() - radius, y - 0.1D, getZ() - radius,
+                getX() + radius, y + 0.1D, getZ() + radius));
     }
 
     public void prepareDelivery(BlockPos destination) {
@@ -90,7 +106,7 @@ public final class RewardDropEntity extends Entity {
         return new DeliveryArrival.Space() {
             @Override
             public double floor(int x, int y, int z) {
-                var search = new AABB(x + 0.2D, y - 1.0D, z + 0.2D,
+                var search = new AABB(x + 0.2D, y - 1.25D, z + 0.2D,
                         x + 0.8D, y + 0.75D, z + 0.8D);
                 if (!loaded(search)) return Double.NaN;
                 double floor = Double.NaN;
@@ -202,19 +218,14 @@ public final class RewardDropEntity extends Entity {
     private void portalParticles() {
         int ticks = entityData.get(PORTAL_TICKS);
         if (ticks == 0) return;
-        double size = Math.min(1.0D, ticks / 8.0D) * Math.min(1.0D,
-                (DeliveryArrival.OPEN_TICKS + DeliveryArrival.CLOSE_TICKS - ticks + 1) / 8.0D);
+        if (tickCount % 2 != 0) return;
+        double size = DeliveryArrival.portalSize(ticks);
         double y = entityData.get(PORTAL_Y);
-        for (int i = 0; i < 24; i++) {
-            double angle = i * Math.PI / 12.0D + ticks * 0.22D;
+        for (int i = 0; i < 16; i++) {
+            double angle = i * Math.PI / 8.0D + ticks * 0.22D;
             double radius = DeliveryArrival.PORTAL_RADIUS * size;
             level().addParticle(ParticleTypes.REVERSE_PORTAL, getX() + Math.cos(angle) * radius, y,
                     getZ() + Math.sin(angle) * radius, 0.0D, 0.0D, 0.0D);
-            if (i % 2 == 0) {
-                double inner = Math.sqrt(random.nextDouble()) * radius * 0.85D;
-                level().addParticle(ParticleTypes.PORTAL, getX() + Math.cos(angle) * inner, y - 0.02D,
-                        getZ() + Math.sin(angle) * inner, 0.0D, -0.005D, 0.0D);
-            }
         }
     }
 
@@ -271,7 +282,6 @@ public final class RewardDropEntity extends Entity {
         if (isRemoved()) return;
         if (level().isClientSide) {
             portalParticles();
-            if (!impacted && !deliveryHidden() && onGround()) impactParticles();
             return;
         }
         if (impacted) {

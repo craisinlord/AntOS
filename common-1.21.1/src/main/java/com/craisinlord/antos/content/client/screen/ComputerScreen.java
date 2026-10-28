@@ -1231,8 +1231,6 @@ public final class ComputerScreen extends Screen {
         return List.of();
     }
 
-    // Some mods keep their inputs outside Recipe#getIngredients (e.g. counted ingredient stacks),
-    // so fall back to a getIngredientStacks() list whose entries expose getIngredient().
     static List<Ingredient> archiveRecipeIngredients(net.minecraft.world.item.crafting.Recipe<?> recipe) {
         List<Ingredient> direct = recipe.getIngredients();
         if (!direct.isEmpty()) return direct;
@@ -1258,7 +1256,6 @@ public final class ComputerScreen extends Screen {
         return direct;
     }
 
-    // Grid size for non-vanilla shaped recipes; anything unknown or out of range lays out as a 3x3 list.
     private static int archiveRecipeDimension(net.minecraft.world.item.crafting.Recipe<?> recipe, String getter) {
         try {
             if (recipe.getClass().getMethod(getter).invoke(recipe) instanceof Integer value && value >= 1 && value <= 3) return value;

@@ -24,13 +24,29 @@ public final class RewardDropRenderer extends EntityRenderer<RewardDropEntity> {
     }
 
     @Override
+    public boolean shouldRender(RewardDropEntity entity, net.minecraft.client.renderer.culling.Frustum frustum,
+                                double cameraX, double cameraY, double cameraZ) {
+        return super.shouldRender(entity, frustum, cameraX, cameraY, cameraZ)
+                || entity.portalRadius(0.0F) > 0.0F && entity.distanceToSqr(cameraX, cameraY, cameraZ) < 65536.0D
+                && frustum.isVisible(entity.portalBounds());
+    }
+
+    private static void portalVertices(PoseStack.Pose pose, com.mojang.blaze3d.vertex.VertexConsumer vertices,
+                                       float radius, float y) {
+        DeliveryPortalGeometry.emit(radius, y, (x, vertexY, z) -> vertices.addVertex(pose.pose(), x, vertexY, z));
+    }
+
+    @Override
     public void render(RewardDropEntity entity, float entityYaw, float partialTick, PoseStack pose,
                        MultiBufferSource buffers, int packedLight) {
+        float radius = entity.portalRadius(partialTick);
+        if (radius > 0.0F) portalVertices(pose.last(), buffers.getBuffer(net.minecraft.client.renderer.RenderType.endPortal()),
+                radius, entity.portalOffset(partialTick));
         if (entity.deliveryHidden()) return;
         pose.pushPose();
         pose.translate(0.0D, 0.38D, 0.0D);
         pose.mulPose(Axis.YP.rotationDegrees((entity.tickCount + partialTick) * 7.0F));
-        float scale = 0.9F * entity.deliveryScale();
+        float scale = 0.9F * entity.deliveryScale(partialTick);
         pose.scale(scale, scale, scale);
         this.itemRenderer.renderStatic(chest, ItemDisplayContext.FIXED, packedLight,
                 OverlayTexture.NO_OVERLAY, pose, buffers, entity.level(), entity.getId());

@@ -104,7 +104,9 @@ def deliveryArrivalTestClasses = layout.buildDirectory.dir('classes/java/deliver
 tasks.register('compileDeliveryArrivalTests', JavaCompile) {
     source files(
             'common-1.21.1/src/main/java/com/craisinlord/antos/content/entity/DeliveryArrival.java',
-            'common-1.21.1/src/test/java/com/craisinlord/antos/content/entity/DeliveryArrivalTest.java')
+            'common-1.21.1/src/test/java/com/craisinlord/antos/content/entity/DeliveryArrivalTest.java',
+            'common-1.21.1/src/main/java/com/craisinlord/antos/content/client/renderer/DeliveryPortalGeometry.java',
+            'common-1.21.1/src/test/java/com/craisinlord/antos/content/client/renderer/DeliveryPortalGeometryTest.java')
     classpath = files()
     destinationDirectory = deliveryArrivalTestClasses
     options.release = 21
@@ -116,4 +118,51 @@ tasks.register('deliveryArrivalTest', JavaExec) {
     dependsOn tasks.named('compileDeliveryArrivalTests')
     classpath = files(deliveryArrivalTestClasses)
     mainClass = 'com.craisinlord.antos.content.entity.DeliveryArrivalTest'
+}
+
+tasks.register('deliveryPortalGeometryTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies the ceiling portal mesh, clearance, coverage, and both visible faces.'
+    dependsOn tasks.named('compileDeliveryArrivalTests')
+    classpath = files(deliveryArrivalTestClasses)
+    mainClass = 'com.craisinlord.antos.content.client.renderer.DeliveryPortalGeometryTest'
+}
+
+tasks.named('deliveryArrivalTest') { dependsOn tasks.named('deliveryPortalGeometryTest') }
+
+def gameLogicMain = 'common-1.21.1/src/main/java'
+def gameLogicTestRoot = 'common-1.21.1/src/test/java'
+def gameLogicTestClasses = layout.buildDirectory.dir('classes/java/gameLogicTest')
+def gameLogicTestSources = fileTree(gameLogicTestRoot) {
+    include 'com/craisinlord/antos/content/client/game/logic/**/*Test.java'
+    include 'com/craisinlord/antos/content/computer/games/*Test.java'
+}
+tasks.register('compileGameLogicTests', JavaCompile) {
+    source fileTree(gameLogicMain) {
+        include 'com/craisinlord/antos/content/client/game/logic/**/*.java'
+        include 'com/craisinlord/antos/content/computer/games/GameDataCodec.java'
+    }
+    source fileTree(gameLogicTestRoot) {
+        include 'com/craisinlord/antos/content/client/game/logic/**/*.java'
+        include 'com/craisinlord/antos/content/computer/games/*Test.java'
+    }
+    classpath = files()
+    destinationDirectory = gameLogicTestClasses
+    options.release = 21
+}
+
+def gameLogicTestTasks = gameLogicTestSources.files.sort { it.path }.collect { testFile ->
+    def className = file(gameLogicTestRoot).toPath().relativize(testFile.toPath()).toString().replace(File.separator, '.').replaceAll(/\.java$/, '')
+    tasks.register("gameLogicTest${className.tokenize('.').last()}", JavaExec) {
+        group = 'verification'
+        dependsOn tasks.named('compileGameLogicTests')
+        classpath = files(gameLogicTestClasses)
+        mainClass = className
+    }
+}
+
+tasks.register('gameLogicTests') {
+    group = 'verification'
+    description = 'Runs the pure-Java logic tests for the AntOS arcade games.'
+    dependsOn gameLogicTestTasks
 }
