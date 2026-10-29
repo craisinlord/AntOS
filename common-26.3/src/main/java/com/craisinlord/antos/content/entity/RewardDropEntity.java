@@ -43,6 +43,9 @@ public final class RewardDropEntity extends Entity {
     private double deliveryFloorY;
     private int deliveryFlightTicks;
     private boolean deliveryWaitingNotified;
+    private boolean followRecipient;
+    private int deliveryWaitTicks;
+    public static final int DELIVERY_FALLBACK_TICKS = 600;
     private static final String REWARDS_TAG = "Rewards";
     private static final String RECIPIENT_TAG = "Recipient";
     public static final int MAX_REWARD_STACKS = 108;
@@ -94,6 +97,40 @@ public final class RewardDropEntity extends Entity {
         setInvisible(true);
         setPos(destination.getX() + 0.5D, destination.getY(), destination.getZ() + 0.5D);
         tryDelivery();
+    }
+
+    public void followRecipient() {
+        followRecipient = true;
+    }
+
+    private ServerPlayer recipientPlayer() {
+        if (recipient == null || !(level() instanceof ServerLevel serverLevel)) return null;
+        return serverLevel.getServer().getPlayerList().getPlayer(recipient);
+    }
+
+    private void retargetDelivery() {
+        if (!followRecipient) return;
+        ServerPlayer player = recipientPlayer();
+        if (player == null || player.level() != level()) return;
+        deliveryTarget = player.blockPosition();
+        setPos(deliveryTarget.getX() + 0.5D, deliveryTarget.getY(), deliveryTarget.getZ() + 0.5D);
+    }
+
+    private boolean handOverDelivery() {
+        ServerPlayer player = recipientPlayer();
+        if (player == null) return false;
+        for (ItemStack stack : rewards) {
+            if (stack.isEmpty()) continue;
+            ItemStack remaining = stack.copy();
+            player.getInventory().add(remaining);
+            if (!remaining.isEmpty()) player.drop(remaining, false);
+        }
+        rewards.clear();
+        player.sendSystemMessage(Component.literal("No landing space turned up, so Antazon handed your delivery to you directly.").withStyle(ChatFormatting.GOLD));
+        player.level().playSound(null, player.blockPosition(), SoundEvents.ITEM_PICKUP,
+                SoundSource.PLAYERS, 0.6F, 1.0F);
+        discard();
+        return true;
     }
 
     private DeliveryArrival.Space deliverySpace() {
@@ -198,7 +235,11 @@ public final class RewardDropEntity extends Entity {
             if (ticks < DeliveryArrival.OPEN_TICKS) return true;
         }
         if (deliveryHidden()) {
-            if (tickCount % 40 == 0) tryDelivery();
+            if (++deliveryWaitTicks >= DELIVERY_FALLBACK_TICKS && handOverDelivery()) return true;
+            if (tickCount % 40 == 0) {
+                retargetDelivery();
+                tryDelivery();
+            }
             return true;
         }
         deliveryFlightTicks++;
@@ -380,6 +421,8 @@ public final class RewardDropEntity extends Entity {
         output.putDouble("DeliveryFloorY", deliveryFloorY);
         output.putInt("DeliveryFlightTicks", deliveryFlightTicks);
         output.putBoolean("DeliveryWaitingNotified", deliveryWaitingNotified);
+        output.putBoolean("FollowRecipient", followRecipient);
+        output.putInt("DeliveryWaitTicks", deliveryWaitTicks);
         output.putBoolean("DeliveryHidden", deliveryHidden());
         output.putInt("PortalTicks", entityData.get(PORTAL_TICKS));
         output.putFloat("PortalY", entityData.get(PORTAL_Y));
@@ -402,6 +445,8 @@ public final class RewardDropEntity extends Entity {
         deliveryFloorY = input.getDoubleOr("DeliveryFloorY", getY());
         deliveryFlightTicks = input.getIntOr("DeliveryFlightTicks", 0);
         deliveryWaitingNotified = input.getBooleanOr("DeliveryWaitingNotified", false);
+        followRecipient = input.getBooleanOr("FollowRecipient", false);
+        deliveryWaitTicks = input.getIntOr("DeliveryWaitTicks", 0);
         entityData.set(DELIVERY_HIDDEN, input.getBooleanOr("DeliveryHidden", false));
         entityData.set(PORTAL_TICKS, Math.max(0, Math.min(DeliveryArrival.OPEN_TICKS + DeliveryArrival.CLOSE_TICKS, input.getIntOr("PortalTicks", 0))));
         entityData.set(PORTAL_Y, input.getFloatOr("PortalY", 0.0F));

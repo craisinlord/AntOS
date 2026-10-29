@@ -2229,7 +2229,14 @@ public final class ComputerScreen extends Screen {
     }
 
     @Override
+    protected void init() {
+        super.init();
+        minecraft.textInputManager().startTextInput(this);
+    }
+
+    @Override
     public void removed() {
+        minecraft.textInputManager().stopTextInput(this);
         if (loggedIn) {
             session.text.checkpoint();
             session.paint.checkpoint();

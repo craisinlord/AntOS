@@ -1023,6 +1023,7 @@ public final class ComputerTasks {
                 .orElse(player.blockPosition().relative(player.getDirection(), 1));
         RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
         drop.setRewards(stacks, player);
+        drop.followRecipient();
         drop.prepareDelivery(landing);
         RewardDropEntity.announceIncoming(player);
         level.addFreshEntity(drop);

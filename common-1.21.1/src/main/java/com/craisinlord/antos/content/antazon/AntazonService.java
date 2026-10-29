@@ -171,6 +171,7 @@ public final class AntazonService {
             contents.add(new ItemStack(Items.CHEST, 1));
             RewardDropEntity drop = new RewardDropEntity(AntOSObjects.REWARD_DROP_ENTITY.get(), level);
             drop.setRewards(contents, player);
+            drop.followRecipient();
             drop.prepareDelivery(landing);
             level.addFreshEntity(drop);
         }
