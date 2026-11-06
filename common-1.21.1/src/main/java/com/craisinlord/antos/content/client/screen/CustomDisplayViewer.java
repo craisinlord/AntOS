@@ -1623,8 +1623,8 @@ final class CustomDisplayViewer {
     private void pickBlock(GuiGraphics g, SceneInfo info, String[] states, View view, float x, float y, float w, float h) {
         if (!hovered(x, y, w, h)) return;
         org.joml.Matrix4f inverse = new org.joml.Matrix4f(g.pose().last().pose()).invert();
-        float mx = screen.width / 2F + screen.session.mouseX * screen.uiScale();
-        float my = screen.height / 2F + screen.session.mouseY * screen.uiScale();
+        float mx = screen.centerX + screen.session.mouseX * screen.uiScale();
+        float my = screen.centerY + screen.session.mouseY * screen.uiScale();
         org.joml.Vector3f a = inverse.transformPosition(new org.joml.Vector3f(mx, my, 10000));
         org.joml.Vector3f b = inverse.transformPosition(new org.joml.Vector3f(mx, my, -10000));
         double ox = a.x, oy = a.y, oz = a.z, dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
@@ -1960,7 +1960,7 @@ final class CustomDisplayViewer {
     private record MaterialKey(SceneInfo scene, String scope, int step, int layer, String mode) { }
     private record SceneBlock(String id, double x, double y, double z, int layer, boolean ghost, boolean highlight, JsonObject json) { }
 
-    private boolean interactive() { return overlay || expanded == null && chooser.isEmpty() && pickerKey == null && screen.session.mouseX > -9999; }
+    private boolean interactive() { return overlay || expanded == null && chooser.isEmpty() && pickerKey == null; }
     private boolean hovered(float x, float y, float w, float h) { return interactive() && screen.session.mouseX >= clipLeft && screen.session.mouseX < clipRight && screen.session.mouseY >= clipTop && screen.session.mouseY < clipBottom && screen.inside((int) x, (int) y, (int) w, (int) h, screen.session.mouseX, screen.session.mouseY); }
     private void hit(float x, float y, float w, float h, Runnable action) {
         float left = Math.max(x, clipLeft), top = Math.max(y, clipTop), right = Math.min(x + w, clipRight), bottom = Math.min(y + h, clipBottom);

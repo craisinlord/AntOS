@@ -2,10 +2,12 @@ package com.craisinlord.antos.content.client;
 
 
 public final class AntOSClientHooks {
+    private static boolean client;
     private static Runnable computerOpener = () -> {};
     private static Runnable phoneOpener = () -> {};
     private AntOSClientHooks() {}
-    public static void setComputerOpener(Runnable opener) { computerOpener = opener == null ? () -> {} : opener; }
+    public static void setComputerOpener(Runnable opener) { client = true; computerOpener = opener == null ? () -> {} : opener; }
+    public static boolean isClient() { return client; }
     public static void openComputer() { computerOpener.run(); }
     public static void setPhoneOpener(Runnable opener) { phoneOpener = opener == null ? () -> {} : opener; }
     public static void openPhone() { phoneOpener.run(); }

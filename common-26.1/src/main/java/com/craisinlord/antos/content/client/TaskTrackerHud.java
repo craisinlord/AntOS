@@ -38,6 +38,16 @@ public final class TaskTrackerHud {
     private static final Map<String, Integer> lastProgress = new HashMap<>();
     private static final Map<String, Long> flashUntil = new HashMap<>();
     private static final Map<String, ItemStack> icons = new HashMap<>();
+    private static List<ComputerTasksClientState.TaskRow> rowsSource;
+    private static Map<String, ComputerTasksClientState.TaskRow> rowsIndex = Map.of();
+    private static List<ComputerTasksClientState.TaskRow> blocksSource;
+    private static List<String> blocksPinned;
+    private static Object blocksLanguage;
+    private static boolean blocksCompact;
+    private static long blocksColors;
+    private static List<Block> blocks = List.of();
+    private static int blocksHeight;
+    private static boolean panelCompact;
 
     private TaskTrackerHud() { }
 
@@ -53,9 +63,16 @@ public final class TaskTrackerHud {
         unpinSent.clear();
         lastProgress.clear();
         flashUntil.clear();
+        rowsSource = null;
+        rowsIndex = Map.of();
+        blocksSource = null;
+        blocksPinned = null;
+        blocksLanguage = null;
+        blocks = List.of();
     }
 
     public static void tick() {
+        com.craisinlord.antos.content.client.screen.OpenAntOSKey.tick();
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null) return;
         var preferences = AntOSSettings.preferences();
@@ -114,23 +131,12 @@ public final class TaskTrackerHud {
         if (ComputerWorkspaceClientKey.of().equals("workspace:unbound") || !ComputerTasksClientState.hasSnapshot()) return;
         List<String> pinned = ComputerTasksClientState.pinned();
         if (pinned.isEmpty()) return;
-        Map<String, ComputerTasksClientState.TaskRow> rows = rowsById();
-        List<ComputerTasksClientState.TaskRow> tracked = new ArrayList<>();
-        for (String taskId : pinned) {
-            var row = rows.get(taskId);
-            if (row != null && row.visible() && !row.isLink()) tracked.add(row);
-        }
-        if (tracked.isEmpty()) return;
         Font font = minecraft.font;
         boolean compact = preferences.taskTrackerStyle.equals("compact");
         int width = compact ? COMPACT_WIDTH : DETAILED_WIDTH;
-        List<Block> blocks = new ArrayList<>();
-        int height = 3;
-        for (var row : tracked) {
-            Block block = layout(font, row, rows, compact, width);
-            blocks.add(block);
-            height += block.height() + 3;
-        }
+        List<Block> blocks = trackedBlocks(font, pinned, compact, width);
+        if (blocks.isEmpty()) return;
+        int height = blocksHeight;
         int screenWidth = g.source().guiWidth();
         int screenHeight = g.source().guiHeight();
         String position = preferences.taskTrackerPosition;
@@ -140,13 +146,46 @@ public final class TaskTrackerHud {
             case "top_right" -> minecraft.player.getActiveEffects().isEmpty() ? 4 : 54;
             default -> Math.max(4, Math.min(screenHeight / 3, screenHeight - height - 40));
         };
-        int alpha = Math.round(Integer.parseInt(preferences.taskTrackerOpacity) * 2.55F);
+        drawPanel(g, font, blocks, x, y, width, height, -1, -1);
+    }
+
+    public static int[] panelSize(int room) {
+        panelCompact = AntOSSettings.preferences().taskTrackerStyle.equals("compact") || room < DETAILED_WIDTH;
+        int width = panelCompact ? COMPACT_WIDTH : DETAILED_WIDTH;
+        if (room < width || panelBlocks(width).isEmpty()) return null;
+        return new int[] {width, blocksHeight};
+    }
+
+    public static String renderPanel(GuiGraphicsExtractor source, int x, int y, int mouseX, int mouseY) {
+        int width = panelCompact ? COMPACT_WIDTH : DETAILED_WIDTH;
+        return drawPanel(new ThemedGraphics(source), Minecraft.getInstance().font, panelBlocks(width), x, y, width, blocksHeight, mouseX, mouseY);
+    }
+
+    public static String firstPanelTask() {
+        List<Block> rows = panelBlocks(panelCompact ? COMPACT_WIDTH : DETAILED_WIDTH);
+        return rows.isEmpty() ? null : rows.get(0).row().id();
+    }
+
+    private static List<Block> panelBlocks(int width) {
+        if (!AntOSSettings.preferences().taskTracker || ComputerWorkspaceClientKey.of().equals("workspace:unbound")
+                || !ComputerTasksClientState.hasSnapshot()) return List.of();
+        List<String> pinned = ComputerTasksClientState.pinned();
+        return pinned.isEmpty() ? List.of() : trackedBlocks(Minecraft.getInstance().font, pinned, panelCompact, width);
+    }
+
+    private static String drawPanel(ThemedGraphics g, Font font, List<Block> blocks, int x, int y, int width, int height, int mouseX, int mouseY) {
+        int alpha = Math.round(Integer.parseInt(AntOSSettings.preferences().taskTrackerOpacity) * 2.55F);
         boolean shadow = alpha < 96;
         if (alpha > 0) g.fill(x, y, x + width, y + height, alpha << 24 | Ui.BACKGROUND & 0xFFFFFF);
         long now = System.currentTimeMillis();
+        String hovered = null;
         int cursor = y + 3;
         for (Block block : blocks) {
             var row = block.row();
+            if (mouseX >= x && mouseX < x + width && mouseY >= cursor - 1 && mouseY < cursor + block.height() + 2) {
+                hovered = row.id();
+                g.fill(x + 1, cursor - 1, x + width - 1, cursor + block.height() + 1, Ui.alpha(Ui.ACCENT, 0x30));
+            }
             long flash = flashUntil.getOrDefault(row.id(), 0L) - now;
             if (flash > 0) {
                 int flashAlpha = (int) (0x70 * flash / FLASH_MILLIS);
@@ -171,6 +210,7 @@ public final class TaskTrackerHud {
             }
             cursor += block.height() + 3;
         }
+        return hovered;
     }
 
     public static void drawPin(ThemedGraphics g, int centerX, int top, int color) {
@@ -250,9 +290,45 @@ public final class TaskTrackerHud {
     }
 
     private static Map<String, ComputerTasksClientState.TaskRow> rowsById() {
+        List<ComputerTasksClientState.TaskRow> source = ComputerTasksClientState.get();
+        if (source == rowsSource) return rowsIndex;
         Map<String, ComputerTasksClientState.TaskRow> result = new HashMap<>();
-        for (var row : ComputerTasksClientState.get()) result.put(row.id(), row);
+        for (var row : source) result.put(row.id(), row);
+        rowsSource = source;
+        rowsIndex = result;
         return result;
+    }
+
+    private static List<Block> trackedBlocks(Font font, List<String> pinned, boolean compact, int width) {
+        List<ComputerTasksClientState.TaskRow> source = ComputerTasksClientState.get();
+        Object language = net.minecraft.locale.Language.getInstance();
+        long colors = blockColors();
+        if (source == blocksSource && language == blocksLanguage && compact == blocksCompact && colors == blocksColors
+                && pinned.equals(blocksPinned)) return blocks;
+        Map<String, ComputerTasksClientState.TaskRow> rows = rowsById();
+        List<Block> built = new ArrayList<>();
+        int height = 3;
+        for (String taskId : pinned) {
+            var row = rows.get(taskId);
+            if (row == null || !row.visible() || row.isLink()) continue;
+            Block block = layout(font, row, rows, compact, width);
+            built.add(block);
+            height += block.height() + 3;
+        }
+        blocksSource = source;
+        blocksPinned = pinned;
+        blocksLanguage = language;
+        blocksCompact = compact;
+        blocksColors = colors;
+        blocks = List.copyOf(built);
+        blocksHeight = height;
+        return blocks;
+    }
+
+    private static long blockColors() {
+        long colors = Ui.ACCENT;
+        for (int color : new int[] {Ui.TEXT, Ui.TEXT_STRONG, Ui.TEXT_SOFT, Ui.TEXT_DIM, Ui.FOCUS, Ui.LOCKED}) colors = 31L * colors + color;
+        return colors;
     }
 
     private static String plain(String key) {

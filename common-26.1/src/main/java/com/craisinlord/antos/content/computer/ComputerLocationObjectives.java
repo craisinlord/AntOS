@@ -27,7 +27,7 @@ public final class ComputerLocationObjectives {
     public static final Set<String> TYPES = Set.of("dimension_entered", "biome_visited", "structure_entered");
     private static final int CHECK_INTERVAL = 20;
     private static final int UNAVAILABLE_RETRY = 200;
-    private static final int FULL_RECHECK = 20;
+    private static final int FULL_RECHECK = 200;
     private static final Map<UUID, Set<String>> DONE = new ConcurrentHashMap<>();
     private static final Map<UUID, Map<String, Integer>> RETRY_AT = new ConcurrentHashMap<>();
     private static final Map<UUID, LastCheck> LAST_CHECKS = new ConcurrentHashMap<>();

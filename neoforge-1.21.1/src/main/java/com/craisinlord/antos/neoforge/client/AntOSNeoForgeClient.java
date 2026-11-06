@@ -78,6 +78,7 @@ public final class AntOSNeoForgeClient {
         key.setKeyConflictContext(net.neoforged.neoforge.client.settings.KeyConflictContext.GUI);
         event.register(key);
         event.register(com.craisinlord.antos.content.client.TaskTrackerHud.createKey());
+        event.register(com.craisinlord.antos.content.client.screen.OpenAntOSKey.createKey());
     }
 
     @SubscribeEvent
@@ -90,6 +91,7 @@ public final class AntOSNeoForgeClient {
         if ((event.getScreen() instanceof InventoryScreen || event.getScreen() instanceof CreativeModeInventoryScreen)
                 && AntOSSettings.inventoryComputerButtonEnabled()) {
             event.addListener(new InventoryComputerButton(4, 4));
+            event.addListener(new com.craisinlord.antos.content.client.screen.TrackedTasksButton(4, 26));
         }
     }
 

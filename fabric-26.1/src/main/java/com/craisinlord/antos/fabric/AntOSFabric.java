@@ -40,6 +40,7 @@ public final class AntOSFabric implements ModInitializer {
             dev.ftb.mods.ftbquests.api.fabric.FTBQuestsEvents.TASK_PROGRESS.register(com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat::onTaskProgress);
             dev.ftb.mods.ftbquests.api.fabric.FTBQuestsEvents.QUEST_PROGRESS.register(com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat::onQuestProgress);
             dev.ftb.mods.ftbteams.api.fabric.FTBTeamsEvents.TEAM_PLAYER_LOGGED_IN.register(com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat::onTeamPlayerLoggedIn);
+            dev.ftb.mods.ftbteams.api.fabric.FTBTeamsEvents.PLAYER_CHANGED_TEAM.register(com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat::onPlayerChangedTeam);
         }
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
                 com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));

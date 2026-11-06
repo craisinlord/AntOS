@@ -146,7 +146,7 @@ public final class FieldGuideCompat {
         Object rawResolved = managerGetResolvedEntries.invoke(manager);
         if (!(rawResolved instanceof Map<?, ?> categories)) return refreshCatalogFromEntryIds(manager);
         CatalogFingerprint fingerprint = CatalogFingerprint.of(categories, ComputerGuideData.datapackRevision());
-        if (++catalogChecks < 5 && fingerprint.equals(catalogFingerprint)) return false;
+        if (++catalogChecks < 300 && fingerprint.equals(catalogFingerprint)) return false;
         catalogChecks = 0;
         Map<Identifier, ComputerGuideData.Entry> generated = new LinkedHashMap<>();
         Map<Identifier, Identifier> canonicalIds = new HashMap<>();
@@ -184,7 +184,7 @@ public final class FieldGuideCompat {
         }
         identifiers.sort(java.util.Comparator.comparing(Identifier::toString));
         CatalogFingerprint fingerprint = CatalogFingerprint.ofIdentifiers(manager, ComputerGuideData.datapackRevision(), identifiers);
-        if (++catalogChecks < 5 && fingerprint.equals(catalogFingerprint)) return false;
+        if (++catalogChecks < 300 && fingerprint.equals(catalogFingerprint)) return false;
         catalogChecks = 0;
         Map<Identifier, ComputerGuideData.Entry> generated = new LinkedHashMap<>();
         Map<Identifier, Identifier> canonicalIds = new HashMap<>();

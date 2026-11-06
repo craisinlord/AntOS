@@ -324,10 +324,10 @@ final class PaintApp extends ComputerApp {
 
     private void pressCanvas() {
         int button = kit.clickButton();
-        if (strokeActive || (button != 0 && button != 1)) return;
+        if (strokeActive || (button != InputConstants.MOUSE_BUTTON_LEFT && button != InputConstants.MOUSE_BUTTON_RIGHT)) return;
         int[] pixel = pixelAt(kit.clickX(), kit.clickY(), false);
         if (pixel == null) return;
-        boolean primary = button == 0;
+        boolean primary = button == InputConstants.MOUSE_BUTTON_LEFT;
         strokeValue = state.tool == AntPaintTool.ERASER ? !primary : primary;
         if (state.tool == AntPaintTool.FILL) {
             if (state.canvas.get(pixel[0], pixel[1]) != strokeValue) {

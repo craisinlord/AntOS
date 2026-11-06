@@ -37,8 +37,7 @@ public final class AntazonUnlockMail {
         var account = mailData.deliveryAccount(player);
         if (recipient == null || account == null) return;
         ComputerWorkspaceData workspaceData = ComputerWorkspaceData.access(player.server);
-        UUID workspaceId = workspaceData.activeWorkspace(account.accountId());
-        ComputerTaskProgress progress = workspaceData.effectiveProgress(account.accountId(), workspaceData.progress(workspaceId));
+        ComputerTaskProgress progress = workspaceData.effectiveProgress(account.accountId(), workspaceData.savedProgress(account.workspaceId()));
         if (!progress.isComplete(taskId)) return;
 
         notifyUnlock(player, account.accountId(), recipient, progress, taskId, null, null, com.craisinlord.antos.content.guide.TaskMarkup.strip(Component.translatable(task.titleKey()).getString()));

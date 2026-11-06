@@ -2,6 +2,7 @@ package com.craisinlord.antos.content.client.game;
 
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.content.client.ThemedGraphics;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.Font;
 
 import java.util.ArrayList;
@@ -56,9 +57,9 @@ public final class CakeStackProgram implements ComputerGame.Session {
 
     @Override
     public boolean keyPressed(int keyCode) {
-        if (keyCode == 71) { greenTint = !greenTint; return true; }
-        if (keyCode == 82) { reset(); return true; }
-        if (keyCode == 32 || keyCode == 257 || keyCode == 335) {
+        if (keyCode == InputConstants.KEY_G) { greenTint = !greenTint; return true; }
+        if (keyCode == InputConstants.KEY_R) { reset(); return true; }
+        if (keyCode == InputConstants.KEY_SPACE || keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
             action();
             return true;
         }
@@ -67,7 +68,7 @@ public final class CakeStackProgram implements ComputerGame.Session {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return false;
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return false;
         action();
         return true;
     }

@@ -21,9 +21,43 @@ public final class TaskPinsAndClaimsTest {
         Bootstrap.bootStrap();
         net.minecraft.core.registries.BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(net.minecraft.data.registries.VanillaRegistries.createWorldLookup()).forEach(net.minecraft.core.component.DataComponentInitializers.PendingComponents::apply);
         pins();
+        parsedProgress();
         crates();
         requestsReachServer();
         System.out.println("TaskPinsAndClaimsTest passed");
+    }
+
+    private static void parsedProgress() {
+        ComputerWorkspaceData data = new ComputerWorkspaceData();
+        var account = data.completeAccountCreation("Bob", ComputerWorkspaceData.hashPassword("secret"), "").account();
+        UUID workspace = account.workspaceId();
+        check(!data.readWorkspaceProgress(workspace).hasRecoverableProgress(), "new workspaces start empty");
+        check(!data.readWorkspaceProgress(UUID.randomUUID()).hasRecoverableProgress(), "unknown workspaces read as empty");
+        ComputerTaskProgress saved = new ComputerTaskProgress();
+        saved.markComplete(task("a"));
+        saved.setObjectiveCount(task("a"), "one", 3);
+        check(data.saveWorkspaceSection(workspace, "TaskProgress", saved.save()), "progress saves to the account");
+        ComputerTaskProgress first = data.readWorkspaceProgress(workspace);
+        check(first.isComplete(task("a")) && first.objectiveCount(task("a"), "one") == 3, "saved progress is read back");
+        first.markComplete(task("b"));
+        check(!data.readWorkspaceProgress(workspace).isComplete(task("b")), "changes to one read don't leak into the next");
+        saved.markComplete(task("c"));
+        data.saveWorkspaceSection(workspace, "TaskProgress", saved.save());
+        check(data.readWorkspaceProgress(workspace).isComplete(task("c")), "a new save replaces the cached progress");
+        check(data.savedProgress(workspace).isComplete(task("c")), "saved progress includes the account's own progress");
+        ComputerTaskProgress legacy = new ComputerTaskProgress();
+        legacy.markComplete(task("e"));
+        data.save(workspace, legacy);
+        check(data.savedProgress(workspace).isComplete(task("e")) && data.savedProgress(workspace).isComplete(task("c")), "saved progress also includes legacy progress");
+
+        ComputerTaskProgress personal = new ComputerTaskProgress();
+        check(!data.hasTeam(account.accountId()) && !data.mergeTeamProgressInto(account.accountId(), personal), "accounts without a team merge nothing");
+        check(data.createTeam(account.accountId()) && data.hasTeam(account.accountId()), "created teams are found");
+        ComputerTaskProgress shared = new ComputerTaskProgress();
+        shared.markComplete(task("d"));
+        data.mergeTeamProgress(account.accountId(), shared);
+        check(data.mergeTeamProgressInto(account.accountId(), personal) && personal.isComplete(task("d")), "team progress merges into personal progress");
+        check(!data.mergeTeamProgressInto(account.accountId(), personal), "merging twice reports no change");
     }
 
     private static void pins() throws Exception {

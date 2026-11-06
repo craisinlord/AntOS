@@ -21,7 +21,7 @@ public final class AccountWorkspace implements ComputerWorkspace {
     private final ComputerWorkspaceData.AccountInfo account;
     private final ComputerFileSystem fileSystem = new ComputerFileSystem();
     private final ComputerDesktopState desktopState = new ComputerDesktopState();
-    private final ComputerTaskProgress taskProgress = new ComputerTaskProgress();
+    private ComputerTaskProgress taskProgress = new ComputerTaskProgress();
     private ComputerWorkspaceData data;
     private boolean authenticated = true;
     private boolean workspaceLoaded;
@@ -43,7 +43,7 @@ public final class AccountWorkspace implements ComputerWorkspace {
     private void loadProgress() {
         if (progressLoaded) return;
         progressLoaded = true;
-        data().readWorkspaceSnapshot(account.workspaceId(), snapshot -> taskProgress.load(snapshot.getCompoundOrEmpty("TaskProgress")));
+        taskProgress = data().readWorkspaceProgress(account.workspaceId());
         savedProgressRevision = taskProgress.revision();
     }
 

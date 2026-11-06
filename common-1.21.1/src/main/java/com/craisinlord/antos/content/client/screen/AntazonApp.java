@@ -1540,7 +1540,6 @@ final class AntazonApp extends ComputerApp {
         boolean launched = feedback.equals("SHIPMENT_LAUNCHED") || feedback.equals("SHIPMENT_ACCEPTED");
         boolean partialShipment = status.equals("PARTIAL_SHIPMENT");
         boolean ready = (status.isBlank() || partialShipment) && !rows.isEmpty()
-                && rows.stream().allMatch(row -> row.sellable() && !row.locked())
                 && rows.stream().anyMatch(row -> row.acceptedCount() > 0);
         int step = noChest ? 1 : launched || state.sellConfirm ? 3 : 2;
         String[] steps = {"1 PLACE CONTAINER", "2 REVIEW", "3 SHIP"};
@@ -1571,7 +1570,7 @@ final class AntazonApp extends ComputerApp {
         } else if (status.equals("CRATE_EMPTY")) {
             message = "THE CONTAINER IS EMPTY // ADD ITEMS OR USE THE PRICE GUIDE";
         } else if (status.equals("UNSUPPORTED_ITEMS")) {
-            message = "REMOVE THE ITEMS ANTAZON DOES NOT BUY BEFORE SHIPPING";
+            message = "NO ACCEPTED ITEMS // ADD ITEMS ANTAZON CAN BUY TO SHIP";
             messageColor = Ui.ERROR;
         } else if (status.equals("SELL_LIMIT_REACHED") || status.equals("SELL_LIMIT_EXCEEDED")) {
             message = "SELL LIMIT REACHED // WAIT FOR THE RESET BEFORE SHIPPING THESE ITEMS";
@@ -1622,7 +1621,8 @@ final class AntazonApp extends ComputerApp {
                 String itemCount = itemName(row.item()) + " x" + row.count()
                         + (row.returnedCount() > 0 && row.acceptedCount() > 0 ? " // SELL " + row.acceptedCount() : "");
                 g.drawString(font, screen.trimToWidth(itemCount, rowWidth - valueWidth - 32), x + 22, rowY + 4, row.sellable() ? Ui.TEXT : Ui.TEXT_PLACEHOLDER, false);
-                if (row.locked()) small(g, "LOCKED // " + requirementTitles(row.unlockTasks(), row.unlockDisks(), row.unlockCommands()), x + 22, rowY + 15, rowWidth - 28, Ui.ERROR);
+                if (row.locked()) small(g, "DROP " + number(row.returnedCount()) + " HERE // LOCKED // " + requirementTitles(row.unlockTasks(), row.unlockDisks(), row.unlockCommands()), x + 22, rowY + 15, rowWidth - 28, Ui.ERROR);
+                else if (!row.sellable()) small(g, "DROP " + number(row.returnedCount()) + " HERE // NOT ACCEPTED", x + 22, rowY + 15, rowWidth - 28, Ui.TEXT_PLACEHOLDER);
                 else if (row.returnedCount() > 0) small(g, "DROP " + number(row.returnedCount()) + " HERE // " + number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, Ui.TEXT_PLACEHOLDER);
                 else if (row.limit() > 0) small(g, number(row.remaining()) + " / " + number(row.limit()) + " LEFT " + resetLabel(row.limitReset()), x + 22, rowY + 15, rowWidth - 28, row.overLimit() ? Ui.ERROR : Ui.TEXT_PLACEHOLDER);
                 g.fill(x, rowY + rowHeight - 1, x + rowWidth, rowY + rowHeight, Ui.LINE);

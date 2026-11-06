@@ -975,7 +975,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
-        if (button != 0) return true;
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return true;
         if (breadcrumbMenu && !screen.inside(menuX, menuY, menuW, menuH, mouseX, mouseY)) {
             breadcrumbMenu = false;
             return true;

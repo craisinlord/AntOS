@@ -80,7 +80,7 @@ public final class DisplayPreviewScreen extends Screen {
         double x = (event.x() - width / 2F) / host.uiScale(), y = (event.y() - height / 2F) / host.uiScale();
         int button = event.button();
         if (host.displays.modal()) return host.displays.click(x, y, button);
-        if (button == 0 && x >= -211 && x < 200 && y >= -119 && y < -105 && (x + 211) % 104 < 99) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT && x >= -211 && x < 200 && y >= -119 && y < -105 && (x + 211) % 104 < 99) {
             int index = (int) ((x + 211) / 104);
             if (index == 0) ComputerNetworking.previewDisplay(id);
             if (index == 1) bounds = !bounds;

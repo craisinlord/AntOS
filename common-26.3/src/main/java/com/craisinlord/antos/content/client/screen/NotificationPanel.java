@@ -13,6 +13,7 @@ import java.time.format.FormatStyle;
 import java.util.List;
 import java.util.Locale;
 import com.craisinlord.antos.content.client.ThemedGraphics;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
@@ -252,7 +253,7 @@ final class NotificationPanel extends ComputerApp {
     boolean click(double mouseX, double mouseY, int button) {
         if (!open) return false;
         if (ComputerScreen.inside(panelX, panelY, panelW, panelH, mouseX, mouseY)) {
-            if (button == 0) kit.click(mouseX, mouseY, button);
+            if (button == InputConstants.MOUSE_BUTTON_LEFT) kit.click(mouseX, mouseY, button);
             return true;
         }
         close();

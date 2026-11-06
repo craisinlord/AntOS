@@ -17,6 +17,7 @@ public final class ComputerGameRewardData extends SavedData {
     private long prunedDay = Long.MIN_VALUE;
 
     private static ComputerGameRewardData access(MinecraftServer server) {
+        com.craisinlord.antos.content.AntOSSavedDataType.migrateLegacyFile(server, ID);
         ComputerGameRewardData data = server.overworld().getDataStorage().computeIfAbsent(FACTORY);
         long day = server.overworld().getOverworldClockTime() / 24000L;
         if (data.prunedDay != day) {

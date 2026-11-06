@@ -159,11 +159,13 @@ The first time AntOS opens after sign-in, **Choose your look** lets the player p
 
 In **Settings → Personalize**, **Icon color** shows app icons in the accent color or in neutral grays. Custom uses its own Icons color instead. **Wallpaper colors** set to **Match look** recolors image wallpapers to the current look by brightness; **Original** shows them unchanged. The built-in wallpaper always follows the look.
 
-**Resume where I left off** is on by default. Closing AntOS keeps you signed in for the rest of the session, and reopening it brings back your windows and where you were in each app. The layout is also saved per account in `antos/client.json`, so it survives rejoining. Games aren't restored. Staying signed in is per player, so anyone else using the same computer still has to sign in. Turn the option off to sign out every time you close AntOS.
+**Resume where I left off** is on by default. Closing AntOS keeps you signed in for the rest of the session, and reopening it brings back your windows and where you were in each app. The layout is also saved per account in `antos/client.json`, so it survives rejoining. An unfinished game is still there when you reopen AntOS, until you leave the world. Staying signed in is per player, so anyone else using the same computer still has to sign in. Turn the option off to sign out every time you close AntOS.
 
 **Settings → Accessibility → AntOS interface size** scales the interface from 50% to 150% in 5% steps. It's always capped to fit the screen. Old Standard, Large, and Largest settings become 100%, 115%, and 130%. It's saved as `uiScalePercent` and can be set in `client.defaultPreferences`.
 
 On 1.21.1, **Settings → Accessibility → Full-screen desktop** makes AntOS fill the whole game window. It's off by default and saved as `fullscreenDesktop`. **Windowed** in the top bar switches back, and **Reset layout** pulls any off-screen windows back into view. Double-click a title bar to maximize or restore a window.
+
+On 1.21.1, the **Open Tasks** key (unbound by default) and the **Tasks** button in the inventory (shown with `inventoryComputerButton`) open Tasks on its own, filling the game window with no desktop. You sign in first if you need to. **Desktop** in the title bar switches to the normal desktop, and following a link to another app does the same. Esc, X or the key closes it and goes back to what was showing before.
 
 Settings has a search bar. **Notices** in the top bar opens **Settings → Notifications → History**, which keeps the last 100 mail, task, and Antazon notices. **Quiet mode** (saved as `quietNotifications`) hides mail and task popups and sounds but still records them in the history.
 
@@ -217,7 +219,7 @@ Every file's ID is `<namespace>:<path>`, where `<path>` is the file path under t
 | Content | Path |
 | --- | --- |
 | Archive entry | `data/<ns>/computer/entry/<path>.json` |
-| Custom display (1.21.1) | `data/<ns>/computer/display/<path>.json` |
+| Custom display | `data/<ns>/computer/display/<path>.json` |
 | Archive folder | `data/<ns>/computer/archive_folder/<path>.json` |
 | Floppy disk | `data/<ns>/computer/disk/<path>.json` |
 | Disk category | `data/<ns>/computer/category/<path>.json` |
@@ -306,7 +308,7 @@ Several timers take either `..._minecraft_days` or `..._real_hours`; set one, no
 
 ## Archive entries
 
-On 1.21.1, Archive articles and Task details can embed reusable recipe layouts and 3D structures between paragraphs. Displays also support presets, recipe bindings, variants, construction steps, automatic materials, responsive layouts, and ingredient search relationships. Operators can use `/antos display preview <id>` and `/antos display validate [id]`. See [Custom displays](docs/custom-displays.md) for authoring and [the JSON schema](examples/custom-displays.schema.json) for editor completion.
+Archive articles and Task details can embed reusable recipe layouts and 3D structures between paragraphs. Displays also support presets, recipe bindings, variants, construction steps, automatic materials, responsive layouts, and ingredient search relationships. Operators can use `/antos display preview <id>` and `/antos display validate [id]`. See [Custom displays](docs/custom-displays.md) for authoring and [the JSON schema](examples/custom-displays.schema.json) for editor completion.
 
 `data/<namespace>/computer/entry/<path>.json`
 
@@ -568,6 +570,7 @@ List program IDs in a disk's `programs` array (or a terminal command's). Program
 | --- | --- |
 | `questions` | Up to 128 questions with 2–8 `answers` each. `correct` is the zero-based index before shuffling. Questions and answers are shuffled on the server each run. |
 | `item` / `entity` (per question) | Optional preview. |
+| `explanation` (per question) | Optional text shown after the question is answered, with CORRECT! or the right answer, and a Continue choice. Translation key or literal text. Without it, the quiz moves straight to the next question. |
 | `green_tint` | On the quiz or a single question. Default `true`. |
 | `questions_per_run` | Defaults to the whole pool, capped to its size. |
 | `reward_on` | `perfect` (default) or `complete`. |
@@ -1030,7 +1033,7 @@ Product files no longer accept a `deal` block; one that has it logs a warning an
 | `unlock_*`, `hidden_until_unlocked`, `notify_on_unlock` | See [unlock requirements](#unlock-requirements). Locked items stay in the container. |
 | `green_tint`, `render_mob_from_spawn_egg` | For Sell and Prices previews. |
 
-Players put items in a [shipping container](#shipping-containers) near a computer, link it once, and ship it from the Sell tab. The container is consumed. Over-limit items are returned beside the container and only accepted items are paid for. Sell and Prices show remaining allowance, and the manifest shows accepted and returned counts.
+Players put items in a [shipping container](#shipping-containers) near a computer, link it once, and ship it from the Sell tab. The container is consumed. Unsupported, locked, and over-limit items drop beside the container, and only accepted items are paid for. If nothing can be accepted, shipping stays disabled and the container remains intact. Sell and Prices show remaining allowance, and the manifest shows accepted and returned counts.
 
 **Selling floppy disks.** A rule for `antos:floppy_disk` matches every labeled disk, since normal item rules match the item ID across all component variants. This lets duplicate disks be sold. Per-disk pricing isn't supported. See the template's `floppy_disks` rule, and its `gift_card`, `broker_license`, and `research_catalog` disks and products for disk-gated listings.
 

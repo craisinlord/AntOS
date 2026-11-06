@@ -155,6 +155,8 @@ tasks.register('compileParityTests', JavaCompile) {
     dependsOn tasks.named('compileJava')
     source files(
             "${parityTestSources}/config/ConfigMigrationTest.java",
+            "${parityTestSources}/content/SavedDataMigrationTest.java",
+            "${parityTestSources}/content/client/screen/SceneClipTest.java",
             "${parityTestSources}/config/DesktopPreferencesTest.java",
             "${parityTestSources}/config/UiScaleTest.java",
             "${parityTestSources}/content/client/AntazonTransactionFeedbackTest.java",
@@ -177,6 +179,8 @@ tasks.register('compileParityTests', JavaCompile) {
 
 def parityTests = [
         configMigrationTest              : ['com.craisinlord.antos.config.ConfigMigrationTest', false],
+        savedDataMigrationTest           : ['com.craisinlord.antos.content.SavedDataMigrationTest', false],
+        sceneClipTest                    : ['com.craisinlord.antos.content.client.screen.SceneClipTest', false],
         desktopPreferencesTest           : ['com.craisinlord.antos.config.DesktopPreferencesTest', false],
         uiScaleTest                      : ['com.craisinlord.antos.config.UiScaleTest', false],
         antazonTransactionFeedbackTest   : ['com.craisinlord.antos.content.client.AntazonTransactionFeedbackTest', false],

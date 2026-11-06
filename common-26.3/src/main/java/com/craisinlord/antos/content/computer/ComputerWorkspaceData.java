@@ -635,6 +635,17 @@ public final class ComputerWorkspaceData extends SavedData {
         return changed;
     }
 
+    public synchronized boolean hasTeam(UUID accountId) {
+        UUID teamId = teamByAccount.get(accountId);
+        return teamId != null && teams.containsKey(teamId);
+    }
+
+    public synchronized boolean mergeTeamProgressInto(UUID accountId, ComputerTaskProgress progress) {
+        UUID teamId = teamByAccount.get(accountId);
+        Team team = teamId == null ? null : teams.get(teamId);
+        return team != null && progress != null && progress.mergeFrom(team.progress);
+    }
+
     public synchronized ComputerTaskProgress effectiveProgress(UUID accountId, ComputerTaskProgress personal) {
         ComputerTaskProgress effective = new ComputerTaskProgress();
         if (personal != null) effective.mergeFrom(personal);
@@ -765,6 +776,35 @@ public final class ComputerWorkspaceData extends SavedData {
     public synchronized CompoundTag workspaceSection(UUID workspaceId, String key) {
         ComputerAccountShard shard = workspaceShard(workspaceId);
         return shard == null ? null : shard.snapshot.getCompoundOrEmpty(key).copy();
+    }
+
+    private record ParsedProgress(CompoundTag source, ComputerTaskProgress progress) { }
+
+    private final Map<UUID, ParsedProgress> parsedProgress = new LinkedHashMap<>(16, 0.75F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<UUID, ParsedProgress> eldest) {
+            return size() > 256;
+        }
+    };
+
+    public synchronized ComputerTaskProgress savedProgress(UUID workspaceId) {
+        ComputerTaskProgress result = readWorkspaceProgress(workspaceId);
+        result.mergeFrom(progress(workspaceId));
+        return result;
+    }
+
+    synchronized ComputerTaskProgress readWorkspaceProgress(UUID workspaceId) {
+        ComputerAccountShard shard = workspaceShard(workspaceId);
+        if (shard == null) return new ComputerTaskProgress();
+        CompoundTag section = shard.snapshot.getCompoundOrEmpty("TaskProgress");
+        ParsedProgress parsed = parsedProgress.get(workspaceId);
+        if (parsed == null || parsed.source() != section) {
+            ComputerTaskProgress progress = new ComputerTaskProgress();
+            progress.load(section);
+            parsed = new ParsedProgress(section, progress);
+            parsedProgress.put(workspaceId, parsed);
+        }
+        return parsed.progress().copy();
     }
 
     synchronized boolean readWorkspaceSnapshot(UUID workspaceId, java.util.function.Consumer<CompoundTag> reader) {

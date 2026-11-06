@@ -16,6 +16,7 @@ public final class ComputerGameData extends SavedData {
     private final Map<UUID, Map<String, String>> profiles = new HashMap<>();
 
     private static ComputerGameData access(MinecraftServer server) {
+        com.craisinlord.antos.content.AntOSSavedDataType.migrateLegacyFile(server, ID);
         return server.overworld().getDataStorage().computeIfAbsent(FACTORY);
     }
 

@@ -1,8 +1,12 @@
 package com.craisinlord.antos.content.item;
 
 import com.craisinlord.antos.content.AntOSObjects;
+import com.craisinlord.antos.content.client.AntOSClientHooks;
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
@@ -12,6 +16,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
+import java.util.Locale;
 
 public class FloppyDiskItem extends Item {
     public static final String REDEEMED_TAG = "AntOSRedeemed";
@@ -40,7 +45,7 @@ public class FloppyDiskItem extends Item {
         if (id != null) {
             var disk = com.craisinlord.antos.content.guide.ComputerGuideData.disk(id);
             if (disk != null) {
-                return Component.translatable(disk.titleKey());
+                return displayText(disk.titleKey());
             }
         }
         return Component.translatable("item.antos.floppy_disk");
@@ -48,17 +53,14 @@ public class FloppyDiskItem extends Item {
 
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, net.minecraft.world.item.component.TooltipDisplay display, java.util.function.Consumer<Component> tooltip, TooltipFlag flag) {
-        tooltip.accept(Component.translatable("item.antos.floppy_disk.tooltip"));
         Identifier id = stack.get(AntOSObjects.FLOPPY_DISK_COMPONENT.get());
-        if (id != null) {
-            var disk = com.craisinlord.antos.content.guide.ComputerGuideData.disk(id);
-            if (disk != null) {
-                var category = com.craisinlord.antos.content.guide.ComputerGuideData.category(disk.category());
-                if (category != null) tooltip.accept(Component.translatable(category.titleKey()));
-                if (!disk.descriptionKey().isBlank()) tooltip.accept(Component.translatable(disk.descriptionKey()));
-                if (disk.features().consumable() && redeemed(stack)) tooltip.accept(Component.translatable("item.antos.floppy_disk.redeemed").withStyle(net.minecraft.ChatFormatting.GRAY));
-            }
+        var disk = id == null ? null : com.craisinlord.antos.content.guide.ComputerGuideData.disk(id);
+        if (disk != null) {
+            var category = com.craisinlord.antos.content.guide.ComputerGuideData.category(disk.category());
+            if (category != null) tooltip.accept(displayText(category.titleKey()).copy().withStyle(Style.EMPTY.withColor(TextColor.fromRgb(category.color()))));
+            if (disk.features().consumable() && redeemed(stack)) tooltip.accept(Component.translatable("item.antos.floppy_disk.redeemed").withStyle(ChatFormatting.GRAY));
         }
+        tooltip.accept(Component.translatable("item.antos.floppy_disk.tooltip").withStyle(ChatFormatting.DARK_GRAY));
     }
 
     @SuppressWarnings("deprecation")
@@ -79,6 +81,21 @@ public class FloppyDiskItem extends Item {
         return (level.isClientSide() ? net.minecraft.world.InteractionResult.SUCCESS : net.minecraft.world.InteractionResult.CONSUME)
                 .heldItemTransformedTo(stack);
     }
+
+    private static Component displayText(String key) {
+        Component text = Component.translatable(key);
+        return AntOSClientHooks.isClient() ? Component.literal(titleCase(text.getString())) : text;
+    }
+
+    private static String titleCase(String text) {
+        if (!text.equals(text.toUpperCase(Locale.ROOT))) return text;
+        StringBuilder result = new StringBuilder(text.length());
+        boolean wordStart = true;
+        for (int i = 0; i < text.length(); i++) {
+            char character = text.charAt(i);
+            result.append(wordStart ? character : Character.toLowerCase(character));
+            wordStart = Character.isWhitespace(character);
+        }
+        return result.toString();
+    }
 }
-
-

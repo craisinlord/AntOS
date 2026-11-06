@@ -3,7 +3,6 @@ package com.craisinlord.antos.content.client.screen;
 import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.guide.TaskMarkup;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.client.gui.Font;
@@ -16,7 +15,12 @@ final class TaskRichText {
     private static final int MAX_LAYOUTS = 256;
     private final ComputerScreen screen;
     private final Font font;
-    private final Map<String, List<TaskMarkup.Token>> parsed = new HashMap<>();
+    private final Map<String, List<TaskMarkup.Token>> parsed = new java.util.LinkedHashMap<>(64, 0.75F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, List<TaskMarkup.Token>> eldest) {
+            return size() > MAX_LAYOUTS;
+        }
+    };
     private Object layoutLanguage;
     private final Map<LayoutKey, List<Line>> layouts = new java.util.LinkedHashMap<>(64, 0.75F, true) {
         @Override

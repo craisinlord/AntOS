@@ -123,7 +123,7 @@ public final class FieldGuideCompat {
         Object rawResolved = managerGetResolvedEntries.invoke(manager);
         if (!(rawResolved instanceof Map<?, ?> categories)) return false;
         CatalogFingerprint fingerprint = CatalogFingerprint.of(categories, ComputerGuideData.datapackRevision());
-        if (++catalogChecks < 5 && fingerprint.equals(catalogFingerprint)) return false;
+        if (++catalogChecks < 300 && fingerprint.equals(catalogFingerprint)) return false;
         catalogChecks = 0;
         Map<ResourceLocation, ComputerGuideData.Entry> generated = new LinkedHashMap<>();
         for (Object categoryEntries : categories.values()) {

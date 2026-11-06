@@ -203,12 +203,14 @@ final class GamesApp extends ComputerApp {
         Object language = net.minecraft.locale.Language.getInstance();
         if (run != layoutRun || w != layoutWidth || language != layoutLanguage) {
             List<net.minecraft.util.FormattedCharSequence> builtLines = new ArrayList<>();
+            boolean review = status.equals("quiz_correct") || status.equals("quiz_incorrect");
+            if (review) builtLines.addAll(font.split(Component.translatable("computer.antos.programs.status." + status, Component.translatable(value(run, "answer"))), w - 30));
             String text = value(run, "text");
             if (!text.isEmpty()) builtLines.addAll(font.split(Component.translatable(text), w - 30));
             if (status.equals("quiz_done")) builtLines.addAll(font.split(Component.translatable("computer.antos.programs.score", number(run, "score"), number(run, "total")), w - 30));
             if (run.has("ending")) builtLines.addAll(font.split(Component.translatable("computer.antos.programs.ending", value(run, "ending")), w - 30));
             if (run.has("password")) builtLines.addAll(font.split(Component.translatable("computer.antos.programs.password", value(run, "password")), w - 30));
-            if (!status.equals("quiz") && !status.equals("adventure") && !status.endsWith("_done")) builtLines.addAll(font.split(Component.translatable("computer.antos.programs.status." + status), w - 30));
+            if (!review && !status.equals("quiz") && !status.equals("adventure") && !status.endsWith("_done")) builtLines.addAll(font.split(Component.translatable("computer.antos.programs.status." + status), w - 30));
             List<String> builtChoices = new ArrayList<>();
             if (run.has("choices")) run.getAsJsonArray("choices").forEach(choice -> builtChoices.add(choice.getAsString()));
             layoutLines = List.copyOf(builtLines);
@@ -218,7 +220,7 @@ final class GamesApp extends ComputerApp {
             layoutLanguage = language;
         }
         List<net.minecraft.util.FormattedCharSequence> lines = layoutLines;
-        if (status.equals("quiz")) g.drawString(font, Component.translatable("computer.antos.programs.question", number(run, "question_number"), number(run, "total")), x + 8, y + 27, Ui.TEXT, false);
+        if (status.equals("quiz") || status.equals("quiz_correct") || status.equals("quiz_incorrect")) g.drawString(font, Component.translatable("computer.antos.programs.question", number(run, "question_number"), number(run, "total")), x + 8, y + 27, Ui.TEXT, false);
         else g.drawString(font, Component.translatable("computer.antos.programs.console"), x + 8, y + 27, Ui.TEXT, false);
         int top = y + 44;
         int bodyHeight = Math.max(1, h - 50);
@@ -328,15 +330,15 @@ final class GamesApp extends ComputerApp {
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
         if (window.gameOpen) {
-            if (button == 0) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); return true; }
+            if (button == InputConstants.MOUSE_BUTTON_LEFT) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); return true; }
             if (screen.inside(gameX, gameY, gameWidth, gameHeight, mouseX, mouseY)) gameSession(window).ifPresent(game -> game.mouseClicked(mouseX - gameX, mouseY - gameY, button));
             return true;
         }
         if (window.programOpen) {
-            if (button == 0) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); break; }
+            if (button == InputConstants.MOUSE_BUTTON_LEFT) for (Hit hit : List.copyOf(hits)) if (screen.inside(hit.x(), hit.y(), hit.width(), hit.height(), mouseX, mouseY)) { hit.action().run(); break; }
             return true;
         }
-        if (button == 0) kit.click(mouseX, mouseY, button);
+        if (button == InputConstants.MOUSE_BUTTON_LEFT) kit.click(mouseX, mouseY, button);
         return true;
     }
 
@@ -349,6 +351,7 @@ final class GamesApp extends ComputerApp {
         return true;
     }
     boolean type(Window window, char codePoint, int modifiers) { return window.gameOpen && gameSession(window).map(game -> game.charTyped(codePoint)).orElse(false); }
+    boolean typing(Window window) { return window.gameOpen && gameSession(window).map(ComputerGame.Session::typing).orElse(false); }
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
         if (window.programOpen) {

@@ -27,7 +27,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     private static volatile Map<ResourceLocation, Pool> pools = Map.of();
     private static volatile TriggerIndex triggers = new TriggerIndex(Map.of(), Map.of(), Map.of());
     private static final int RANDOM_MAIL_BATCH = 16;
-    private static final int ADVANCEMENT_EVENT_BACKFILL_TICKS = 40;
+    private static final int ADVANCEMENT_EVENT_BACKFILL_TICKS = 1200;
     private static volatile boolean advancementEvents;
 
     private AntmailEventData() {

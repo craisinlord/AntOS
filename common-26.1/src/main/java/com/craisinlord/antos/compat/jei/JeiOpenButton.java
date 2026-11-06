@@ -4,6 +4,7 @@ import com.craisinlord.antos.content.client.ArchiveLookup;
 import com.craisinlord.antos.content.client.palette.Ui;
 import mezz.jei.api.gui.builder.ITooltipBuilder;
 import mezz.jei.api.gui.inputs.IJeiGuiEventListener;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.network.chat.Component;
@@ -49,7 +50,7 @@ final class JeiOpenButton implements IJeiGuiEventListener {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return false;
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return false;
         ArchiveLookup.openTarget(target);
         return true;
     }

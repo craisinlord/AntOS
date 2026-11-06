@@ -71,6 +71,7 @@ public final class AntOSForgeClient {
         if ((event.getScreen() instanceof InventoryScreen || event.getScreen() instanceof CreativeModeInventoryScreen)
                 && com.craisinlord.antos.config.AntOSSettings.inventoryComputerButtonEnabled()) {
             event.addListener(new InventoryComputerButton(4, 4));
+            event.addListener(new com.craisinlord.antos.content.client.screen.TrackedTasksButton(4, 26));
         }
     }
 
@@ -94,6 +95,7 @@ public final class AntOSForgeClient {
         key.setKeyConflictContext(net.minecraftforge.client.settings.KeyConflictContext.GUI);
         event.register(key);
         event.register(com.craisinlord.antos.content.client.TaskTrackerHud.createKey());
+        event.register(com.craisinlord.antos.content.client.screen.OpenAntOSKey.createKey());
     }
 
     @SubscribeEvent

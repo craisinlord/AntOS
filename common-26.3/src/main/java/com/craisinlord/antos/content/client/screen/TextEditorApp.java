@@ -418,7 +418,7 @@ final class TextEditorApp extends ComputerApp {
     }
 
     private void pressText() {
-        if (kit.clickButton() != 0) return;
+        if (kit.clickButton() != InputConstants.MOUSE_BUTTON_LEFT) return;
         state.focused = true;
         state.findFocused = false;
         state.deleteConfirm = false;

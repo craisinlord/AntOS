@@ -3,6 +3,7 @@ package com.craisinlord.antos.content.client.game;
 import com.craisinlord.antos.content.client.palette.Ui;
 import com.craisinlord.antos.content.network.ComputerAccessResultPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.Font;
 import com.craisinlord.antos.content.client.ThemedGraphics;
 import net.minecraft.resources.Identifier;
@@ -62,11 +63,11 @@ public final class BlockleProgram {
 
     public boolean keyPressed(int keyCode) {
         if (!installed) return false;
-        if (keyCode == 259) {
+        if (keyCode == InputConstants.KEY_BACKSPACE) {
             if (!input.isEmpty()) input = input.substring(0, input.length() - 1);
             return true;
         }
-        if (keyCode == 257 || keyCode == 335) {
+        if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
             if (!received) return true;
             if (input.length() == 5 && phase.equals("PLAYING") && !pending) {
                 ComputerNetworking.submitBlockleGuess(input);

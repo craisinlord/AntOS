@@ -23,6 +23,7 @@ import java.util.zip.GZIPOutputStream;
 public final class JeiSync {
     private static final int DEFINITION_CHECK_INTERVAL = 20;
     private static final int STATE_INTERVAL = 100;
+    private static final java.util.regex.Pattern DEAL_TIMER = java.util.regex.Pattern.compile("\"ends_in_ms\":\\d+,");
     private static final Set<UUID> DIRTY = ConcurrentHashMap.newKeySet();
     private static final Map<UUID, PlayerSync> PLAYERS = new HashMap<>();
     private static BiConsumer<ServerPlayer, JeiSyncPayload> sender = (player, payload) -> {};
@@ -97,8 +98,9 @@ public final class JeiSync {
                 AntOS.LOGGER.error("Could not build the AntOS JEI state for {}", player.getGameProfile().name(), exception);
                 continue;
             }
-            if (state.equals(sync.state)) continue;
-            sync.state = state;
+            String comparable = DEAL_TIMER.matcher(state).replaceAll("");
+            if (comparable.equals(sync.state)) continue;
+            sync.state = comparable;
             send(player, JeiSyncPayload.STATE, definitions.version(), compress(state));
         }
         PLAYERS.keySet().retainAll(online);

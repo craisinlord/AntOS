@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import com.craisinlord.antos.content.client.ThemedGraphics;
@@ -58,6 +60,8 @@ final class FileExplorerApp extends ComputerApp {
     private String menuPath = "";
     private int menuX;
     private int menuY;
+    private final Set<String> multiSelection = new LinkedHashSet<>();
+    private String selectionAnchor = "";
 
     static Identifier icon(String name) {
         String folder = name.equals("pencil") || name.equals("trash") ? "antpaint" : "files";
@@ -298,7 +302,7 @@ final class FileExplorerApp extends ComputerApp {
         for (int row = 0; row < visibleRows && state.scroll + row < rows.size(); row++) {
             Entry entry = rows.get(state.scroll + row);
             int rowY = listTop + row * ROW;
-            boolean selected = entry.path().equals(state.selected);
+            boolean selected = entry.path().equals(state.selected) || multiSelection.contains(entry.path());
             boolean hover = kit.hovered(x, rowY, rowWidth, ROW - 1);
             boolean target = dragging && dropTarget.equals(entry.path());
             boolean dragged = dragging && entry.path().equals(pressPath);
@@ -339,7 +343,9 @@ final class FileExplorerApp extends ComputerApp {
         g.fill(x, y, x + w, y + 1, Ui.SURFACE);
         int textY = y + 2;
         String left;
-        if (selected != null) {
+        if (multiSelection.size() > 1) {
+            left = multiSelection.size() + " ITEMS SELECTED";
+        } else if (selected != null) {
             String detail = selected.directory() ? tr("details.folder", childCounts(all).getOrDefault(selected.path(), 0))
                     : selected.image() ? tr("details.painting") : tr("details.text", bytes(selected.size()));
             left = selected.name() + " " + detail;
@@ -431,6 +437,11 @@ final class FileExplorerApp extends ComputerApp {
         Entry entry = menuPath.isEmpty() ? null : find(menuPath);
         if (entry != null) {
             boolean mutable = mutable(entry.path());
+            if (multiSelection.size() > 1) {
+                items.add(new MenuItem("MOVE SELECTED (" + multiSelection.size() + ")", "CTRL+M", multiSelection.stream().allMatch(this::mutable), false, this::moveSelected));
+                items.add(new MenuItem("DELETE SELECTED (" + multiSelection.size() + ")", "DEL", multiSelection.stream().allMatch(this::mutable), true, this::deleteSelected));
+                items.add(null);
+            }
             items.add(new MenuItem(tr("menu.open"), tr("key.open"), true, false, () -> activate(entry)));
             items.add(null);
             items.add(new MenuItem(tr("menu.rename"), tr("key.rename"), mutable, false, () -> rename(entry)));
@@ -464,17 +475,42 @@ final class FileExplorerApp extends ComputerApp {
 
     private void pressBackground() {
         state.selected = "";
-        if (kit.clickButton() == 1) openMenu("");
+        multiSelection.clear();
+        if (kit.clickButton() == InputConstants.MOUSE_BUTTON_RIGHT) openMenu("");
     }
 
     private void pressRow(Entry entry) {
         int button = kit.clickButton();
-        state.selected = entry.path();
-        if (button == 1) {
+        if (button == InputConstants.MOUSE_BUTTON_RIGHT && multiSelection.contains(entry.path())) {
+            state.selected = entry.path();
             openMenu(entry.path());
             return;
         }
-        if (button != 0) return;
+        boolean control = com.craisinlord.antos.content.client.KeyboardState.isDown(InputConstants.KEY_LCONTROL)
+                || com.craisinlord.antos.content.client.KeyboardState.isDown(InputConstants.KEY_RCONTROL);
+        boolean shift = com.craisinlord.antos.content.client.KeyboardState.isDown(InputConstants.KEY_LSHIFT)
+                || com.craisinlord.antos.content.client.KeyboardState.isDown(InputConstants.KEY_RSHIFT);
+        if (button == InputConstants.MOUSE_BUTTON_LEFT && (control || shift)) {
+            if (shift && !selectionAnchor.isEmpty()) {
+                int first = indexOf(visibleEntries, selectionAnchor);
+                int last = indexOf(visibleEntries, entry.path());
+                if (first >= 0 && last >= 0) {
+                    multiSelection.clear();
+                    for (int index = Math.min(first, last); index <= Math.max(first, last); index++) multiSelection.add(visibleEntries.get(index).path());
+                }
+            } else if (!multiSelection.remove(entry.path())) multiSelection.add(entry.path());
+            selectionAnchor = entry.path();
+            state.selected = multiSelection.contains(entry.path()) ? entry.path() : multiSelection.stream().reduce((first, second) -> second).orElse("");
+            return;
+        }
+        state.selected = entry.path();
+        multiSelection.clear();
+        selectionAnchor = entry.path();
+        if (button == InputConstants.MOUSE_BUTTON_RIGHT) {
+            openMenu(entry.path());
+            return;
+        }
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return;
         long now = System.currentTimeMillis();
         boolean activate = entry.path().equals(lastClickPath) && now - lastClickTime <= 350L;
         lastClickPath = entry.path();
@@ -568,6 +604,7 @@ final class FileExplorerApp extends ComputerApp {
             }
             if (!state.selected.isEmpty()) {
                 state.selected = "";
+                multiSelection.clear();
                 return true;
             }
             return false;
@@ -605,7 +642,8 @@ final class FileExplorerApp extends ComputerApp {
                 return true;
             }
             case InputConstants.KEY_DELETE -> {
-                if (selected != null) delete(selected);
+                if (multiSelection.size() > 1) deleteSelected();
+                else if (selected != null) delete(selected);
                 return true;
             }
             case InputConstants.KEY_F5 -> {
@@ -616,9 +654,18 @@ final class FileExplorerApp extends ComputerApp {
         }
         if (control) {
             switch (keyCode) {
+                case InputConstants.KEY_A -> {
+                    multiSelection.clear();
+                    for (Entry entry : visibleEntries) multiSelection.add(entry.path());
+                    if (!visibleEntries.isEmpty()) {
+                        state.selected = visibleEntries.get(0).path();
+                        selectionAnchor = state.selected;
+                    }
+                }
                 case InputConstants.KEY_N -> newFolder();
                 case InputConstants.KEY_M -> {
-                    if (selected != null) move(selected);
+                    if (multiSelection.size() > 1) moveSelected();
+                    else if (selected != null) move(selected);
                 }
                 case InputConstants.KEY_C -> copyPath(selected != null ? selected.path() : state.directory);
                 case InputConstants.KEY_R -> {
@@ -642,6 +689,8 @@ final class FileExplorerApp extends ComputerApp {
 
     private void select(Entry entry) {
         state.selected = entry.path();
+        multiSelection.clear();
+        selectionAnchor = entry.path();
         state.revealSelected = true;
     }
 
@@ -659,6 +708,7 @@ final class FileExplorerApp extends ComputerApp {
         if (dragging) return;
         state.directory = path;
         state.selected = "";
+        multiSelection.clear();
         state.scroll = 0;
         menuOpen = false;
     }
@@ -769,6 +819,49 @@ final class FileExplorerApp extends ComputerApp {
         if (entry == null || !mutable(entry.path())) return;
         dialog.openFolderPicker(tr("move.title", entry.name()), screen.parentDirectory(entry.path()),
                 folder -> dropAllowed(entry.path(), folder), folder -> moveInto(entry.path(), folder));
+    }
+
+    private void moveSelected() {
+        List<String> paths = normalizedSelection();
+        if (paths.size() < 2) return;
+        dialog.openFolderPicker("MOVE " + paths.size() + " ITEMS", screen.parentDirectory(paths.get(0)),
+                folder -> paths.stream().allMatch(path -> dropAllowed(path, folder)), folder -> {
+                    int moved = 0;
+                    for (String source : paths) {
+                        String target = join(folder, source.substring(source.lastIndexOf('/') + 1));
+                        if (target.length() <= ComputerFileSystem.MAX_PATH_LENGTH && find(target) == null) {
+                            ComputerNetworking.moveFile(source, target);
+                            moved++;
+                        }
+                    }
+                    multiSelection.clear();
+                    state.selected = "";
+                    notice("MOVED " + moved + " ITEMS", Ui.TEXT);
+                    ComputerNetworking.listFiles();
+                });
+    }
+
+    private void deleteSelected() {
+        List<String> paths = normalizedSelection().stream().filter(this::mutable).toList();
+        if (paths.size() < 2) return;
+        dialog.openConfirm("DELETE " + paths.size() + " ITEMS?", "Selected files and folders will be permanently deleted.", "DELETE", () -> {
+            for (String path : paths) {
+                Entry entry = find(path);
+                if (entry == null) continue;
+                if (entry.directory()) ComputerNetworking.deleteTree(path);
+                else ComputerNetworking.deleteFile(path);
+            }
+            multiSelection.clear();
+            state.selected = "";
+            ComputerNetworking.listFiles();
+        });
+    }
+
+    private List<String> normalizedSelection() {
+        List<String> paths = multiSelection.stream().filter(this::mutable).sorted(Comparator.comparingInt(String::length)).toList();
+        List<String> result = new ArrayList<>();
+        for (String path : paths) if (result.stream().noneMatch(parent -> path.startsWith(parent + "/"))) result.add(path);
+        return result;
     }
 
     private void moveInto(String source, String folder) {

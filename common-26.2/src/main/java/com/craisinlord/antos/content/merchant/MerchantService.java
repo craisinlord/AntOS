@@ -330,7 +330,6 @@ public final class MerchantService {
         storage.commit(root);
         try {
             require(level.addFreshEntity(drop), "unsafe_delivery");
-            level.getChunkSource().save(false);
         } catch (RuntimeException exception) {
             if (level.getEntity(drop.getUUID()) == null) {
                 if (remainder != null) root.getAsJsonArray("shipments").remove(remainder);

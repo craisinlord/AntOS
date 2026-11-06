@@ -262,6 +262,8 @@ final class SettingsApp extends ComputerApp {
             {"accessibility", "accessibility.display"},
             {"accessibility", "accessibility.brightness"},
             {"accessibility", "accessibility.fullscreen"},
+            {"accessibility", "accessibility.frame_hint"},
+            {"accessibility", "accessibility.text_size"},
             {"accessibility", "accessibility.layout_hint"},
             {"accessibility", "accessibility.comfort"},
             {"accessibility", "accessibility.reduce_effects"},
@@ -570,8 +572,17 @@ final class SettingsApp extends ComputerApp {
         toggleRow(g, tr("accessibility.fullscreen"), preferences.fullscreenDesktop,
                 value -> AntOSSettings.updatePreferences(p -> p.fullscreenDesktop = value));
         label(g, tr("accessibility.fullscreen_hint"), Ui.TEXT_MUTED);
+        buttonRow(g, tr("accessibility.frame_hint"), tr("accessibility.frame_reset"), false, screen::resetFrame);
+        label(g, tr("accessibility.frame_help"), Ui.TEXT_MUTED);
         buttonRow(g, tr("accessibility.layout_hint"), tr("accessibility.layout_reset"), false, screen::resetWindowLayout);
         heading(g, "accessibility.comfort");
+        int currentScale = AntOSSettings.uiScalePercent();
+        String textSize = "";
+        for (int index = 0; index < TEXT_SIZES.length; index++) if (TEXT_SIZE_SCALES[index] == currentScale) textSize = TEXT_SIZES[index];
+        choiceRow(g, tr("accessibility.text_size"), TEXT_SIZES, "accessibility.text_size_", textSize, value -> {
+            for (int index = 0; index < TEXT_SIZES.length; index++) if (TEXT_SIZES[index].equals(value)) setScale(TEXT_SIZE_SCALES[index]);
+        });
+        label(g, tr("accessibility.text_size_hint"), Ui.TEXT_MUTED);
         renderScaleSlider(g);
         toggleRow(g, tr("accessibility.reduce_effects"), preferences.reduceEffects,
                 value -> AntOSSettings.updatePreferences(p -> p.reduceEffects = value));
@@ -592,8 +603,15 @@ final class SettingsApp extends ComputerApp {
                     p.reduceEffects = false;
                     p.resumeSession = true;
                     p.fullscreenDesktop = false;
+                    p.frameLeft = 0;
+                    p.frameTop = 0;
+                    p.frameWidth = 0;
+                    p.frameHeight = 0;
                 }));
     }
+
+    private static final String[] TEXT_SIZES = {"small", "normal", "large", "larger"};
+    private static final int[] TEXT_SIZE_SCALES = {85, 100, 120, 140};
 
     private void renderScaleSlider(ThemedGraphics g) {
         reveal(tr("accessibility.ui_size"));
@@ -978,8 +996,10 @@ final class SettingsApp extends ComputerApp {
         for (int index = 0; index < fields.length; index++) {
             Field field = fields[index];
             g.drawString(font, Component.literal(labels[index]), px + 8, fieldY, Ui.TEXT_MUTED, false);
-            kit.field(g, px + 8, fieldY + 9, pw - 16, 16, field.shown(), field.cursor, focused == field, "");
-            kit.hit(px + 8, fieldY + 9, pw - 16, 16, () -> focus(field));
+            int fieldWidth = field.masked ? pw - 34 : pw - 16;
+            kit.field(g, px + 8, fieldY + 9, fieldWidth, 16, field.shown(), field.cursor, focused == field, "");
+            kit.hit(px + 8, fieldY + 9, fieldWidth, 16, () -> focus(field));
+            if (field.masked) kit.passwordToggle(g, px + pw - 24, fieldY + 9, 16, 16, field.revealed, () -> field.revealed = !field.revealed);
             fieldY += 29;
         }
         String message = passwordPending ? tr("password.working") : !passwordError.isEmpty() ? passwordError
@@ -988,6 +1008,12 @@ final class SettingsApp extends ComputerApp {
         int buttonWidth = Math.max(56, kit.labelWidth(tr("password.submit")));
         kit.button(g, px + pw - 8 - buttonWidth, py + ph - 24, buttonWidth, 18, tr("password.submit"), false, !passwordPending, this::submitDialog);
         if (!required) kit.button(g, px + pw - 12 - buttonWidth * 2, py + ph - 24, buttonWidth, 18, tr("password.cancel"), false, true, this::closePasswordDialog);
+    }
+
+    void hidePasswords() {
+        currentPassword.revealed = false;
+        newPassword.revealed = false;
+        confirmPassword.revealed = false;
     }
 
     private Field[] dialogFields() {
@@ -1187,7 +1213,7 @@ final class SettingsApp extends ComputerApp {
     }
 
     boolean click(Window window, double mouseX, double mouseY, int button, int x, int y, int w, int h) {
-        if (!passwordDialog && scaleTrackVisible && button == 0
+        if (!passwordDialog && scaleTrackVisible && button == InputConstants.MOUSE_BUTTON_LEFT
                 && mouseY >= contentTop && mouseY < contentBottom
                 && ComputerScreen.inside(scaleTrackX - 4, scaleTrackY, scaleTrackWidth + 8, 17, mouseX, mouseY)) {
             focused = null;
@@ -1287,6 +1313,7 @@ final class SettingsApp extends ComputerApp {
     private static final class Field {
         final int limit;
         final boolean masked;
+        boolean revealed;
         String value = "";
         int cursor;
 
@@ -1298,10 +1325,11 @@ final class SettingsApp extends ComputerApp {
         void set(String text) {
             value = text == null ? "" : text.substring(0, Math.min(limit, text.length()));
             cursor = value.length();
+            revealed = false;
         }
 
         String shown() {
-            return masked ? "*".repeat(value.length()) : value;
+            return masked && !revealed ? "*".repeat(value.length()) : value;
         }
 
         void type(char codePoint) {

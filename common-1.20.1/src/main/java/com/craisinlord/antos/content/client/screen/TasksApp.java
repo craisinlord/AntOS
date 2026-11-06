@@ -51,9 +51,11 @@ final class TasksApp extends ComputerApp {
     private static final float CHROME_SCALE = 0.8F;
     private static final int CHROME_BUTTON_HEIGHT = 12;
     private static final int TEAM_BUTTON_WIDTH = 48;
-    private static final int CONTROLS_PANEL_HEIGHT = 103;
+    private static final int CONTROLS_PANEL_HEIGHT = 158;
     private static final int PICKER_CARD_HEIGHT = 44;
     private static final String PINNED_GROUP = "@pinned";
+    private static final String EMPTY_GROUP = "@empty";
+    private static final String[] SIDEBAR_FILTERS = {"all", "todo", "ready"};
     private static final Map<String, JsonObject> REMEMBERED = new HashMap<>();
 
     int refreshTicks;
@@ -147,11 +149,30 @@ final class TasksApp extends ComputerApp {
     private List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> searchCacheResults = List.of();
     private boolean restoreChecked;
     private int viewClaimableCount;
+    private Object viewTextSource;
+    private final Map<String, StoredLayout> layoutMemory = new HashMap<>();
+    private List<ComputerTasksClientState.TaskRow> viewReadyRows = List.of();
+    private List<ComputerTasksClientState.TaskRow> claimScopeRows;
+    private List<ComputerTasksClientState.TaskRow> claimableRows;
+    private String claimScopeCategory;
+    private String claimScopeQuery;
+    private final Map<String, String> staticTranslations = new HashMap<>();
+    private Object staticTranslationsLanguage;
     private int[] claimAllBounds = new int[4];
     private int[] pinBounds = new int[4];
+    private int[] backBounds = new int[4];
+    private int[] crumbGroupBounds = new int[4];
+    private int[] crumbCategoryBounds = new int[4];
+    private int[] nextReadyBounds = new int[4];
+    private int nextReadyIndex;
+    private int sidebarFilter;
+    private int[] sidebarFilterBounds = new int[4];
+    private Map<String, int[]> viewCategoryCounts = Map.of();
     private String pinTooltip = "";
     private boolean claimPending;
     private long claimPendingSince;
+    private final List<String> claimBatchRemaining = new ArrayList<>();
+    private int claimBatchNumber;
     private static final long CLAIM_TIMEOUT_MS = 10000L;
     private boolean pinPending;
     private long seenClaimSequence;
@@ -240,6 +261,7 @@ final class TasksApp extends ComputerApp {
         json.addProperty("scroll_y", mapScrollY);
         json.addProperty("zoom", mapZoom);
         json.addProperty("detail_scroll", detailScroll);
+        json.addProperty("sidebar_filter", sidebarFilter);
         return json;
     }
 
@@ -249,6 +271,8 @@ final class TasksApp extends ComputerApp {
         mapScrollX = ComputerResume.number(json, "scroll_x");
         mapScrollY = ComputerResume.number(json, "scroll_y");
         detailScroll = Math.max(0, ComputerResume.number(json, "detail_scroll"));
+        sidebarFilter = Math.floorMod(ComputerResume.number(json, "sidebar_filter"), SIDEBAR_FILTERS.length);
+        viewDirty = true;
         try {
             if (json.has("zoom")) mapZoom = Math.max(0.55F, Math.min(1.6F, json.get("zoom").getAsFloat()));
         } catch (RuntimeException ignored) { }
@@ -265,6 +289,11 @@ final class TasksApp extends ComputerApp {
         ensureRestored();
         claimAllBounds = new int[4];
         pinBounds = new int[4];
+        backBounds = new int[4];
+        crumbGroupBounds = new int[4];
+        crumbCategoryBounds = new int[4];
+        nextReadyBounds = new int[4];
+        sidebarFilterBounds = new int[4];
         pinTooltip = "";
         pollResults();
         renderContent(g, x, y, w, h);
@@ -325,18 +354,31 @@ final class TasksApp extends ComputerApp {
             g.fill(x + 2, bodyY + 1, x + 20, bodyY + 17, Ui.HOVER);
             screen.box(g, x + 2, bodyY + 1, x + 20, bodyY + 17, toggleColor);
             g.drawCenteredString(font, Component.literal("<"), x + 11, bodyY + 4, toggleColor);
-            drawSidebarText(g, screen.trimToWidth("CATEGORIES", (int) ((sidebarWidth - 49) / sidebarTextScale())), x + 23, bodyY + 5, Ui.TEXT_STRONG);
+            int filterLeft = x + 22;
+            int filterRight = sidebarRight - 23;
+            boolean filterHovered = screen.hovered(filterLeft, bodyY + 1, filterRight - filterLeft, 16);
+            g.fill(filterLeft, bodyY + 1, filterRight, bodyY + 17, filterHovered ? Ui.HOVER : Ui.PANEL_ALT);
+            screen.box(g, filterLeft, bodyY + 1, filterRight, bodyY + 17, sidebarFilter == 0 ? Ui.BORDER_STRONG : Ui.ACCENT);
+            drawSidebarText(g, screen.trimToWidth(tr("filter_" + SIDEBAR_FILTERS[sidebarFilter]), (int) ((filterRight - filterLeft - 14) / sidebarTextScale())),
+                    filterLeft + 4, bodyY + 5, sidebarFilter == 0 ? Ui.TEXT_STRONG : Ui.ACCENT);
+            int caretX = filterRight - 7;
+            g.fill(caretX - 2, bodyY + 7, caretX + 3, bodyY + 8, Ui.TEXT_SOFT);
+            g.fill(caretX - 1, bodyY + 8, caretX + 2, bodyY + 9, Ui.TEXT_SOFT);
+            g.fill(caretX, bodyY + 9, caretX + 1, bodyY + 10, Ui.TEXT_SOFT);
+            sidebarFilterBounds = new int[] {filterLeft, bodyY + 1, filterRight - filterLeft, 16};
             screen.box(g, sidebarRight - 20, bodyY + 1, sidebarRight - 2, bodyY + 17, sidebarPinned() ? Ui.ACCENT : Ui.LOCKED);
             g.drawCenteredString(font, Component.literal(sidebarPinned() ? "*" : "+"), sidebarRight - 11, bodyY + 5, Ui.TEXT);
         } else {
-            int toggleColor = fade(pointerOnSidebarTab ? Ui.TEXT : Ui.ACCENT);
-            g.fill(x, bodyY + 1, x + 20, bodyY + 19, fade(Ui.PANEL));
-            screen.box(g, x, bodyY + 1, x + 20, bodyY + 19, toggleColor);
-            g.drawCenteredString(font, Component.literal(">"), x + 10, bodyY + 5, toggleColor);
+            int toggleColor = fade(pointerOnSidebarTab ? Ui.ACCENT : Ui.TEXT_SOFT);
+            g.fill(x, bodyY + 1, x + 20, bodyY + 19, fade(pointerOnSidebarTab ? Ui.HOVER : Ui.PANEL));
+            screen.box(g, x, bodyY + 1, x + 20, bodyY + 19, fade(pointerOnSidebarTab ? Ui.ACCENT : Ui.BORDER_STRONG));
+            for (int bar = 0; bar < 3; bar++) g.fill(x + 6, bodyY + 6 + bar * 3, x + 14, bodyY + 7 + bar * 3, toggleColor);
+            if (!readyTasks().isEmpty()) g.fill(x + 15, bodyY + 3, x + 18, bodyY + 6, fade(Ui.TASK_READY));
         }
         int categoriesVisible = sidebarVisibleRows(bodyHeight);
         categoryScroll = Math.max(0, Math.min(categoryScroll, Math.max(0, sidebarRows.size() - categoriesVisible)));
-        String hoveredSidebarLabel = "";
+        String hoveredSidebarLabel = sidebarFilterBounds[2] > 0
+                && screen.hovered(sidebarFilterBounds[0], sidebarFilterBounds[1], sidebarFilterBounds[2], sidebarFilterBounds[3]) ? tr("filter_tip") : "";
         int categoryY = bodyY + 24;
         for (int rowIndex = categoryScroll; sidebarWidth > 0 && rowIndex < sidebarRows.size() && rowIndex < categoryScroll + categoriesVisible; rowIndex++) {
             SidebarRow sidebarRow = sidebarRows.get(rowIndex);
@@ -359,14 +401,30 @@ final class TasksApp extends ComputerApp {
                 }
             }
             int labelX = hasIcon ? iconLeft + 15 : pinnedHeader ? iconLeft + 12 : iconLeft + 2;
-            SidebarCount sidebarCount = viewSidebarCounts.getOrDefault(sidebarKey(sidebarRow), new SidebarCount("0/0", false));
-            String count = AntOSSettings.preferences().taskSidebarCounts ? sidebarCount.label() : "";
+            SidebarCount sidebarCount = viewSidebarCounts.getOrDefault(sidebarKey(sidebarRow), new SidebarCount("0/0", false, 0, 0));
+            boolean showCounts = AntOSSettings.preferences().taskSidebarCounts;
+            String count = showCounts ? sidebarCount.label() : "";
             boolean rowHasClaimable = sidebarCount.claimable();
-            int categoryLabelWidth = Math.max(1, sidebarRight - sidebarTextWidth(count) - 10 - labelX);
+            boolean rowComplete = sidebarCount.complete();
+            int checkWidth = rowComplete ? 9 : rowHasClaimable && !showCounts ? 6 : 0;
+            int countRight = sidebarRight - 6 - checkWidth;
+            int categoryLabelWidth = Math.max(1, countRight - sidebarTextWidth(count) - 4 - labelX);
             int labelColor = header ? Ui.TEXT : selected ? Ui.ACCENT : Ui.TEXT_SOFT;
             drawSidebarLabel(g, sidebarRow.label().toUpperCase(Locale.ROOT), labelX, categoryY + 2, categoryLabelWidth, labelColor);
-            drawSidebarText(g, count, sidebarRight - sidebarTextWidth(count) - 6, categoryY + 2,
-                    rowHasClaimable || header || selected ? Ui.TEXT : Ui.TEXT_DIM);
+            drawSidebarText(g, count, countRight - sidebarTextWidth(count), categoryY + 2,
+                    rowHasClaimable ? Ui.TASK_READY : header || selected ? Ui.TEXT : Ui.TEXT_DIM);
+            if (rowComplete) drawCheck(g, sidebarRight - 13, categoryY + 3, Ui.ACCENT);
+            else if (rowHasClaimable && !showCounts) g.fill(sidebarRight - 10, categoryY + 3, sidebarRight - 6, categoryY + 7, Ui.TASK_READY);
+            if (sidebarCount.total() > 0 && !pinnedHeader) {
+                int barY = categoryY - 2 + sidebarRowHeight() - 3;
+                int barLeft = labelX;
+                int barRight = sidebarRight - 6;
+                if (barRight > barLeft) {
+                    g.fill(barLeft, barY, barRight, barY + 1, Ui.LINE);
+                    int filled = (int) ((long) (barRight - barLeft) * Math.min(sidebarCount.done(), sidebarCount.total()) / sidebarCount.total());
+                    if (filled > 0) g.fill(barLeft, barY, barLeft + filled, barY + 1, rowHasClaimable ? Ui.TASK_READY : Ui.ACCENT);
+                }
+            }
             if (rowHovered && sidebarTextWidth(sidebarRow.label().toUpperCase(Locale.ROOT)) > categoryLabelWidth) hoveredSidebarLabel = sidebarRow.label();
             categoryY += sidebarRowHeight();
         }
@@ -396,6 +454,7 @@ final class TasksApp extends ComputerApp {
     }
 
     private void renderMap(GuiGraphics g, int x, int y, int w, int h, int contentOffset, int sidebarWidth) {
+        viewClaimableCount = claimableTasks().size();
         int bodyY = y;
         int bodyHeight = Math.max(1, h);
         pendingJumpTaskId = "";
@@ -406,28 +465,36 @@ final class TasksApp extends ComputerApp {
         int mapW = w - contentOffset;
         int mapH = Math.max(1, bodyHeight - 36);
         int[] clip = mapClip(x, bodyY, w, bodyHeight, sidebarWidth);
-        long completeCount = categoryRows.stream().filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::complete).count();
-        long claimableCount = categoryRows.stream().filter(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow::claimable).count();
-        long taskCount = categoryRows.stream().filter(row -> !row.isLink()).count();
+        int[] categoryCount = viewCategoryCounts.getOrDefault(selectedCategory, new int[3]);
+        int taskCount = categoryCount[0];
+        int completeCount = categoryCount[1];
+        int claimableCount = categoryCount[2];
         String progressLabel = completeCount + "/" + taskCount + (searchFocused ? " DONE" : " COMPLETE")
                 + (claimableCount > 0 ? (searchFocused ? " !" : "  //  READY ") + claimableCount : "");
         String categoryLabel = categoryLabel(selectedCategory).toUpperCase(Locale.ROOT);
         int searchControlWidth = searchControlWidth();
-        String claimAllLabel = viewClaimableCount > 0 && !searchFocused ? tr("claim_all", viewClaimableCount) : "";
+        String claimAllLabel = viewClaimableCount > 0 ? tr("claim_all", viewClaimableCount) : "";
         int claimAllWidth = claimAllLabel.isEmpty() ? 0 : chromeTextWidth(claimAllLabel) + 12;
-        int headerReserved = searchControlWidth + (claimAllWidth > 0 ? claimAllWidth + 4 : 0);
+        String nextReadyLabel = readyTasks().isEmpty() ? "" : tr("next_ready");
+        int nextReadyWidth = nextReadyLabel.isEmpty() ? 0 : chromeTextWidth(nextReadyLabel) + 12;
+        int headerReserved = searchControlWidth + (claimAllWidth > 0 ? claimAllWidth + 4 : 0) + (nextReadyWidth > 0 ? nextReadyWidth + 4 : 0);
         String visibleCategoryLabel = screen.trimToWidth(categoryLabel, Math.max(1, mapW - chromeTextWidth(progressLabel) - headerReserved - 12));
         int searchLeft = mapX + mapW - searchControlWidth;
         int claimAllLeft = searchLeft - claimAllWidth - (claimAllWidth > 0 ? 4 : 0);
         String visibleProgressLabel = screen.trimToWidth(progressLabel,
                 Math.max(1, Math.round((mapW - font.width(visibleCategoryLabel) - headerReserved - 12) / CHROME_SCALE)));
-        int progressRight = claimAllWidth > 0 ? claimAllLeft : searchLeft;
+        int nextReadyLeft = claimAllLeft - nextReadyWidth - (nextReadyWidth > 0 ? 4 : 0);
+        int progressRight = nextReadyWidth > 0 ? nextReadyLeft : claimAllWidth > 0 ? claimAllLeft : searchLeft;
         int progressLeft = progressRight - chromeTextWidth(visibleProgressLabel) - 5;
         int[] categoryChip = {mapX - 4, bodyY, mapX + font.width(visibleCategoryLabel) + 4, bodyY + 19};
         int[] progressChip = {progressLeft - 4, bodyY + 1, progressRight - 1, bodyY + 1 + CHROME_BUTTON_HEIGHT};
         if (claimAllWidth > 0) {
             claimAllBounds = new int[] {claimAllLeft, bodyY + 1, claimAllWidth, CHROME_BUTTON_HEIGHT};
             chromeAreas.add(new int[] {claimAllLeft - 1, bodyY, claimAllLeft + claimAllWidth + 1, bodyY + 2 + CHROME_BUTTON_HEIGHT});
+        }
+        if (nextReadyWidth > 0) {
+            nextReadyBounds = new int[] {nextReadyLeft, bodyY + 1, nextReadyWidth, CHROME_BUTTON_HEIGHT};
+            chromeAreas.add(new int[] {nextReadyLeft - 1, bodyY, nextReadyLeft + nextReadyWidth + 1, bodyY + 2 + CHROME_BUTTON_HEIGHT});
         }
         chromeAreas.add(categoryChip);
         chromeAreas.add(progressChip);
@@ -478,7 +545,7 @@ final class TasksApp extends ComputerApp {
         for (Node node : onScreen) {
             occupied.add(new Occupied(Math.round(node.shapeLeft()), Math.round(node.shapeTop()),
                     Math.round(node.shapeLeft() + node.shapeSize()), Math.round(node.shapeTop() + node.shapeSize()), node));
-            if (node.task().claimable()) {
+            if (node.task().claimable() || !node.task().isLink() && node.task().complete()) {
                 int[] badge = badgeBounds(node);
                 occupied.add(new Occupied(badge[0], badge[1], badge[2], badge[3], node));
             }
@@ -505,6 +572,13 @@ final class TasksApp extends ComputerApp {
             screen.box(g, claimAllLeft, bodyY + 1, claimAllLeft + claimAllWidth, bodyY + 1 + CHROME_BUTTON_HEIGHT,
                     fade(claimPending ? Ui.BORDER_STRONG : Ui.ACCENT));
             drawChromeText(g, claimAllLabel, claimAllLeft + claimAllWidth / 2.0F, chromeTextY, fade(claimPending ? Ui.TEXT_SOFT : Ui.TEXT_STRONG), true);
+        }
+        if (nextReadyWidth > 0) {
+            boolean nextHovered = screen.hovered(nextReadyLeft, bodyY + 1, nextReadyWidth, CHROME_BUTTON_HEIGHT);
+            g.fill(nextReadyLeft, bodyY + 1, nextReadyLeft + nextReadyWidth, bodyY + 1 + CHROME_BUTTON_HEIGHT,
+                    fade(nextHovered ? Ui.HOVER : Ui.alpha(Ui.PANEL, 0xCC)));
+            screen.box(g, nextReadyLeft, bodyY + 1, nextReadyLeft + nextReadyWidth, bodyY + 1 + CHROME_BUTTON_HEIGHT, fade(Ui.TASK_READY));
+            drawChromeText(g, nextReadyLabel, nextReadyLeft + nextReadyWidth / 2.0F, chromeTextY, fade(Ui.TASK_READY), true);
         }
         if (searchFocused) {
             int searchBottom = bodyY + 1 + CHROME_BUTTON_HEIGHT;
@@ -606,14 +680,28 @@ final class TasksApp extends ComputerApp {
         return new int[] {x + w - TEAM_BUTTON_WIDTH - 6, y + h - CHROME_BUTTON_HEIGHT - 3, x + w - 2, y + h + 1};
     }
 
-    private record MapControls(int y, boolean compact, int zoomOutX, int zoomLabelX, int zoomInX, int centerX, int centerWidth, int helpX, int buttonWidth) { }
+    private record MapControls(int y, boolean compact, int zoomOutX, int zoomLabelX, int zoomInX, int centerX, int centerWidth, int fullX, int fullWidth, int helpX, int buttonWidth) { }
 
     private static MapControls mapControls(int mapX, int bodyY, int mapW, int bodyHeight) {
         boolean compact = mapW < 220;
         int zoomOutX = mapX + 3;
+        int centerX = zoomOutX + (compact ? 29 : 54);
+        int centerWidth = compact ? 34 : 38;
         return new MapControls(bodyY + bodyHeight - CHROME_BUTTON_HEIGHT - 1, compact, zoomOutX, zoomOutX + 14,
-                zoomOutX + (compact ? 14 : 40), zoomOutX + (compact ? 29 : 54), compact ? 34 : 38,
+                zoomOutX + (compact ? 14 : 40), centerX, centerWidth, centerX + centerWidth + 3, compact ? 16 : 42,
                 compact ? mapX + mapW - 14 : mapX + mapW - 70, 11);
+    }
+
+    private boolean fullView() {
+        return AntOSSettings.preferences().fullscreenDesktop && screen.activeWindow != null
+                && screen.activeWindow.type.equals("TASKS") && screen.activeWindow.maximized;
+    }
+
+    private void toggleFullView(Window window) {
+        boolean full = !fullView();
+        AntOSSettings.updatePreferences(p -> p.fullscreenDesktop = full);
+        ComputerScreen.setMaximized(window, full);
+        viewDirty = true;
     }
 
     private static boolean connectionOnScreen(Node from, Node to, int mapX, int mapY, int mapRight, int mapBottom) {
@@ -706,14 +794,14 @@ final class TasksApp extends ComputerApp {
         for (var task : rows) {
             String nextState = task.complete() + ":" + task.claimable();
             String previousState = observedStates.put(task.id(), nextState);
-            if (previousState == null) continue;
-            String title = plain(task.title());
+            if (previousState == null || previousState.equals(nextState)) continue;
             if (task.claimable() && !previousState.endsWith(":true")) {
+                String title = plain(task.title());
                 notice = !previousState.startsWith("true:") && task.complete()
                         ? "TASK COMPLETE // REWARD READY // " + title : "REWARD READY // " + title;
                 noticeUntil = System.currentTimeMillis() + 4000L;
             } else if (task.complete() && !previousState.startsWith("true:")) {
-                notice = "TASK COMPLETE // " + title;
+                notice = "TASK COMPLETE // " + plain(task.title());
                 noticeUntil = System.currentTimeMillis() + 4000L;
             }
         }
@@ -727,6 +815,8 @@ final class TasksApp extends ComputerApp {
                 (controls.zoomLabelX() + controls.zoomInX()) / 2.0F, controls.y() + CHROME_BUTTON_HEIGHT / 2.0F, fade(Ui.TEXT), true);
         drawChromeButton(g, controls.zoomInX(), controls.y(), controls.buttonWidth(), "+");
         drawChromeButton(g, controls.centerX(), controls.y(), controls.centerWidth(), "CENTER");
+        drawChromeButton(g, controls.fullX(), controls.y(), controls.fullWidth(),
+                controls.compact() ? (fullView() ? "><" : "<>") : tr(fullView() ? "windowed" : "fullscreen"));
         drawChromeButton(g, controls.helpX(), controls.y(), controls.buttonWidth(), "?");
         if (controlsOpen) {
             int panelW = controlsPanelWidth(mapW);
@@ -734,9 +824,19 @@ final class TasksApp extends ComputerApp {
             int panelY = bodyY + 22;
             g.fill(panelX, panelY, panelX + panelW, panelY + CONTROLS_PANEL_HEIGHT, Ui.PANEL);
             screen.box(g, panelX, panelY, panelX + panelW, panelY + CONTROLS_PANEL_HEIGHT, Ui.BORDER_STRONG);
-            String[] hints = {"DRAG // MOVE MAP", "WHEEL // SCROLL", "SHIFT + WHEEL // SIDEWAYS", "CTRL + WHEEL // ZOOM", "- / + // ZOOM", "CENTER // FRAME CATEGORY", "! // REWARD READY", "CTRL + F // FIND TASK", tr("hint_pin")};
+            g.drawString(font, Component.literal(screen.trimToWidth(tr("legend"), panelW - 10)), panelX + 5, panelY + 5, Ui.TEXT_STRONG, false);
+            TaskStatus[] legend = {TaskStatus.READY, TaskStatus.DONE, TaskStatus.ACTIVE, TaskStatus.LOCKED};
+            for (int i = 0; i < legend.length; i++) {
+                int rowY = panelY + 16 + i * 11;
+                drawStatusSwatch(g, panelX + 5, rowY - 1, legend[i]);
+                g.drawString(font, Component.literal(screen.trimToWidth(tr("legend_" + legend[i].name().toLowerCase(Locale.ROOT)), panelW - 22)),
+                        panelX + 18, rowY, statusText(legend[i]), false);
+            }
+            int hintsY = panelY + 16 + legend.length * 11 + 4;
+            g.fill(panelX + 5, hintsY - 3, panelX + panelW - 5, hintsY - 2, Ui.LINE);
+            String[] hints = {"DRAG // MOVE MAP", "WHEEL // SCROLL", "SHIFT + WHEEL // SIDEWAYS", "CTRL + WHEEL // ZOOM", "- / + // ZOOM", "CENTER // FRAME CATEGORY", "CTRL + F // FIND TASK", tr("hint_pin"), tr("hint_back")};
             for (int i = 0; i < hints.length; i++) {
-                g.drawString(font, Component.literal(screen.trimToWidth(hints[i], panelW - 10)), panelX + 5, panelY + 5 + i * 11, i == 0 ? Ui.TEXT : Ui.ACCENT, false);
+                g.drawString(font, Component.literal(screen.trimToWidth(hints[i], panelW - 10)), panelX + 5, hintsY + i * 11, i == 0 ? Ui.TEXT : Ui.ACCENT, false);
             }
         }
     }
@@ -745,7 +845,7 @@ final class TasksApp extends ComputerApp {
         MapControls controls = mapControls(mapX, bodyY, mapW, bodyHeight);
         int top = controls.y() - 2;
         int bottom = controls.y() + CHROME_BUTTON_HEIGHT + 2;
-        return new int[][] {{controls.zoomOutX() - 2, top, controls.centerX() + controls.centerWidth() + 2, bottom},
+        return new int[][] {{controls.zoomOutX() - 2, top, controls.fullX() + controls.fullWidth() + 2, bottom},
                 {controls.helpX() - 2, top, controls.helpX() + controls.buttonWidth() + 2, bottom}};
     }
 
@@ -890,16 +990,33 @@ final class TasksApp extends ComputerApp {
                                   int x, int y, int w, int h, Set<ResourceLocation> unlockedArchiveIds) {
         boolean previousTint = screen.archiveGreenTint;
         screen.archiveGreenTint = task.greenTint();
-        if (screen.hovered(x - 2, y, 105, 16)) screen.drawHover(g, x - 2, y, 105, 16);
-        g.drawString(font, Component.literal("< BACK TO MAP"), x, y + 3, Ui.TEXT_STRONG, false);
-        String taskState = task.complete() ? "COMPLETE" : task.available() ? "AVAILABLE" : "LOCKED";
-        g.drawString(font, Component.literal(taskState), x + w - font.width(taskState), y + 3,
-                task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.TEXT_DIM, false);
+        String backLabel = tr("back_to_map");
+        int backW = font.width(backLabel) + 12;
+        boolean backHovered = screen.hovered(x, y + 1, backW, 14);
+        g.fill(x, y + 1, x + backW, y + 15, backHovered ? Ui.HOVER : Ui.alpha(Ui.ACCENT, 0x26));
+        screen.box(g, x, y + 1, x + backW, y + 15, Ui.ACCENT);
+        g.drawString(font, Component.literal(backLabel), x + 6, y + 4, backHovered ? Ui.TEXT_BRIGHT : Ui.TEXT_STRONG, false);
+        backBounds = new int[] {x, y + 1, backW, 14};
+        TaskStatus taskStatus = status(task);
+        String taskState = switch (taskStatus) {
+            case READY -> tr("status_ready");
+            case DONE -> tr(task.claimed() ? "status_claimed" : "status_done");
+            case ACTIVE -> tr("status_active");
+            case LOCKED -> tr("status_locked");
+        };
+        int stateW = font.width(taskState) + (taskStatus == TaskStatus.DONE ? 22 : 12);
+        int stateX = x + w - stateW;
+        g.fill(stateX, y + 1, x + w, y + 15, statusFill(taskStatus));
+        screen.box(g, stateX, y + 1, x + w, y + 15, statusBorder(taskStatus));
+        if (taskStatus == TaskStatus.DONE) drawCheck(g, stateX + 5, y + 5, Ui.ACCENT);
+        g.drawString(font, Component.literal(taskState), stateX + (taskStatus == TaskStatus.DONE ? 15 : 6), y + 4, statusText(taskStatus), false);
+        int headerRight = stateX - 6;
         boolean pinned = ComputerTasksClientState.isPinned(task.id());
         if (pinned || canPin(task)) {
             String pinLabel = tr(pinned ? "pinned" : "pin");
             int chipW = font.width(pinLabel) + 18;
-            int chipX = x + w - font.width(taskState) - 8 - chipW;
+            int chipX = stateX - 6 - chipW;
+            headerRight = chipX - 6;
             boolean pinHovered = screen.hovered(chipX, y + 1, chipW, 14);
             g.fill(chipX, y + 1, chipX + chipW, y + 15, pinned ? Ui.alpha(Ui.ACCENT, 0x30) : pinHovered ? Ui.HOVER : Ui.PANEL);
             screen.box(g, chipX, y + 1, chipX + chipW, y + 15, pinned || pinHovered ? Ui.ACCENT : Ui.BORDER_STRONG);
@@ -909,6 +1026,7 @@ final class TasksApp extends ComputerApp {
             if (pinHovered) pinTooltip = tr(pinned ? "unpin_tip" : ComputerTasksClientState.pinned().size() >= ComputerWorkspaceData.MAX_PINNED_TASKS
                     ? "pin_full_tip" : "pin_tip", ComputerWorkspaceData.MAX_PINNED_TASKS);
         }
+        renderBreadcrumb(g, task, x + backW + 6, y + 4, headerRight);
         g.fill(x, y + 17, x + w, y + 19, Ui.BORDER_STRONG);
         screen.enableComputerScissor(g, x, y + 19, x + w, y + h - 17);
         detailViewTop = y + 19;
@@ -933,7 +1051,11 @@ final class TasksApp extends ComputerApp {
             else line = detailRichText(g, text(part), x, line, w, Ui.TEXT, task.renderMobFromSpawnEgg()) + 4;
             contentIndex++;
         }
-        g.drawString(font, Component.literal(task.total() == 0 ? "PROGRESS // COMPLETE" : "PROGRESS " + task.done() + "/" + task.total()), x, line, Ui.TEXT_STRONG, false);
+        long optionalObjectives = task.objectives().stream().filter(ComputerTasksClientState.TaskObjective::optional).count();
+        long requiredObjectives = task.objectives().size() - optionalObjectives;
+        String progressText = task.total() == 0 ? "PROGRESS // COMPLETE"
+                : optionalObjectives > 0 ? tr("progress_required", task.done(), task.total()) : "PROGRESS " + task.done() + "/" + task.total();
+        g.drawString(font, Component.literal(progressText), x, line, Ui.TEXT_STRONG, false);
         line += 11;
         if (task.total() > 0) {
             int barY = line;
@@ -944,14 +1066,16 @@ final class TasksApp extends ComputerApp {
             line += 8;
         }
         if (!task.objectives().isEmpty()) {
-            line = screen.renderTaskSectionLabel(g, "OBJECTIVES", x, line, w) + 3;
+            String objectivesLabel = optionalObjectives == 0 ? tr(requiredObjectives == 1 ? "objectives_one" : "objectives_all")
+                    : requiredObjectives == 0 ? tr("objectives_none_required") : tr("objectives_some", requiredObjectives);
+            line = screen.renderTaskSectionLabel(g, objectivesLabel, x, line, w) + 3;
         }
         for (var objective : task.objectives()) {
             boolean done = objective.complete();
             String label = text(objective.description());
-            String text = (done ? "[X] " : "[ ] ")
+            String text = (done ? "[X] " : "[ ] ") + (objective.optional() ? tr("optional_tag") + " " : "")
                     + objective.progress() + "/" + objective.displayGoal() + "  " + label;
-            int objectiveColor = done ? Ui.TEXT : Ui.ACCENT;
+            int objectiveColor = done ? Ui.TEXT : objective.optional() ? Ui.TEXT_SOFT : Ui.ACCENT;
             if (!objective.item().isBlank()) {
                 int rowY = line;
                 int textBottom = richText().measure(text, line, w - 22);
@@ -969,7 +1093,7 @@ final class TasksApp extends ComputerApp {
             List<String> requiredIds = section == 0 ? task.requires() : task.requiresAny();
             if (requiredIds.isEmpty()) continue;
             line += 3;
-            line = screen.renderTaskSectionLabel(g, section == 0 ? "PREREQUISITES" : "ANY ONE OF", x, line, w) + 3;
+            line = screen.renderTaskSectionLabel(g, tr(section == 1 ? "requires_any" : requiredIds.size() == 1 ? "requires_one" : "requires_all"), x, line, w) + 3;
             for (String requiredId : requiredIds) {
                 var required = viewRowsById.get(requiredId);
                 if (required != null && (!required.visible() || required.isLink())) required = null;
@@ -1123,6 +1247,42 @@ final class TasksApp extends ComputerApp {
         }
     }
 
+    private void renderBreadcrumb(GuiGraphics g, ComputerTasksClientState.TaskRow task, int left, int top, int right) {
+        int available = right - left;
+        if (available < 24) return;
+        String group = categoryGroup(task.category());
+        String groupLabel = group.isBlank() ? "" : text(ComputerTasksClientState.groups().get(group).title()).toUpperCase(Locale.ROOT);
+        String categoryText = categoryLabel(task.category()).toUpperCase(Locale.ROOT);
+        String separator = " > ";
+        boolean showGroup = !groupLabel.isBlank() && font.width(groupLabel + separator + categoryText) <= available;
+        int cursor = left;
+        if (showGroup) {
+            int groupW = font.width(groupLabel);
+            boolean hovered = screen.hovered(cursor - 1, top - 3, groupW + 2, 14);
+            g.drawString(font, Component.literal(groupLabel), cursor, top, hovered ? Ui.TEXT_STRONG : Ui.TEXT_SOFT, false);
+            if (hovered) g.fill(cursor, top + 9, cursor + groupW, top + 10, Ui.ACCENT);
+            crumbGroupBounds = new int[] {cursor - 1, top - 3, groupW + 2, 14};
+            cursor += groupW;
+            g.drawString(font, Component.literal(separator), cursor, top, Ui.TEXT_DIM, false);
+            cursor += font.width(separator);
+        }
+        String visibleCategory = screen.trimToWidth(categoryText, Math.max(1, right - cursor));
+        int categoryW = font.width(visibleCategory);
+        boolean hovered = screen.hovered(cursor - 1, top - 3, categoryW + 2, 14);
+        g.drawString(font, Component.literal(visibleCategory), cursor, top, hovered ? Ui.TEXT_STRONG : Ui.TEXT_SOFT, false);
+        if (hovered) g.fill(cursor, top + 9, cursor + categoryW, top + 10, Ui.ACCENT);
+        crumbCategoryBounds = new int[] {cursor - 1, top - 3, categoryW + 2, 14};
+    }
+
+    private void backToMap() {
+        selectedTaskId = "";
+        recipeItem = "";
+        detailScroll = 0;
+        detailMaximumScroll = 0;
+        pendingJumpTaskId = "";
+        archiveButtons.clear();
+    }
+
     private boolean detailRowVisible(int top, int bottom) {
         return bottom + 24 >= detailViewTop && top - 24 <= detailViewBottom;
     }
@@ -1268,12 +1428,18 @@ final class TasksApp extends ComputerApp {
         String key = com.craisinlord.antos.content.client.ComputerWorkspaceClientKey.of();
         String language = Minecraft.getInstance().getLanguageManager().getSelected();
         if (!viewDirty && revision == viewRevision && key.equals(viewKey) && language.equals(viewLanguage)) return;
+        Object textSource = net.minecraft.locale.Language.getInstance();
+        boolean textChanged = textSource != viewTextSource || !key.equals(viewKey) || !language.equals(viewLanguage);
         viewDirty = false;
         viewRevision = revision;
         viewKey = key;
         viewLanguage = language;
-        translations.clear();
-        richText().clearCache();
+        if (textChanged) {
+            viewTextSource = textSource;
+            translations.clear();
+            richText().clearCache();
+            layoutMemory.clear();
+        }
         layoutCache.clear();
         nodeCache = null;
         nodeCacheById = null;
@@ -1295,23 +1461,32 @@ final class TasksApp extends ComputerApp {
             if (row.complete()) count[1]++;
             if (row.claimable()) count[2]++;
         }
-        viewClaimableCount = (int) viewVisibleRows.stream().filter(row -> !row.isLink() && row.claimable()).count();
+        claimScopeRows = null;
+        viewReadyRows = viewVisibleRows.stream().filter(row -> !row.isLink() && row.claimable()).toList();
+        viewClaimableCount = (int) tasksInClaimScope().stream().filter(row -> !row.isLink() && row.claimable()).count();
         byCategory.replaceAll((category, rows) -> List.copyOf(rows));
         viewRowsById = byId;
         viewRowsByCategory = byCategory;
         viewCategories = orderedCategories(viewVisibleRows);
+        viewCategoryCounts = counts;
         viewSidebarRows = sidebarRows(viewVisibleRows);
         viewSidebarCounts.clear();
         for (SidebarRow row : viewSidebarRows) {
             if (!row.taskId().isBlank()) {
                 var task = byId.get(row.taskId());
-                String label = task == null ? "" : task.claimable() ? "!" : task.complete() ? "DONE" : task.total() > 0 ? task.done() + "/" + task.total() : "";
-                viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label, task != null && task.claimable()));
+                String label = task == null ? "" : task.claimable() ? "!" : task.complete() ? "" : task.total() > 0 ? task.done() + "/" + task.total() : "";
+                int total = task == null ? 0 : Math.max(1, task.total());
+                int done = task == null ? 0 : task.complete() ? total : Math.min(task.done(), total);
+                viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label, task != null && task.claimable(), done, total));
                 continue;
             }
             if (row.group().equals(PINNED_GROUP)) {
                 String label = (groupCollapsed(PINNED_GROUP) ? "+ " : "- ") + ComputerTasksClientState.pinned().size() + "/" + ComputerWorkspaceData.MAX_PINNED_TASKS;
-                viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label, false));
+                viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label, false, 0, 0));
+                continue;
+            }
+            if (row.group().equals(EMPTY_GROUP)) {
+                viewSidebarCounts.put(sidebarKey(row), new SidebarCount("", false, 0, 0));
                 continue;
             }
             int[] count = new int[3];
@@ -1322,16 +1497,27 @@ final class TasksApp extends ComputerApp {
                     for (int i = 0; i < 3; i++) count[i] += categoryCount[i];
                 }
             } else count = counts.getOrDefault(row.category(), count);
-            String label = count[1] + "/" + count[0] + (count[2] > 0 ? " !" + count[2] : "");
+            boolean finished = count[0] > 0 && count[1] >= count[0] && count[2] == 0;
+            String label = finished ? "" : count[1] + "/" + count[0] + (count[2] > 0 ? " !" + count[2] : "");
             if (row.category().isBlank()) label = (groupCollapsed(row.group()) ? "+ " : "- ") + label;
-            viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label, count[2] > 0));
+            viewSidebarCounts.put(sidebarKey(row), new SidebarCount(label.stripTrailing(), count[2] > 0, count[1], count[0]));
         }
         observeStatusChanges(viewVisibleRows);
     }
 
-    private record SidebarCount(String label, boolean claimable) { }
+    private record SidebarCount(String label, boolean claimable, int done, int total) {
+        boolean complete() {
+            return total > 0 && done >= total && !claimable;
+        }
+    }
 
     private record Cell(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task, int column, int row) { }
+
+    private record LayoutInput(String id, boolean hasPosition, int x, int y, TaskAppearance appearance, List<String> requires, List<String> requiresAny) { }
+
+    private record Placement(String id, int column, int row) { }
+
+    private record StoredLayout(List<LayoutInput> inputs, List<Placement> placements) { }
 
     private record SidebarRow(String group, String category, String label, String iconItem, String iconEntity, int indent, boolean greenTint, boolean renderMobFromSpawnEgg,
                               String taskId) {
@@ -1437,17 +1623,44 @@ final class TasksApp extends ComputerApp {
                 result.add(new SidebarRow("", "", plain(row.title()), row.iconItem(), row.iconEntity(), 8, row.greenTint(), row.renderMobFromSpawnEgg(), row.id()));
             }
         }
+        boolean anyCategory = false;
         for (SidebarEntry entry : sidebarEntries(rows)) {
             if (entry.group().isBlank()) {
+                if (!categoryShown(entry.category())) continue;
                 result.add(categorySidebarRow(entry.category(), 0));
+                anyCategory = true;
                 continue;
             }
             var group = groups.get(entry.group());
+            List<String> shownCategories = groupCategories(group.id(), rows).stream().filter(this::categoryShown).toList();
+            if (shownCategories.isEmpty()) continue;
+            anyCategory = true;
             result.add(new SidebarRow(group.id(), "", text(group.title()),
                     group.iconItem(), group.iconEntity(), 0, group.greenTint(), group.renderMobFromSpawnEgg()));
-            if (!groupCollapsed(group.id())) for (String category : groupCategories(group.id(), rows)) result.add(categorySidebarRow(category, 8));
+            if (!groupCollapsed(group.id())) for (String category : shownCategories) result.add(categorySidebarRow(category, 8));
         }
+        if (!anyCategory && sidebarFilter != 0) result.add(new SidebarRow(EMPTY_GROUP, "", tr("filter_empty"), "", "", 0, false, false));
         return result;
+    }
+
+    private boolean categoryShown(String category) {
+        if (sidebarFilter == 0) return true;
+        int[] count = viewCategoryCounts.getOrDefault(category, new int[3]);
+        if (sidebarFilter == 2) return count[2] > 0;
+        return count[0] == 0 || count[1] < count[0] || count[2] > 0;
+    }
+
+    private List<ComputerTasksClientState.TaskRow> readyTasks() {
+        ensureView();
+        return viewReadyRows;
+    }
+
+    private void openNextReady() {
+        List<ComputerTasksClientState.TaskRow> ready = readyTasks();
+        if (ready.isEmpty()) return;
+        int index = Math.floorMod(nextReadyIndex, ready.size());
+        nextReadyIndex = index + 1;
+        openSearchResult(ready.get(index));
     }
 
     private List<SidebarEntry> sidebarEntries(List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> rows) {
@@ -1552,6 +1765,17 @@ final class TasksApp extends ComputerApp {
         if (cached != null) return cached;
         Map<String, com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> byId = new HashMap<>();
         tasks.forEach(task -> byId.put(task.id(), task));
+        boolean storable = !tasks.isEmpty() && viewRowsByCategory.get(tasks.get(0).category()) == tasks;
+        List<LayoutInput> inputs = new ArrayList<>(tasks.size());
+        for (var task : tasks) inputs.add(new LayoutInput(task.id(), task.hasPosition(), task.x(), task.y(), task.appearance(), task.requires(), task.requiresAny()));
+        StoredLayout stored = storable ? layoutMemory.get(tasks.get(0).category()) : null;
+        if (stored != null && stored.inputs().equals(inputs)) {
+            List<Cell> restored = new ArrayList<>(stored.placements().size());
+            for (Placement placement : stored.placements()) restored.add(new Cell(byId.get(placement.id()), placement.column(), placement.row()));
+            List<Cell> restoredCells = List.copyOf(restored);
+            layoutCache.put(tasks, restoredCells);
+            return restoredCells;
+        }
         Map<String, Integer> depths = new HashMap<>();
         for (var task : tasks) depth(task, byId, depths, new HashSet<>());
         Map<Integer, Integer> rowsByColumn = new HashMap<>();
@@ -1576,7 +1800,12 @@ final class TasksApp extends ComputerApp {
             result.add(new Cell(task, column, row));
         }
         List<Cell> cells = List.copyOf(result);
-        if (tasks.isEmpty() || viewRowsByCategory.get(tasks.get(0).category()) == tasks) layoutCache.put(tasks, cells);
+        if (tasks.isEmpty() || storable) layoutCache.put(tasks, cells);
+        if (storable) {
+            List<Placement> placements = new ArrayList<>(cells.size());
+            for (Cell cell : cells) placements.add(new Placement(cell.task().id(), cell.column(), cell.row()));
+            layoutMemory.put(tasks.get(0).category(), new StoredLayout(inputs, placements));
+        }
         return cells;
     }
 
@@ -1788,21 +2017,83 @@ final class TasksApp extends ComputerApp {
 
     private record Occupied(int left, int top, int right, int bottom, Node owner) { }
 
+    private enum TaskStatus { LOCKED, ACTIVE, READY, DONE }
+
+    private static TaskStatus status(ComputerTasksClientState.TaskRow task) {
+        if (task.claimable()) return TaskStatus.READY;
+        if (task.complete()) return TaskStatus.DONE;
+        return task.available() ? TaskStatus.ACTIVE : TaskStatus.LOCKED;
+    }
+
+    private static int statusBorder(TaskStatus status) {
+        return switch (status) {
+            case READY -> Ui.TASK_READY;
+            case DONE, ACTIVE -> Ui.ACCENT;
+            case LOCKED -> Ui.LOCKED;
+        };
+    }
+
+    private static int statusFill(TaskStatus status) {
+        return switch (status) {
+            case READY -> Ui.mix(Ui.PANEL_ALT, Ui.TASK_READY, 0.18F);
+            case DONE -> Ui.TASK_DONE_FILL;
+            case ACTIVE -> Ui.PANEL_ALT;
+            case LOCKED -> Ui.DEEP;
+        };
+    }
+
+    private static int statusText(TaskStatus status) {
+        return switch (status) {
+            case READY -> Ui.TASK_READY;
+            case DONE -> Ui.TEXT;
+            case ACTIVE -> Ui.ACCENT;
+            case LOCKED -> Ui.TEXT_DIM;
+        };
+    }
+
+    private static float readyPulse() {
+        return (float) (Math.sin(System.currentTimeMillis() / 260.0D) * 0.5D + 0.5D);
+    }
+
+    private static void drawCheck(GuiGraphics g, int left, int top, int color) {
+        int[] rows = {2, 3, 4, 3, 2, 1, 0};
+        for (int i = 0; i < rows.length; i++) g.fill(left + i, top + rows[i], left + i + 1, top + rows[i] + 2, color);
+    }
+
+    private static void drawStatusSwatch(GuiGraphics g, int left, int top, TaskStatus status) {
+        g.fill(left, top, left + 9, top + 9, statusBorder(status));
+        g.fill(left + 1, top + 1, left + 8, top + 8, statusFill(status));
+        if (status == TaskStatus.DONE) drawCheck(g, left + 1, top + 2, Ui.ACCENT);
+        if (status == TaskStatus.READY) g.fill(left + 4, top + 2, left + 5, top + 7, Ui.TASK_READY);
+    }
+
     private void renderNode(GuiGraphics g, Node node) {
         var task = node.task();
         int nodeSize = node.right() - node.left();
-        int border = task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.LOCKED;
+        TaskStatus status = status(task);
+        int border = task.isLink() ? Ui.ACCENT : statusBorder(status);
+        int fill = task.isLink() ? Ui.PANEL_ALT : statusFill(status);
+        if (!task.isLink() && status == TaskStatus.READY) border = Ui.mix(Ui.TASK_READY, fill, readyPulse() * 0.55F);
         boolean pinned = ComputerTasksClientState.isPinned(task.id());
         boolean isHovered = mapPointerFree && node.contains(screen.session.mouseX, screen.session.mouseY);
         TaskShapeRenderer.draw(g, task.appearance().shape(), node.shapeLeft(), node.shapeTop(), node.shapeSize(),
-                task.available() ? Ui.PANEL_ALT : Ui.DEEP, border, task.available() ? Ui.ACCENT : Ui.TEXT_DIM, isHovered);
+                fill, border, status == TaskStatus.LOCKED ? Ui.TEXT_DIM : status == TaskStatus.READY ? Ui.TASK_READY : Ui.ACCENT, isHovered);
         renderIcon(g, task, node.centerX(), node.centerY(), node.iconSize());
-        String state = task.isLink() ? "OPEN >" : task.complete() ? "DONE" : task.available() ? task.done() + "/" + task.total() : "";
-        int stateColor = task.available() || task.complete() ? Ui.TEXT : Ui.TEXT_DIM;
+        String state = task.isLink() ? "OPEN >" : switch (status) {
+            case READY -> tr("node_claim");
+            case DONE -> tr("node_done");
+            case ACTIVE -> task.done() + "/" + task.total();
+            case LOCKED -> "";
+        };
+        int stateColor = task.isLink() ? Ui.TEXT : statusText(status);
         if (task.claimable()) {
             int[] badge = badgeBounds(node);
-            g.fill(badge[0], badge[1], badge[2], badge[3], Ui.TEXT);
-            g.drawCenteredString(font, Component.literal("!"), badge[0] + 5, badge[1] + 1, Ui.PANEL);
+            g.fill(badge[0], badge[1], badge[2], badge[3], Ui.TASK_READY);
+            g.drawCenteredString(font, Component.literal("!"), badge[0] + 5, badge[1] + 1, Ui.TASK_READY_INK);
+        } else if (!task.isLink() && status == TaskStatus.DONE) {
+            int[] badge = badgeBounds(node);
+            g.fill(badge[0], badge[1], badge[2], badge[3], Ui.ACCENT);
+            drawCheck(g, badge[0] + 2, badge[1] + 3, Ui.TASK_DONE_INK);
         }
         if (pinned) {
             int[] pin = pinMarkerBounds(node);
@@ -1811,7 +2102,7 @@ final class TasksApp extends ComputerApp {
             TaskTrackerHud.drawPin(g, pin[0] + 5, pin[1] + 2, Ui.ACCENT);
         }
         int labelTop = node.bottom() + 3;
-        if (task.available() || task.complete()) {
+        if (task.isLink() || status != TaskStatus.LOCKED) {
             int labelWidth = font.width(state);
             int labelLeft = node.left() + (nodeSize - labelWidth) / 2;
             if (!labelBlocked(node, labelLeft, labelTop, labelLeft + labelWidth, labelTop + font.lineHeight))
@@ -1827,8 +2118,14 @@ final class TasksApp extends ComputerApp {
         if (!mapPointerFree || !node.contains(screen.session.mouseX, screen.session.mouseY)) return;
         var task = node.task();
         int nodeSize = node.right() - node.left();
-        int border = task.complete() ? Ui.TEXT : task.available() ? Ui.ACCENT : Ui.TEXT_DIM;
-        String title = screen.trimToWidth(plain(task.title()) + (task.isLink() ? "  >" : ""), 120);
+        TaskStatus status = status(task);
+        int border = task.isLink() ? Ui.ACCENT : statusText(status);
+        String suffix = task.isLink() ? "  >" : switch (status) {
+            case READY -> "  // " + tr("status_ready");
+            case DONE -> "  // " + tr(task.claimed() ? "status_claimed" : "status_done");
+            case ACTIVE, LOCKED -> "";
+        };
+        String title = screen.trimToWidth(plain(task.title()), 120) + suffix;
         int titleWidth = font.width(title) + 8;
         int titleX = Math.max(mapLeft + 2, Math.min(node.left() + (nodeSize - titleWidth) / 2, mapRight - titleWidth - 2));
         int titleY = Math.max(mapTop + 2, node.top() - 15);
@@ -1895,7 +2192,13 @@ final class TasksApp extends ComputerApp {
     }
 
     private String tr(String key, Object... arguments) {
-        return Component.translatable("computer.antos.tasks." + key, arguments).getString();
+        if (arguments.length > 0) return Component.translatable("computer.antos.tasks." + key, arguments).getString();
+        Object language = net.minecraft.locale.Language.getInstance();
+        if (staticTranslationsLanguage != language) {
+            staticTranslationsLanguage = language;
+            staticTranslations.clear();
+        }
+        return staticTranslations.computeIfAbsent(key, id -> Component.translatable("computer.antos.tasks." + id).getString());
     }
 
     private void showNotice(String text) {
@@ -1916,6 +2219,12 @@ final class TasksApp extends ComputerApp {
                 if (summary.error().equals("busy")) showNotice(tr("busy"));
                 else if (!summary.failedIds().isEmpty()) showNotice(failedClaimNotice(summary.failedIds()));
                 else if (summary.claimed() == 0) showNotice(tr("claim_failed"));
+                if (summary.claimed() > 0 && summary.failedIds().isEmpty() && !claimBatchRemaining.isEmpty()) {
+                    claimBatchNumber++;
+                    sendNextClaimBatch();
+                } else if (claimBatchRemaining.isEmpty()) {
+                    claimBatchNumber = 0;
+                }
             }
         }
         if (claimPending && System.currentTimeMillis() - claimPendingSince >= CLAIM_TIMEOUT_MS) {
@@ -1969,10 +2278,28 @@ final class TasksApp extends ComputerApp {
 
     private List<ComputerTasksClientState.TaskRow> claimableTasks() {
         ensureView();
+        List<ComputerTasksClientState.TaskRow> scope = tasksInClaimScope();
+        if (claimableRows != null) return claimableRows;
         List<ComputerTasksClientState.TaskRow> result = new ArrayList<>();
-        for (String category : viewCategories) {
-            for (var row : rowsFor(category)) if (!row.isLink() && row.claimable()) result.add(row);
+        for (var row : scope) if (!row.isLink() && row.claimable()) result.add(row);
+        claimableRows = List.copyOf(result);
+        return claimableRows;
+    }
+
+    private List<ComputerTasksClientState.TaskRow> tasksInClaimScope() {
+        String query = searchText.trim().toLowerCase(Locale.ROOT);
+        if (claimScopeRows != null && query.equals(claimScopeQuery) && java.util.Objects.equals(selectedCategory, claimScopeCategory)) return claimScopeRows;
+        List<ComputerTasksClientState.TaskRow> result = new ArrayList<>();
+        for (var row : viewVisibleRows) {
+            if (!selectedCategory.isBlank() && !selectedCategory.equals(row.category())) continue;
+            if (!query.isEmpty() && !plain(row.title()).toLowerCase(Locale.ROOT).contains(query)
+                    && !plain(row.description()).toLowerCase(Locale.ROOT).contains(query)) continue;
+            result.add(row);
         }
+        claimScopeRows = result;
+        claimScopeCategory = selectedCategory;
+        claimScopeQuery = query;
+        claimableRows = null;
         return result;
     }
 
@@ -1995,6 +2322,8 @@ final class TasksApp extends ComputerApp {
         if (claimPending) return;
         List<ComputerTasksClientState.TaskRow> claimable = claimableTasks();
         if (claimable.isEmpty()) return;
+        claimBatchRemaining.clear();
+        claimBatchNumber = 0;
         List<String> choices = new ArrayList<>();
         List<String> ready = new ArrayList<>();
         for (var task : claimable) (needsChoice(task) ? choices : ready).add(task.id());
@@ -2009,9 +2338,16 @@ final class TasksApp extends ComputerApp {
     }
 
     private void sendClaim(List<String> taskIds) {
+        claimBatchRemaining.clear();
+        claimBatchRemaining.addAll(taskIds);
+        claimBatchNumber = 1;
+        sendNextClaimBatch();
+    }
+
+    private void sendNextClaimBatch() {
         Map<ResourceLocation, Map<Integer, String>> requests = new LinkedHashMap<>();
-        for (String taskId : taskIds) {
-            if (requests.size() >= ComputerTasks.MAX_CLAIM_ALL) break;
+        while (!claimBatchRemaining.isEmpty() && requests.size() < ComputerTasks.MAX_CLAIM_ALL) {
+            String taskId = claimBatchRemaining.remove(0);
             ResourceLocation id = ResourceLocation.tryParse(taskId);
             if (id != null) requests.put(id, Map.copyOf(poolSelections.getOrDefault(taskId, Map.of())));
         }
@@ -2021,7 +2357,8 @@ final class TasksApp extends ComputerApp {
         claimPending = true;
         claimPendingSince = System.currentTimeMillis();
         shownSummary = null;
-        showNotice(tr("claiming", requests.size()));
+        showNotice(claimBatchRemaining.isEmpty() ? tr("claiming", requests.size())
+                : "CLAIM BATCH " + claimBatchNumber + " // " + claimBatchRemaining.size() + " TASKS AFTER THIS");
     }
 
     private static final class ClaimPicker {
@@ -2399,6 +2736,10 @@ final class TasksApp extends ComputerApp {
         int contentY = y + 28;
         int contentW = w - 16;
         int contentH = h - 34;
+        if (button == 3 && claimPicker == null && !selectedTaskId.isBlank()) {
+            backToMap();
+            return true;
+        }
         if (button != 0) return true;
         if (claimPicker != null) {
             clickClaimPicker(mouseX, mouseY);
@@ -2514,6 +2855,12 @@ final class TasksApp extends ComputerApp {
                 AntOSSettings.updatePreferences(p -> p.taskSidebarBehavior = sidebarPinned() ? "click" : "always");
                 return true;
             }
+            if (sidebarFilterBounds[2] > 0 && screen.inside(sidebarFilterBounds[0], sidebarFilterBounds[1], sidebarFilterBounds[2], sidebarFilterBounds[3], mouseX, mouseY)) {
+                sidebarFilter = (sidebarFilter + 1) % SIDEBAR_FILTERS.length;
+                categoryScroll = 0;
+                viewDirty = true;
+                return true;
+            }
             int categoryOffset = (int) mouseY - (bodyY + 22);
             int visibleCategories = sidebarVisibleRows(bodyHeight);
             int visibleIndex = categoryOffset / sidebarRowHeight();
@@ -2531,6 +2878,7 @@ final class TasksApp extends ComputerApp {
                     }
                     return true;
                 }
+                if (sidebarRow.group().equals(EMPTY_GROUP)) return true;
                 if (sidebarRow.category().isBlank()) {
                     AntOSSettings.setTaskGroupCollapsed(sidebarRow.group(), !groupCollapsed(sidebarRow.group()));
                     viewDirty = true;
@@ -2555,8 +2903,21 @@ final class TasksApp extends ComputerApp {
             return true;
         }
         if (!selectedTaskId.isBlank()) {
-            if (screen.inside(contentX + contentOffset - 2, bodyY, 105, 16, mouseX, mouseY)) {
-                selectedTaskId = ""; recipeItem = ""; detailScroll = 0; detailMaximumScroll = 0; archiveButtons.clear();
+            if (backBounds[2] > 0 && screen.inside(backBounds[0], backBounds[1], backBounds[2], backBounds[3], mouseX, mouseY)
+                    || crumbCategoryBounds[2] > 0 && screen.inside(crumbCategoryBounds[0], crumbCategoryBounds[1], crumbCategoryBounds[2], crumbCategoryBounds[3], mouseX, mouseY)) {
+                backToMap();
+                return true;
+            }
+            if (crumbGroupBounds[2] > 0 && screen.inside(crumbGroupBounds[0], crumbGroupBounds[1], crumbGroupBounds[2], crumbGroupBounds[3], mouseX, mouseY)) {
+                var current = viewRowsById.get(selectedTaskId);
+                String group = current == null ? "" : categoryGroup(current.category());
+                backToMap();
+                if (!group.isBlank() && groupCollapsed(group)) {
+                    AntOSSettings.setTaskGroupCollapsed(group, false);
+                    viewDirty = true;
+                }
+                sidebarClickOpen = true;
+                sidebarHoverDismissed = false;
                 return true;
             }
             for (ItemButton itemButton : itemButtons) {
@@ -2621,6 +2982,10 @@ final class TasksApp extends ComputerApp {
                 startClaimAll();
                 return true;
             }
+            if (nextReadyBounds[2] > 0 && screen.inside(nextReadyBounds[0], nextReadyBounds[1], nextReadyBounds[2], nextReadyBounds[3], mouseX, mouseY)) {
+                openNextReady();
+                return true;
+            }
             if (screen.inside(searchLeft, bodyY + 1, searchControlWidth, CHROME_BUTTON_HEIGHT, mouseX, mouseY)) {
                 if (searchFocused && mouseX >= mapX + mapW - 14) {
                     searchText = "";
@@ -2672,6 +3037,10 @@ final class TasksApp extends ComputerApp {
                 centerMapOn(categoryRowsForSelected(), mapX, mapY, mapW, mapH, "");
                 return true;
             }
+            if (screen.inside(controls.fullX(), controlY, controls.fullWidth(), CHROME_BUTTON_HEIGHT, mouseX, mouseY)) {
+                toggleFullView(window);
+                return true;
+            }
             if (controlsOpen) controlsOpen = false;
             if (searchFocused) searchFocused = false;
             int[] clip = mapClip(contentX, bodyY, contentW, bodyHeight, sidebarWidth);
@@ -2718,7 +3087,7 @@ final class TasksApp extends ComputerApp {
             return true;
         }
         float scale = screen.uiScale();
-        double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
+        double localX = (mouseX - screen.centerX) / scale, localY = (mouseY - screen.centerY) / scale;
         int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
         int sidebarX = windowX + 8, sidebarY = windowY + 28, contentHeight = screen.windowHeight(window) - 34;
         int contentWidth = screen.windowWidth(window) - 16;
@@ -2788,6 +3157,11 @@ final class TasksApp extends ComputerApp {
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) confirmJump();
             else if (keyCode == GLFW.GLFW_KEY_ESCAPE) pendingJumpTaskId = "";
             return keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER || keyCode == GLFW.GLFW_KEY_ESCAPE;
+        }
+        if (!teamInviteFocused && !searchFocused && !selectedTaskId.isBlank()
+                && (keyCode == GLFW.GLFW_KEY_ESCAPE || keyCode == GLFW.GLFW_KEY_BACKSPACE)) {
+            backToMap();
+            return true;
         }
         if (!teamInviteFocused) {
             if (searchFocused) {

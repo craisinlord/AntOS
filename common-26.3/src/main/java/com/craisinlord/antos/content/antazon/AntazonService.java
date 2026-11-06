@@ -435,8 +435,9 @@ public final class AntazonService {
                     row.limit(), row.limitReset(), remaining, row.acceptedCount(), row.returnedCount(), row.overLimit(), row.locked(), row.unlockMode(), row.unlockTasks(), row.unlockDisks(), row.unlockCommands()));
         }
         long total = entries.values().stream().mapToLong(ManifestEntry::value).sum();
-        String status = !hasItems ? "crate_empty" : unsupported ? "unsupported_items" : locked ? "task_locked"
-                : total < 1L ? partial ? "sell_limit_reached" : "crate_empty" : partial ? "partial_shipment" : "";
+        String status = !hasItems ? "crate_empty" : total < 1L
+                ? unsupported ? "unsupported_items" : locked ? "task_locked" : partial ? "sell_limit_reached" : "crate_empty"
+                : excessTotal > 0 ? "partial_shipment" : "";
         Manifest manifest = new Manifest(List.copyOf(entries.values()), total, status, acceptedTotal, excessTotal);
         return new ShipmentPlan(manifest, List.copyOf(acceptedContents), List.copyOf(excessContents), Map.copyOf(soldByLimit));
     }

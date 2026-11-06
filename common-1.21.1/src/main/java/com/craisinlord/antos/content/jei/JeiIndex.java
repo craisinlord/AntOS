@@ -88,7 +88,7 @@ public final class JeiIndex {
         ComputerWorkspaceData.AccountInfo account = session != null ? session : data.faceIdAccount(player.getUUID());
         UUID accountId = account == null ? null : account.accountId();
         ComputerTaskProgress progress = accountId == null ? new ComputerTaskProgress()
-                : data.effectiveProgress(accountId, data.progress(account.workspaceId()));
+                : data.effectiveProgress(accountId, data.savedProgress(account.workspaceId()));
         DiskProfileState diskState = accountId == null || data.account(accountId) == null ? null : data.diskState(accountId);
         Predicate<ResourceLocation> taskDone = progress::isComplete;
         Predicate<ResourceLocation> diskDone = disk -> diskState != null && diskState.activated(disk);
@@ -121,7 +121,10 @@ public final class JeiIndex {
                 row.addProperty("label", deal.campaign().label());
                 row.addProperty("discount", deal.discountPercent());
                 row.addProperty("remaining", remaining);
-                row.addProperty("ends_in_ms", deal.campaign().endsInMillis(gameTime, System.currentTimeMillis()));
+                long now = System.currentTimeMillis();
+                long endsIn = deal.campaign().endsInMillis(gameTime, now);
+                row.addProperty("ends_in_ms", endsIn);
+                row.addProperty("ends_bucket", (now + endsIn) / 60000L);
                 JsonArray prices = new JsonArray();
                 for (AntazonData.Payment payment : product.payments()) prices.add(AntazonService.unitPrice(payment, deal));
                 row.add("prices", prices);

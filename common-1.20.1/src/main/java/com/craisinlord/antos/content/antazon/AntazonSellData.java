@@ -20,6 +20,9 @@ public final class AntazonSellData extends SimplePreparableReloadListener<List<A
     private static final AntazonSellData INSTANCE = new AntazonSellData();
     private static volatile List<Source> sources = List.of();
     private static volatile Map<ResourceLocation, Rule> rules;
+    private static volatile SortedRules sortedRules;
+
+    private record SortedRules(Map<ResourceLocation, Rule> source, List<Rule> rules) { }
 
     private AntazonSellData() { }
 
@@ -33,7 +36,14 @@ public final class AntazonSellData extends SimplePreparableReloadListener<List<A
 
     public static Map<ResourceLocation, Rule> snapshot() { return resolved(); }
 
-    public static List<Rule> rules() { return resolved().values().stream().sorted(Comparator.comparing(value -> value.item().toString())).toList(); }
+    public static List<Rule> rules() {
+        Map<ResourceLocation, Rule> current = resolved();
+        SortedRules cached = sortedRules;
+        if (cached != null && cached.source() == current) return cached.rules();
+        List<Rule> sorted = current.values().stream().sorted(Comparator.comparing(value -> value.item().toString())).toList();
+        sortedRules = new SortedRules(current, sorted);
+        return sorted;
+    }
 
     private static Map<ResourceLocation, Rule> resolved() {
         Map<ResourceLocation, Rule> current = rules;

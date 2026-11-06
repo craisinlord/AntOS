@@ -39,7 +39,7 @@ public final class ComputerProgramData {
                 int correct = question.get("correct").getAsInt();
                 if (answers.size() < 2 || correct < 0 || correct >= answers.size()) throw new IllegalArgumentException("Invalid quiz answers");
                 questions.add(new Question(text(question, "question", "", 2048), answers, correct, asset(question, "item"), asset(question, "entity"),
-                        question.has("green_tint") ? question.get("green_tint").getAsBoolean() : greenTint));
+                        question.has("green_tint") ? question.get("green_tint").getAsBoolean() : greenTint, text(question, "explanation", "", 2048)));
             }
             if (questions.isEmpty()) throw new IllegalArgumentException("A quiz needs questions");
             int perRun = object.has("questions_per_run") ? object.get("questions_per_run").getAsInt() : questions.size();
@@ -111,7 +111,7 @@ public final class ComputerProgramData {
 
     public record Program(Identifier id, String type, String title, int questionsPerRun, List<Question> questions,
                           String rewardOn, List<ComputerGuideData.TaskReward> rewards, String start, Map<String, Node> nodes, boolean rewardOnce) { }
-    public record Question(String text, List<String> answers, int correct, String item, String entity, boolean greenTint) { }
+    public record Question(String text, List<String> answers, int correct, String item, String entity, boolean greenTint, String explanation) { }
     public record Choice(String text, String destination, String requiresFlag, String requiresNoFlag) { }
     public record Node(String text, List<Choice> choices, List<String> setFlags, List<String> clearFlags, String ending,
                        List<ComputerGuideData.TaskReward> rewards, String password) { }

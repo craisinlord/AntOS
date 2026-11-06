@@ -3,6 +3,7 @@ package com.craisinlord.antos.content.client.game;
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.palette.Ui;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import com.craisinlord.antos.content.client.ThemedGraphics;
@@ -129,25 +130,25 @@ public final class FliptrisProgram implements ComputerGame.Session {
 
     @Override
     public boolean keyPressed(int keyCode) {
-        if (keyCode == 82) { reset(); return true; }
-        if (keyCode == 80) { if (!gameOver) paused = !paused; return true; }
-        boolean confirm = keyCode == 32 || keyCode == 257 || keyCode == 335;
+        if (keyCode == InputConstants.KEY_R) { reset(); return true; }
+        if (keyCode == InputConstants.KEY_P) { if (!gameOver) paused = !paused; return true; }
+        boolean confirm = keyCode == InputConstants.KEY_SPACE || keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER;
         if (gameOver) {
             if (confirm && overTicks >= RESTART_DELAY) reset();
             return confirm;
         }
         if (paused) return false;
-        if (keyCode == 263 || keyCode == 65) return move(-1);
-        if (keyCode == 262 || keyCode == 68) return move(1);
-        if (keyCode == 265 || keyCode == 87) { softDrop(); return true; }
-        if (keyCode == 88 || keyCode == 264 || keyCode == 83 || keyCode == 90) { rotate(keyCode == 90 ? -1 : 1); return true; }
+        if (keyCode == InputConstants.KEY_LEFT || keyCode == InputConstants.KEY_A) return move(-1);
+        if (keyCode == InputConstants.KEY_RIGHT || keyCode == InputConstants.KEY_D) return move(1);
+        if (keyCode == InputConstants.KEY_UP || keyCode == InputConstants.KEY_W) { softDrop(); return true; }
+        if (keyCode == InputConstants.KEY_X || keyCode == InputConstants.KEY_DOWN || keyCode == InputConstants.KEY_S || keyCode == InputConstants.KEY_Z) { rotate(keyCode == InputConstants.KEY_Z ? -1 : 1); return true; }
         if (confirm) { hardDrop(); return true; }
         return false;
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return false;
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return false;
         if (gameOver && overTicks >= RESTART_DELAY) { reset(); return true; }
         if (paused) { paused = false; return true; }
         return false;

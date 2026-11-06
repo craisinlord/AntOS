@@ -535,6 +535,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             object.addProperty("id", category.id().toString());
             object.addProperty("title", category.titleKey());
             object.addProperty("texture", category.texture().toString());
+            object.addProperty("color", String.format(java.util.Locale.ROOT, "#%06X", category.color()));
             categoryArray.add(object);
         });
         root.add("categories", categoryArray);
@@ -1147,6 +1148,17 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 parseRewards(id, object.get("rewards"), false), DiskFeatures.parse(object)));
     }
 
+    private static int categoryColor(Identifier id, JsonObject object) {
+        String value = string(object, "color", "");
+        if (value.isBlank()) return 0xAAAAAA;
+        try {
+            return Integer.parseInt(value.startsWith("#") ? value.substring(1) : value, 16) & 0xFFFFFF;
+        } catch (NumberFormatException exception) {
+            AntOS.LOGGER.error("Invalid color for floppy disk category {}", id, exception);
+            return 0xAAAAAA;
+        }
+    }
+
     private static void parseCategory(Identifier id, JsonElement element, Map<Identifier, DiskCategory> target) {
         if (!element.isJsonObject()) return;
         if (id.toString().length() > 256) {
@@ -1162,7 +1174,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             AntOS.LOGGER.error("Invalid texture for floppy disk category {}", id, exception);
             texture = Identifier.fromNamespaceAndPath("antos", "item/floppy_disk/floppy_disk");
         }
-        target.put(id, new DiskCategory(id, title, texture));
+        target.put(id, new DiskCategory(id, title, texture, categoryColor(id, object)));
     }
 
     private static Identifier parseCategoryId(String value, String fallbackNamespace) {
@@ -1771,7 +1783,7 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         }
     }
 
-    public record DiskCategory(Identifier id, String titleKey, Identifier texture) { }
+    public record DiskCategory(Identifier id, String titleKey, Identifier texture, int color) { }
 
     public record Wallpaper(Identifier id, String titleKey, String textureId, String fit) {
     }

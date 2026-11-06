@@ -34,6 +34,19 @@ public final class DesktopViewportTest {
         }
         check(DesktopIconLayout.at(854, 480, 0, true).scale() > 1.5F, "Full-screen app icons grow to use the extra area");
         check(DesktopIconLayout.at(1920, 1080, 0, false).equals(new DesktopIconLayout(28, 48, 1)), "Windowed app icons preserve their existing size and position");
+        DesktopViewport framed = DesktopViewport.fit(1920, 1080, 1, false, new float[]{100, 50, 1200, 800});
+        check(framed.width() == 1200 && framed.height() == 800 && framed.scale() == 1, "A larger frame adds desktop area at the chosen text size");
+        check(framed.centerX() == 700 && framed.centerY() == 450, "The frame keeps its chosen position");
+        DesktopViewport bigText = DesktopViewport.fit(1920, 1080, 1.5F, false, new float[]{100, 50, 1200, 800});
+        check(bigText.width() == 800 && bigText.scale() == 1.5F, "Larger text uses fewer desktop units in the same frame");
+        DesktopViewport cramped = DesktopViewport.fit(1920, 1080, 1.5F, false, new float[]{0, 0, 300, 200});
+        check(cramped.width() >= 440 && cramped.height() >= 286, "Small frames never shrink the desktop below its base size");
+        check(cramped.width() * cramped.scale() <= 300.5F, "Small frames scale down to fit");
+        float[] clamped = DesktopViewport.clampFrame(new float[]{1800, -40, 50, 5000}, 1920, 1080);
+        check(clamped[2] >= DesktopViewport.MIN_FRAME_WIDTH && clamped[3] <= 1080 - 2 * DesktopViewport.FRAME_MARGIN, "Frames respect minimum and screen sizes");
+        check(clamped[0] + clamped[2] <= 1920 - DesktopViewport.FRAME_MARGIN && clamped[1] >= DesktopViewport.FRAME_MARGIN, "Frames stay on screen");
+        DesktopViewport fullOverride = DesktopViewport.fit(1920, 1080, 1, true, new float[]{100, 50, 600, 400});
+        check(fullOverride.width() == 1920 && fullOverride.centerX() == 960, "Full-screen ignores a saved frame");
         System.out.println("Desktop viewport checks passed");
     }
 

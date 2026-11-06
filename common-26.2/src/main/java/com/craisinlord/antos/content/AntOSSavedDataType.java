@@ -1,6 +1,7 @@
 package com.craisinlord.antos.content;
 
 import com.mojang.serialization.Codec;
+import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -10,6 +11,8 @@ import java.nio.file.StandardCopyOption;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.Identifier;
@@ -19,11 +22,29 @@ import net.minecraft.world.level.saveddata.SavedDataType;
 public final class AntOSSavedDataType {
     private AntOSSavedDataType() {}
 
+    static Path dataFolder(Path worldRoot) {
+        return DimensionType.getStorageFolder(Level.OVERWORLD, worldRoot).resolve("data").normalize();
+    }
+
+    private static List<Path> legacyFolders(Path worldRoot) {
+        return List.of(worldRoot.resolve("data").normalize(), dataFolder(worldRoot));
+    }
+
     public static void migrateLegacyFile(MinecraftServer server, String id) {
-        Path dataFolder = server.getWorldPath(LevelResource.DATA);
-        Path legacy = dataFolder.resolve(id + ".dat");
-        Path current = dataFolder.resolve("antos").resolve(id + ".dat");
-        if (!Files.exists(legacy) || Files.exists(current)) return;
+        migrateLegacyFile(server.getWorldPath(LevelResource.ROOT), id);
+    }
+
+    static void migrateLegacyFile(Path worldRoot, String id) {
+        Path current = dataFolder(worldRoot).resolve("antos").resolve(id + ".dat");
+        if (Files.exists(current)) return;
+        Path legacy = null;
+        for (Path folder : legacyFolders(worldRoot)) {
+            if (Files.exists(folder.resolve(id + ".dat"))) {
+                legacy = folder.resolve(id + ".dat");
+                break;
+            }
+        }
+        if (legacy == null) return;
         Path temp = current.resolveSibling(current.getFileName() + ".migrating");
         try {
             Files.createDirectories(current.getParent());
@@ -44,7 +65,7 @@ public final class AntOSSavedDataType {
     }
 
     public static boolean isWritten(MinecraftServer server, String id, CompoundTag expected) {
-        Path file = Identifier.fromNamespaceAndPath("antos", id).withSuffix(".dat").resolveAgainst(server.getWorldPath(LevelResource.DATA));
+        Path file = Identifier.fromNamespaceAndPath("antos", id).withSuffix(".dat").resolveAgainst(dataFolder(server.getWorldPath(LevelResource.ROOT)));
         if (!Files.isRegularFile(file)) return false;
         try {
             return NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap()).getCompound("data").filter(expected::equals).isPresent();
@@ -54,11 +75,17 @@ public final class AntOSSavedDataType {
     }
 
     public static void migrateLegacyPrefix(MinecraftServer server, String prefix) {
-        Path dataFolder = server.getWorldPath(LevelResource.DATA);
-        try (var files = Files.newDirectoryStream(dataFolder, prefix + "*.dat")) {
-            for (Path file : files) migrateLegacyFile(server, file.getFileName().toString().replaceFirst("\\.dat$", ""));
-        } catch (java.io.IOException exception) {
-            com.craisinlord.antos.AntOS.LOGGER.warn("Could not migrate AntOS saved data files with prefix {}", prefix, exception);
+        migrateLegacyPrefix(server.getWorldPath(LevelResource.ROOT), prefix);
+    }
+
+    static void migrateLegacyPrefix(Path worldRoot, String prefix) {
+        for (Path folder : legacyFolders(worldRoot)) {
+            if (!Files.isDirectory(folder)) continue;
+            try (var files = Files.newDirectoryStream(folder, prefix + "*.dat")) {
+                for (Path file : files) migrateLegacyFile(worldRoot, file.getFileName().toString().replaceFirst("\\.dat$", ""));
+            } catch (java.io.IOException exception) {
+                com.craisinlord.antos.AntOS.LOGGER.warn("Could not migrate AntOS saved data files with prefix {}", prefix, exception);
+            }
         }
     }
     public static <T extends SavedData> SavedDataType<T> create(String id, Supplier<T> factory,

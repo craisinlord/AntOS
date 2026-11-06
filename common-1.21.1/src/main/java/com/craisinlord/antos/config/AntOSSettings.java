@@ -33,7 +33,7 @@ public final class AntOSSettings {
     private static final String LEGACY_MAIL_KEY = "antazonUnlockEmailsSent";
     private static final Set<String> MAP_SECTIONS = Set.of("builtInGames", "gameRewards");
     private static final String DEFAULT_PREFERENCES_PATH = "client.defaultPreferences";
-    private static final List<String> LEGACY_PREFERENCES = List.of("uiSize", "screenPalette", "softText");
+    private static final List<String> LEGACY_PREFERENCES = List.of("uiSize", "screenPalette", "softText", "keepOpenWhilePlaying");
     private static volatile PackConfig pack = new PackConfig().withDefaults();
     private static volatile SharedSettings synced;
     private static ClientState state = new ClientState().withDefaults();
@@ -834,6 +834,10 @@ public final class AntOSSettings {
         public boolean lookChosen;
         public boolean pauseWhileOpen;
         public boolean fullscreenDesktop;
+        public double frameLeft;
+        public double frameTop;
+        public double frameWidth;
+        public double frameHeight;
         public boolean quietNotifications;
         public boolean interfaceSounds = true;
         public int interfaceVolume = 60;
@@ -877,6 +881,10 @@ public final class AntOSSettings {
             copy.lookChosen = lookChosen;
             copy.pauseWhileOpen = pauseWhileOpen;
             copy.fullscreenDesktop = fullscreenDesktop;
+            copy.frameLeft = frameLeft;
+            copy.frameTop = frameTop;
+            copy.frameWidth = frameWidth;
+            copy.frameHeight = frameHeight;
             copy.quietNotifications = quietNotifications;
             copy.interfaceSounds = interfaceSounds;
             copy.interfaceVolume = interfaceVolume;
@@ -920,6 +928,15 @@ public final class AntOSSettings {
             if (customColors == null) customColors = "";
             uiScalePercent = uiScalePercent == null ? legacyUiScale(uiSize) : normalizeUiScale(uiScalePercent);
             uiSize = null;
+            if (!(frameWidth > 0 && frameHeight > 0 && frameWidth <= 1 && frameHeight <= 1)) {
+                frameLeft = 0;
+                frameTop = 0;
+                frameWidth = 0;
+                frameHeight = 0;
+            } else {
+                frameLeft = Math.max(0, Math.min(1 - frameWidth, frameLeft));
+                frameTop = Math.max(0, Math.min(1 - frameHeight, frameTop));
+            }
             if (mailAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(mailAlerts)) mailAlerts = "toast";
             if (taskAlerts == null || !List.of("toast", "actionbar", "both", "off").contains(taskAlerts)) taskAlerts = "actionbar";
             if (taskMapZoom == null || !TASK_MAP_ZOOMS.contains(taskMapZoom)) taskMapZoom = "75";

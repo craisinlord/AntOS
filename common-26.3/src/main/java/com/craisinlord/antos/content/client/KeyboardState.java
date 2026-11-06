@@ -4,7 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
 
 public final class KeyboardState {
-    public static final int NUMPAD_SUBTRACT = 333;
+    public static final int NUMPAD_SUBTRACT = 86;
     private KeyboardState() {}
 
     public static boolean isDown(int key) {

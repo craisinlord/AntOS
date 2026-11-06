@@ -16,6 +16,8 @@ public final class ComputerProgramRun {
     private final Set<String> flags = new HashSet<>();
     private int question;
     private int score;
+    private boolean reviewing;
+    private boolean lastCorrect;
     private int sequence;
     private String node;
     private boolean aborted;
@@ -44,10 +46,19 @@ public final class ComputerProgramRun {
     public boolean choose(int choice, int expectedSequence) {
         if (expectedSequence != sequence || finished() || choice < 0) return false;
         if (program.type().equals("quiz")) {
-            List<Answer> answers = questions.get(question).answers();
-            if (choice >= answers.size()) return false;
-            if (answers.get(choice).correct()) score++;
-            question++;
+            if (reviewing) {
+                if (choice != 0) return false;
+                reviewing = false;
+                question++;
+            } else {
+                QuizQuestion current = questions.get(question);
+                List<Answer> answers = current.answers();
+                if (choice >= answers.size()) return false;
+                lastCorrect = answers.get(choice).correct();
+                if (lastCorrect) score++;
+                if (current.definition().explanation().isBlank()) question++;
+                else reviewing = true;
+            }
         } else {
             List<ComputerProgramData.Choice> choices = choices();
             if (choice >= choices.size()) return false;
@@ -82,7 +93,16 @@ public final class ComputerProgramRun {
             state.addProperty("total", questions.size());
             state.addProperty("question_number", Math.min(question + 1, questions.size()));
             if (finished()) state.addProperty("score", score);
-            else {
+            else if (reviewing) {
+                var current = questions.get(question);
+                state.addProperty("status", lastCorrect ? "quiz_correct" : "quiz_incorrect");
+                state.addProperty("text", current.definition().explanation());
+                state.addProperty("answer", current.definition().answers().get(current.definition().correct()));
+                state.addProperty("item", current.definition().item());
+                state.addProperty("entity", current.definition().entity());
+                state.addProperty("green_tint", current.definition().greenTint());
+                choices.add("computer.antos.programs.continue");
+            } else {
                 var current = questions.get(question);
                 state.addProperty("text", current.definition().text());
                 state.addProperty("item", current.definition().item());

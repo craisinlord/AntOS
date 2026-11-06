@@ -147,6 +147,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     void render(ThemedGraphics g, int x, int y, int w, int h) {
+        pruneUndoActions();
         var result = AntmailClientState.getMailbox();
         AntmailAnternetResultPayload lastResponse = AntmailClientState.get();
         int navWidth = w;
@@ -636,7 +637,7 @@ final class AntmailApp extends ComputerApp {
                 g.drawString(font, Component.literal("TRASH"), menuX + 6, y + 43, Ui.TEXT, false);
                 g.drawString(font, Component.literal("MY PROFILE"), menuX + 6, y + 61, Ui.TEXT, false);
             }
-            if (state.undoId != null && System.currentTimeMillis() < state.undoUntil
+            if (!state.undoActions.isEmpty() && System.currentTimeMillis() < state.undoActions.peekLast().until()
                     && !state.mode.equals("compose") && !state.mode.equals("message")) {
                 screen.beginLayer(g);
                 drawAction(g, x, y + h - 34, 48, "UNDO", Ui.ACCENT);
@@ -1027,24 +1028,24 @@ final class AntmailApp extends ComputerApp {
                 requestState(true);
             }
             return true;
-        } else if (state.undoId != null && System.currentTimeMillis() < state.undoUntil
+        } else if (!state.undoActions.isEmpty() && System.currentTimeMillis() < state.undoActions.peekLast().until()
                 && !state.mode.equals("message")
                 && screen.inside(contentX, contentY + contentH - 34, 48, 18, mouseX, mouseY)) {
-            if (state.undoAction.equals("MOVE_TO_TRASH")) {
-                AntmailNetworking.restoreFromTrash(state.undoId,
-                        state.undoFolder == com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
+            UndoAction undo = state.undoActions.removeLast();
+            if (undo.action().equals("MOVE_TO_TRASH")) {
+                AntmailNetworking.restoreFromTrash(undo.id(),
+                        undo.folder() == com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
                                 ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
-                                : state.undoFolder == com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
+                                : undo.folder() == com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
                                 ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
                                 : com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
-            } else if (state.undoAction.equals("ARCHIVE")) {
-                AntmailNetworking.restoreFromArchive(state.undoId, state.undoFolder);
-            } else if (state.undoAction.equals("RESTORE_ARCHIVE")) {
-                AntmailNetworking.archive(state.undoId, false);
-            } else if (state.undoAction.equals("RESTORE_TRASH")) {
-                AntmailNetworking.moveToTrash(state.undoId, com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
+            } else if (undo.action().equals("ARCHIVE")) {
+                AntmailNetworking.restoreFromArchive(undo.id(), undo.folder());
+            } else if (undo.action().equals("RESTORE_ARCHIVE")) {
+                AntmailNetworking.archive(undo.id(), false);
+            } else if (undo.action().equals("RESTORE_TRASH")) {
+                AntmailNetworking.moveToTrash(undo.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
             }
-            state.undoId = null;
             setStatus("ACTION UNDONE");
             returnToOrigin();
             requestState(true);
@@ -1232,24 +1233,19 @@ final class AntmailApp extends ComputerApp {
                 if (message != null) {
                     if (state.originMode.equals("archive")) {
                         AntmailNetworking.restoreFromArchive(message.id());
-                        state.undoAction = "RESTORE_ARCHIVE";
+                    pushUndo(message.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE, "RESTORE_ARCHIVE");
                         setStatus("MOVED TO INBOX");
                     } else if (state.originMode.equals("trash")) {
                         AntmailNetworking.restoreFromTrash(message.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
-                        state.undoAction = "RESTORE_TRASH";
+                        pushUndo(message.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.TRASH, "RESTORE_TRASH");
                         setStatus("RESTORED TO INBOX");
                     } else {
                         AntmailNetworking.archive(message.id(), state.sent);
-                        state.undoAction = "ARCHIVE";
+                        pushUndo(message.id(), state.originMode.equals("sent")
+                                ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
+                                : com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX, "ARCHIVE");
                         setStatus("ARCHIVED");
                     }
-                    state.undoId = message.id();
-                    state.undoFolder = state.originMode.equals("sent")
-                            ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
-                            : state.originMode.equals("archive")
-                            ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
-                            : com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX;
-                    state.undoUntil = System.currentTimeMillis() + 6000L;
                 }
                 returnToOrigin();
                 requestState(true);
@@ -1272,10 +1268,7 @@ final class AntmailApp extends ComputerApp {
                     }
                 } else {
                     AntmailNetworking.moveToTrash(message.id(), folderCode(state.originMode));
-                    state.undoId = message.id();
-                    state.undoFolder = folderCode(state.originMode);
-                    state.undoAction = "MOVE_TO_TRASH";
-                    state.undoUntil = System.currentTimeMillis() + 6000L;
+                    pushUndo(message.id(), folderCode(state.originMode), "MOVE_TO_TRASH");
                     setStatus("MOVED TO TRASH // UNDO AVAILABLE");
                     returnToOrigin();
                     requestState(true);
@@ -1424,7 +1417,7 @@ final class AntmailApp extends ComputerApp {
     boolean scroll(Window window, double mouseX, double mouseY, double scrollY) {
         if (state.mode.equals("compose")) {
             float scale = screen.uiScale();
-            double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
+            double localX = (mouseX - screen.centerX) / scale, localY = (mouseY - screen.centerY) / scale;
             int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
             int contentX = windowX + 8, contentY = windowY + 28, contentH = screen.windowHeight(window) - 34;
             int contentW = screen.windowWidth(window) - 16;
@@ -1435,7 +1428,7 @@ final class AntmailApp extends ComputerApp {
             }
         } else if (state.mode.equals("message")) {
             float scale = screen.uiScale();
-            double localX = (mouseX - screen.width / 2.0F) / scale, localY = (mouseY - screen.height / 2.0F) / scale;
+            double localX = (mouseX - screen.centerX) / scale, localY = (mouseY - screen.centerY) / scale;
             int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
             int contentX = windowX + 8, contentY = windowY + 28, contentW = screen.windowWidth(window) - 16;
             AntmailMessage message = selectedMessage(AntmailClientState.getMailbox());
@@ -1526,10 +1519,7 @@ final class AntmailApp extends ComputerApp {
                 if (current != null && keyCode == InputConstants.KEY_E && !state.originMode.equals("trash")) {
                     if (state.originMode.equals("archive")) AntmailNetworking.restoreFromArchive(current.id());
                     else AntmailNetworking.archive(current.id(), state.sent);
-                    state.undoId = current.id();
-                    state.undoFolder = folderCode(state.originMode);
-                    state.undoAction = state.originMode.equals("archive") ? "RESTORE_ARCHIVE" : "ARCHIVE";
-                    state.undoUntil = System.currentTimeMillis() + 6000L;
+                    pushUndo(current.id(), folderCode(state.originMode), state.originMode.equals("archive") ? "RESTORE_ARCHIVE" : "ARCHIVE");
                     setStatus("ARCHIVED // UNDO AVAILABLE");
                     returnToOrigin();
                     requestState(true);
@@ -1991,10 +1981,7 @@ final class AntmailApp extends ComputerApp {
         boolean unreadOnly;
         boolean attachmentsOnly;
         boolean moreOpen;
-        UUID undoId;
-        int undoFolder;
-        String undoAction = "";
-        long undoUntil;
+        final java.util.ArrayDeque<UndoAction> undoActions = new java.util.ArrayDeque<>();
         UUID confirmDeleteId;
         long confirmDeleteUntil;
         int detailScroll;
@@ -2021,6 +2008,20 @@ final class AntmailApp extends ComputerApp {
         boolean pickingAttachment;
         boolean pickingPaint;
     }
+
+    private void pushUndo(UUID id, int folder, String action) {
+        long now = System.currentTimeMillis();
+        pruneUndoActions();
+        state.undoActions.addLast(new UndoAction(id, folder, action, now + 6000L));
+        while (state.undoActions.size() > 10) state.undoActions.removeFirst();
+    }
+
+    private void pruneUndoActions() {
+        long now = System.currentTimeMillis();
+        while (!state.undoActions.isEmpty() && state.undoActions.peekFirst().until() < now) state.undoActions.removeFirst();
+    }
+
+    private record UndoAction(UUID id, int folder, String action, long until) { }
 
     JsonObject saveResume() {
         JsonObject json = new JsonObject();

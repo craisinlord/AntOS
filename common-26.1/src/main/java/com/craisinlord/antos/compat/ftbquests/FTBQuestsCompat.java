@@ -10,6 +10,7 @@ import dev.ftb.mods.ftbquests.quest.reward.RewardTypes;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.quest.task.TaskType;
 import dev.ftb.mods.ftbquests.quest.task.TaskTypes;
+import dev.ftb.mods.ftbteams.api.event.PlayerChangedTeamEvent;
 import dev.ftb.mods.ftbteams.api.event.TeamPlayerLoggedInEvent;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
@@ -83,6 +84,13 @@ public final class FTBQuestsCompat {
     }
 
     public static void onTeamPlayerLoggedIn(TeamPlayerLoggedInEvent.Data event) {
+        ServerPlayer player = event.player();
+        if (player == null) return;
+        var data = com.craisinlord.antos.content.computer.ComputerWorkspaceData.access(player.level().getServer());
+        reconcileAntOSTasks(player, AntOSFTBBridge.account(player, data));
+    }
+
+    public static void onPlayerChangedTeam(PlayerChangedTeamEvent.Data event) {
         ServerPlayer player = event.player();
         if (player == null) return;
         var data = com.craisinlord.antos.content.computer.ComputerWorkspaceData.access(player.level().getServer());

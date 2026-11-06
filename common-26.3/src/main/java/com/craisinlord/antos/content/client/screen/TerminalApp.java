@@ -262,7 +262,7 @@ final class TerminalApp extends ComputerApp {
 
     private void pressConsole() {
         int row = state.scroll + (int) Math.floor((kit.clickY() - textTop + 1) / LINE);
-        if (kit.clickButton() == 1) {
+        if (kit.clickButton() == InputConstants.MOUSE_BUTTON_RIGHT) {
             if (row >= 0 && row < visuals.size()) {
                 Entry entry = visuals.get(row).entry();
                 String text = entry.kind() == HELP ? helpText(entry) : TerminalText.plain(entry.text());
@@ -271,7 +271,7 @@ final class TerminalApp extends ComputerApp {
             }
             return;
         }
-        if (kit.clickButton() != 0) return;
+        if (kit.clickButton() != InputConstants.MOUSE_BUTTON_LEFT) return;
         int promptRow = row - promptStartRow;
         if (promptRow < 0 || promptRow >= promptRows.size()) return;
         int[] segment = promptRows.get(promptRow);

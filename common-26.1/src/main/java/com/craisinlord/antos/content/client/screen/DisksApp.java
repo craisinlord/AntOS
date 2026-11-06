@@ -31,6 +31,7 @@ final class DisksApp extends ComputerApp {
     private String query = "";
     private String password = "";
     private boolean passwordFocused;
+    private boolean passwordVisible;
     private boolean searching;
     private int filter;
     private int shelfScroll;
@@ -81,8 +82,7 @@ final class DisksApp extends ComputerApp {
     }
 
     void show(Identifier id) {
-        password = "";
-        passwordFocused = false;
+        resetPassword();
         var disk = ComputerGuideData.disk(id);
         category = disk == null ? null : disk.category();
         selected = ComputerArchiveUnlockClientState.collectedDisks().contains(id) ? id : null;
@@ -123,8 +123,7 @@ final class DisksApp extends ComputerApp {
         category = id;
         selected = null;
         shelfScroll = 0;
-        password = "";
-        passwordFocused = false;
+        resetPassword();
     }
 
     private void drawShelf(ThemedGraphics g, int x, int y, int w, int h, List<ComputerGuideData.Disk> disks) {
@@ -206,8 +205,7 @@ final class DisksApp extends ComputerApp {
             selected = disk.id();
             detailScroll = 0;
             searching = false;
-            password = "";
-            passwordFocused = false;
+            resetPassword();
         }));
     }
 
@@ -359,7 +357,16 @@ final class DisksApp extends ComputerApp {
         g.disableScissor();
         scrollbar(g, x + w - 3, y + 79, h - 144, h - 144, h - 144 + detailMaximum, detailScroll, detailMaximum, 2);
         boolean inserted = installed.contains(disk.id());
-        button(g, x, y + h - 60, w - 77, 18, password.isEmpty() ? tr("password") : "*".repeat(Math.min(26, password.length())) + (passwordFocused ? "_" : ""), passwordFocused, inserted, () -> passwordFocused = true);
+        int passwordW = w - 97;
+        int toggleX = x + w - 95;
+        String shownPassword = passwordVisible ? password : "*".repeat(password.length());
+        button(g, x, y + h - 60, passwordW, 18, password.isEmpty() ? tr("password") : screen.tailToWidth(shownPassword + (passwordFocused ? "_" : ""), passwordW - 8), passwordFocused, inserted, () -> passwordFocused = true);
+        boolean keepFocus = passwordFocused;
+        screen.drawPasswordToggle(g, toggleX, y + h - 60, 18, 18, passwordVisible, inserted && screen.hovered(toggleX, y + h - 60, 18, 18), inserted);
+        if (inserted) hits.add(new Hit(toggleX, y + h - 60, 18, 18, () -> AntOSUiSounds.action(() -> {
+            passwordVisible = !passwordVisible;
+            passwordFocused = keepFocus;
+        })));
         button(g, x + w - 72, y + h - 60, 72, 18, tr("decrypt"), false, inserted && !password.isEmpty(), () -> submitPassword(disk));
         var result = com.craisinlord.antos.content.client.ComputerProgramClientState.decryption(disk.id());
         String message = !inserted ? tr("reinsert_decrypt") : result == null ? "" : tr("decrypt." + result.code());
@@ -369,11 +376,20 @@ final class DisksApp extends ComputerApp {
         g.drawString(font, screen.trimToWidth(tr("locked_footer"), w - 109), x, y + h - 15, Ui.TEXT_MUTED, false);
     }
 
+    private void resetPassword() {
+        password = "";
+        passwordFocused = false;
+        passwordVisible = false;
+    }
+
+    void hidePassword() {
+        passwordVisible = false;
+    }
+
     private void submitPassword(ComputerGuideData.Disk disk) {
         if (password.isEmpty() || !installed.contains(disk.id())) return;
         ComputerNetworking.decryptDisk(disk.id(), password, false);
-        password = "";
-        passwordFocused = false;
+        resetPassword();
     }
 
     private int section(ThemedGraphics g, int x, int y, int w, String key, int clipTop, int clipBottom) {
@@ -514,7 +530,7 @@ final class DisksApp extends ComputerApp {
     }
 
     boolean click(double mouseX, double mouseY, int button) {
-        if (button != 0) return true;
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return true;
         searching = false;
         passwordFocused = false;
         for (Track track : tracks) {
@@ -556,8 +572,8 @@ final class DisksApp extends ComputerApp {
     }
 
     boolean scroll(ComputerScreen.Window window, double mouseX, double mouseY, double amount) {
-        double localX = (mouseX - screen.width / 2.0F) / screen.uiScale();
-        double localY = (mouseY - screen.height / 2.0F) / screen.uiScale();
+        double localX = (mouseX - screen.centerX) / screen.uiScale();
+        double localY = (mouseY - screen.centerY) / screen.uiScale();
         if (!inside(left, top, width, height, localX, localY)) return false;
         int delta = (int) Math.signum(amount);
         if (localX < left + 88) categoryScroll = Math.max(0, Math.min(categoryMaximum, categoryScroll - delta));
@@ -581,7 +597,7 @@ final class DisksApp extends ComputerApp {
         if (passwordFocused) {
             if (keyCode == InputConstants.KEY_BACKSPACE && !password.isEmpty()) password = password.substring(0, password.offsetByCodePoints(password.length(), -1));
             else if (keyCode == InputConstants.KEY_RETURN && selected != null) { var disk = ComputerGuideData.disk(selected); if (disk != null) submitPassword(disk); }
-            else if (keyCode == InputConstants.KEY_ESCAPE) { passwordFocused = false; password = ""; }
+            else if (keyCode == InputConstants.KEY_ESCAPE) { resetPassword(); }
             return true;
         }
         if (keyCode == InputConstants.KEY_F && screen.hasControl(modifiers)) {

@@ -95,6 +95,10 @@ public final class Ui {
     public static int GAME_PRESENT = 0xFFB59F3B;
     public static int GAME_ABSENT = 0xFF3A403A;
     public static int ANSWER_TINT = 0xFF59FF59;
+    public static int TASK_READY = 0xFFFFC23A;
+    public static int TASK_READY_INK = 0xFF101010;
+    public static int TASK_DONE_FILL = 0xFF1E4F1E;
+    public static int TASK_DONE_INK = 0xFF101010;
     public static final int CAKE_SPONGE_1 = 0xFFFFC982;
     public static final int CAKE_SPONGE_2 = 0xFFFFB88A;
     public static final int CAKE_SPONGE_3 = 0xFFFFD38A;
@@ -162,6 +166,9 @@ public final class Ui {
     private static final int WORDLE_YELLOW = 0xFFB59F3B;
     private static final int WORDLE_GREY = 0xFF3A3A3C;
     private static final int DISABLED_TINT = 0xFF6B6B6B;
+    private static final int READY_WARM = 0xFFFFC23A;
+    private static final int READY_COOL = 0xFF4FD8F0;
+    private static final int READY_SOFT_TARGET = 0xFFC9D0CB;
     private static boolean terminal = true;
     private static boolean custom;
     private static boolean matchWallpapers = true;
@@ -180,6 +187,7 @@ public final class Ui {
         boolean neutralIcons = preferences.iconColor.equals("neutral");
         if (terminal) {
             applyTerminal();
+            applyTaskStatus();
             iconBase = neutralIcons ? TEXT_MUTED : ACCENT;
             return;
         }
@@ -187,7 +195,39 @@ public final class Ui {
         int accent = custom ? bases[PaletteColors.ACCENT] : theme.apply(0xFF65FF65);
         applyDerived(bases[PaletteColors.DESKTOP], bases[PaletteColors.WINDOW], bases[PaletteColors.PANEL], bases[PaletteColors.TEXT],
                 bases[PaletteColors.MUTED], accent, bases[PaletteColors.ERROR]);
+        applyTaskStatus();
         iconBase = custom ? bases[PaletteColors.ICONS] : neutralIcons ? TEXT_MUTED : ACCENT;
+    }
+
+    public static float luminance(int color) {
+        return (0.2126F * ((color >> 16) & 255) + 0.7152F * ((color >> 8) & 255) + 0.0722F * (color & 255)) / 255.0F;
+    }
+
+    private static void applyTaskStatus() {
+        int ready = theme == ComputerTheme.RAINBOW && !custom ? WHITE : warmHue(ACCENT) ? READY_COOL : READY_WARM;
+        if (luminance(BACKGROUND) > 0.5F) ready = mix(ready, BLACK, 0.45F);
+        else if (terminal && AntOSSettings.displayBrightness().equals("dim")) ready = mix(ready, BACKGROUND, 0.25F);
+        else if (terminal && AntOSSettings.displayBrightness().equals("soft")) ready = mix(ready, READY_SOFT_TARGET, 0.42F);
+        TASK_READY = ready;
+        TASK_READY_INK = luminance(ready) > 0.5F ? mix(BLACK, BACKGROUND, 0.3F) : WHITE;
+        TASK_DONE_FILL = mix(PANEL_ALT, ACCENT, 0.32F);
+        TASK_DONE_INK = luminance(ACCENT) > 0.5F ? mix(BLACK, BACKGROUND, 0.3F) : WHITE;
+    }
+
+    private static boolean warmHue(int color) {
+        int r = (color >> 16) & 255;
+        int g = (color >> 8) & 255;
+        int b = color & 255;
+        int max = Math.max(r, Math.max(g, b));
+        int min = Math.min(r, Math.min(g, b));
+        if (max == 0 || (max - min) / (float) max < 0.25F) return false;
+        float delta = max - min;
+        float hue;
+        if (max == r) hue = 60.0F * (((g - b) / delta) % 6.0F);
+        else if (max == g) hue = 60.0F * ((b - r) / delta + 2.0F);
+        else hue = 60.0F * ((r - g) / delta + 4.0F);
+        if (hue < 0) hue += 360.0F;
+        return hue >= 15.0F && hue <= 80.0F;
     }
 
     public static boolean terminal() {
@@ -245,9 +285,10 @@ public final class Ui {
     }
 
     public static long wallpaperSignature() {
+        if (theme == ComputerTheme.RAINBOW) return System.currentTimeMillis() / 2000L;
         long signature = 31L * BACKGROUND + SURFACE;
         signature = 31L * signature + TEXT_STRONG;
-        signature = 31L * signature + (theme == ComputerTheme.RAINBOW ? System.currentTimeMillis() / 2000L : ACCENT);
+        signature = 31L * signature + ACCENT;
         return signature;
     }
 

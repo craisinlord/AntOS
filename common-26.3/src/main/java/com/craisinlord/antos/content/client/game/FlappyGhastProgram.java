@@ -2,6 +2,7 @@ package com.craisinlord.antos.content.client.game;
 
 import com.craisinlord.antos.api.client.game.ComputerGame;
 import com.craisinlord.antos.content.client.game.logic.flappyghast.FlappyGhastState;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.Font;
 import com.craisinlord.antos.content.client.ThemedGraphics;
 import net.minecraft.network.chat.Component;
@@ -66,19 +67,19 @@ public final class FlappyGhastProgram implements ComputerGame.Session {
 
     @Override
     public boolean keyPressed(int keyCode) {
-        if (keyCode == 82) {
+        if (keyCode == InputConstants.KEY_R) {
             if (state.phase() != FlappyGhastState.Phase.GAME_OVER || state.canRestart()) restart();
             return true;
         }
-        if (keyCode == 77) {
+        if (keyCode == InputConstants.KEY_M) {
             sound = !sound;
             return true;
         }
-        if (keyCode == 80) {
+        if (keyCode == InputConstants.KEY_P) {
             state.setPaused(!state.paused());
             return true;
         }
-        if (keyCode == 32 || keyCode == 265 || keyCode == 87 || keyCode == 257 || keyCode == 335) {
+        if (keyCode == InputConstants.KEY_SPACE || keyCode == InputConstants.KEY_UP || keyCode == InputConstants.KEY_W || keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
             action();
             return true;
         }
@@ -87,7 +88,7 @@ public final class FlappyGhastProgram implements ComputerGame.Session {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return false;
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return false;
         if (mouseY >= 13 && mouseY < 24 && mouseX >= sfxLeft - 2) {
             sound = !sound;
             return true;

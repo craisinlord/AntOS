@@ -203,7 +203,7 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return false;
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return false;
         if (paused || gameOver || waveCleared || !launched) action();
         else {
             paddleX = mouseX - paddleWidth() / 2.0;

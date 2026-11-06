@@ -43,12 +43,14 @@ public final class AntOSFabricClient implements ClientModInitializer {
         net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback.EVENT.register((stack, context, type, lines) -> com.craisinlord.antos.content.client.ArchiveLookup.tooltip(stack, lines));
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.ArchiveLookup.tick());
         net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(com.craisinlord.antos.content.client.TaskTrackerHud.createKey());
+        net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(com.craisinlord.antos.content.client.screen.OpenAntOSKey.createKey());
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.TaskTrackerHud.tick());
         net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register((graphics, delta) -> com.craisinlord.antos.content.client.TaskTrackerHud.render(graphics));
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if ((screen instanceof InventoryScreen || screen instanceof CreativeModeInventoryScreen)
                     && AntOSSettings.inventoryComputerButtonEnabled()) {
                 Screens.getButtons(screen).add(new InventoryComputerButton(4, 4));
+                Screens.getButtons(screen).add(new com.craisinlord.antos.content.client.screen.TrackedTasksButton(4, 26));
             }
         });
         BlockEntityRendererRegistry.register(AntOSFabricContent.COMPUTER_BLOCK_ENTITY, ComputerRenderer::new);

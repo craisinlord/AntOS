@@ -123,7 +123,7 @@ public final class RewardDropEntity extends Entity {
             if (stack.isEmpty()) continue;
             ItemStack remaining = stack.copy();
             player.getInventory().add(remaining);
-            if (!remaining.isEmpty()) player.drop(remaining, false);
+            if (!remaining.isEmpty()) player.drop(remaining, false, net.minecraft.util.Prediction.SERVER_ONLY);
         }
         rewards.clear();
         player.sendSystemMessage(Component.literal("No landing space turned up, so Antazon handed your delivery to you directly.").withStyle(ChatFormatting.GOLD));

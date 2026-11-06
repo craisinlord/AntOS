@@ -179,7 +179,7 @@ public final class ComputerTasks {
         if (objective == null) return LocationResult.DONE;
         ComputerTaskProgress progress = computer.taskProgress();
         var account = accountForProgress(player);
-        if (account != null) progress.mergeFrom(ComputerWorkspaceData.access(player.level().getServer()).effectiveProgress(account.accountId(), progress));
+        if (account != null) ComputerWorkspaceData.access(player.level().getServer()).mergeTeamProgressInto(account.accountId(), progress);
         java.util.UUID workspaceId = computer.workspaceId();
         if (workspaceId != null) progress.mergeFrom(ComputerWorkspaceData.access(player.level().getServer()).progress(workspaceId));
         if (progress.isComplete(taskId) || progress.objectiveCount(taskId, objectiveId) >= objective.count()) return LocationResult.DONE;
@@ -244,7 +244,7 @@ public final class ComputerTasks {
                     && java.util.Objects.equals(cached.workspaceId(), workspaceId)) return progress;
         }
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.level().getServer());
-        if (account != null) progress.mergeFrom(data.effectiveProgress(accountId, progress));
+        if (account != null) data.mergeTeamProgressInto(accountId, progress);
         if (workspaceId != null) progress.mergeFrom(data.progress(workspaceId));
         synchronized (MERGED_PROGRESS) {
             if (mergedProgressTick == tick) MERGED_PROGRESS.put(player.getUUID(),
@@ -261,7 +261,7 @@ public final class ComputerTasks {
         var account = accountForProgress(player);
         if (account == null) return;
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.level().getServer());
-        boolean changed = computer.taskProgress().mergeFrom(data.effectiveProgress(account.accountId(), computer.taskProgress()));
+        boolean changed = data.mergeTeamProgressInto(account.accountId(), computer.taskProgress());
         data.mergeTeamProgress(account.accountId(), computer.taskProgress());
         invalidateEvaluations();
         if (changed) {
@@ -576,6 +576,25 @@ public final class ComputerTasks {
         }
     }
 
+    private record TrackedItems(List<ComputerGuideData.Task> tasks, long tagEpoch, List<Item> items) { }
+
+    private static volatile TrackedItems trackedItems;
+
+    private static List<Item> trackedItems(ServerPlayer player, List<ComputerGuideData.Task> tasks) {
+        TrackedItems cached = trackedItems;
+        if (cached != null && cached.tasks() == tasks && cached.tagEpoch() == TAG_EPOCH.get()) return cached.items();
+        java.util.Set<Item> items = new java.util.LinkedHashSet<>();
+        for (ComputerGuideData.Task task : tasks) {
+            for (ComputerGuideData.Objective objective : task.objectives()) {
+                if (objective.type().equals("item_tag") && objective.tagMode().equals("all") && !objective.sticky())
+                    items.addAll(itemTagItems(player, Identifier.tryParse(objective.target())));
+            }
+        }
+        List<Item> result = List.copyOf(items);
+        trackedItems = new TrackedItems(tasks, TAG_EPOCH.get(), result);
+        return result;
+    }
+
     private static EncodedState encodeState(ServerPlayer player, ComputerWorkspace computer, ComputerTaskProgress progress) {
         var account = accountForProgress(player);
         ComputerWorkspaceData accountData = ComputerWorkspaceData.access(player.level().getServer());
@@ -590,8 +609,8 @@ public final class ComputerTasks {
         }
         List<Identifier> pinnedTasks = account == null ? List.of() : accountData.pinnedTasks(account.accountId());
         ItemCounts counts = new ItemCounts(player);
-        Map<Item, Integer> inventory = counts.snapshot();
         validateTagCache(player);
+        Map<Item, Integer> inventory = counts.snapshot(trackedItems(player, tasks));
         long tagEpoch = TAG_EPOCH.get();
         java.util.UUID workspaceId = computer.workspaceId();
         EncodedState cached;
@@ -683,20 +702,22 @@ public final class ComputerTasks {
         ComputerTaskProgress progress = computer.taskProgress();
         var account = accountForProgress(player);
         if (account != null) {
-            progress.mergeFrom(ComputerWorkspaceData.access(player.level().getServer())
-                    .effectiveProgress(account.accountId(), progress));
+            ComputerWorkspaceData.access(player.level().getServer()).mergeTeamProgressInto(account.accountId(), progress);
         }
         boolean eventChanged = false;
         for (ComputerGuideData.Task task : ComputerGuideData.tasks()) {
             if (!task.hasPrerequisites() && task.availability().equals("automatic")) progress.grant(task.id());
         }
+        String targetId = target.toString();
+        boolean ftbEvent = eventType.startsWith("ftbquests:");
         for (ComputerGuideData.Task task : ComputerGuideData.tasks()) {
             if (progress.isComplete(task.id()) || !available(task, progress)) continue;
             for (ComputerGuideData.Objective objective : task.objectives()) {
-                boolean targetMatches = eventType.startsWith("ftbquests:")
+                if (!objective.type().equals(eventType)) continue;
+                boolean targetMatches = ftbEvent
                         ? target.getPath().equalsIgnoreCase(objective.target())
-                        : target.toString().equals(objective.target());
-                if (objective.type().equals(eventType) && targetMatches) {
+                        : targetId.equals(objective.target());
+                if (targetMatches) {
                     long updated = progress.objectiveCount(task.id(), objective.id()) + (long) amount;
                     eventChanged |= progress.setObjectiveCount(task.id(), objective.id(), (int) Math.min(1_000_000L, updated));
                 }
@@ -710,10 +731,9 @@ public final class ComputerTasks {
         boolean progressChanged = alreadyChanged;
         var account = accountForProgress(player);
         boolean sharedTeamProgress = account != null
-                && ComputerWorkspaceData.access(player.level().getServer()).team(account.accountId()) != null;
+                && ComputerWorkspaceData.access(player.level().getServer()).hasTeam(account.accountId());
         if (account != null) {
-            progressChanged |= progress.mergeFrom(ComputerWorkspaceData.access(player.level().getServer())
-                    .effectiveProgress(account.accountId(), progress));
+            progressChanged |= ComputerWorkspaceData.access(player.level().getServer()).mergeTeamProgressInto(account.accountId(), progress);
         }
         java.util.UUID workspaceId = computer.workspaceId();
         if (workspaceId != null) {
@@ -1330,8 +1350,13 @@ public final class ComputerTasks {
             counts = null;
         }
 
-        Map<Item, Integer> snapshot() {
-            return Map.copyOf(counts());
+        Map<Item, Integer> snapshot(List<Item> items) {
+            Map<Item, Integer> values = new java.util.HashMap<>();
+            for (Item item : items) {
+                int count = count(item);
+                if (count != 0) values.put(item, count);
+            }
+            return values;
         }
 
         private Map<Item, Integer> counts() {

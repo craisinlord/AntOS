@@ -40,6 +40,7 @@ public final class FTBQuestsCompat {
             return dev.architectury.event.EventResult.pass();
         });
         TeamEvent.PLAYER_LOGGED_IN.register(FTBQuestsCompat::reconcileAntOSTasks);
+        TeamEvent.PLAYER_CHANGED.register(FTBQuestsCompat::onPlayerChangedTeam);
     }
 
     public static void completeMappedFTBTasks(ServerPlayer player, ResourceLocation antosTaskId) {
@@ -85,6 +86,13 @@ public final class FTBQuestsCompat {
         var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
         if (account == null) account = data.faceIdAccount(player.getUUID());
         reconcileAntOSTasks(player, account);
+    }
+
+    private static void onPlayerChangedTeam(dev.ftb.mods.ftbteams.api.event.PlayerChangedTeamEvent event) {
+        ServerPlayer player = event.getPlayer();
+        if (player == null) return;
+        var data = com.craisinlord.antos.content.computer.ComputerWorkspaceData.access(player.server);
+        reconcileAntOSTasks(player, AntOSFTBBridge.account(player, data));
     }
 
     private static void reconcileAntOSTasks(ServerPlayer player,

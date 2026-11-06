@@ -24,6 +24,8 @@ public interface ComputerGame {
         default boolean keyPressed(int keyCode) { return false; }
         default boolean mouseClicked(double mouseX, double mouseY, int button) { return false; }
         default boolean charTyped(char codePoint) { return false; }
+        /** True while the game wants letter keys, so AntOS's own key bindings leave them alone. */
+        default boolean typing() { return false; }
         default void close() {}
     }
 }

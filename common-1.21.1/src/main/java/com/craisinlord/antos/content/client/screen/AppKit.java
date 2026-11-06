@@ -189,6 +189,11 @@ final class AppKit {
         if (enabled) hit(x, y, w, h, () -> AntOSUiSounds.action(action));
     }
 
+    void passwordToggle(GuiGraphics g, int x, int y, int w, int h, boolean visible, Runnable action) {
+        app.screen.drawPasswordToggle(g, x, y, w, h, visible, hovered(x, y, w, h), true);
+        hit(x, y, w, h, () -> AntOSUiSounds.action(action));
+    }
+
     void iconButton(GuiGraphics g, int x, int y, int size, ResourceLocation icon, boolean active, boolean enabled, String tip, Runnable action) {
         boolean hover = enabled && hovered(x, y, size, size);
         g.fill(x, y, x + size, y + size, active || hover ? Ui.HOVER : Ui.PANEL);

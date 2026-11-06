@@ -38,6 +38,8 @@ public final class AntOSNeoForge {
                     com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat.onQuestProgress(event.getEventData()));
             NeoForge.EVENT_BUS.addListener((dev.ftb.mods.ftbteams.api.neoforge.FTBTeamsEvent.TeamPlayerLoggedIn event) ->
                     com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat.onTeamPlayerLoggedIn(event.getEventData()));
+            NeoForge.EVENT_BUS.addListener((dev.ftb.mods.ftbteams.api.neoforge.FTBTeamsEvent.PlayerChangedTeam event) ->
+                    com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat.onPlayerChangedTeam(event.getEventData()));
         }
         if (net.neoforged.fml.ModList.get().isLoaded("fieldguide")) {
             FieldGuideCompat.initialize();
