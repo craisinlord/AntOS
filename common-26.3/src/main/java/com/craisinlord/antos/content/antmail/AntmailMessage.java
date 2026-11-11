@@ -25,6 +25,7 @@ public final class AntmailMessage {
     private static final String DELETE_AFTER_READ_TAG = "DeleteAfterRead";
     private static final String NOTIFICATION_TAG = "Notification";
     private static final String FROM_PLAYER_TAG = "FromPlayer";
+    private static final String JUNK_TAG = "Junk";
 
     private final UUID id;
     private final AntmailAddress sender;
@@ -43,6 +44,7 @@ public final class AntmailMessage {
     private boolean deleteAfterRead;
     private String notification = "";
     private boolean fromPlayer;
+    private boolean junk;
     private boolean hasAttachments;
     private String searchText;
 
@@ -93,6 +95,7 @@ public final class AntmailMessage {
     public boolean deleteAfterRead() { return deleteAfterRead; }
     public String notification() { return notification; }
     public boolean fromPlayer() { return fromPlayer; }
+    public boolean junk() { return junk; }
     public void setPresentation(String style, String senderDisplay, boolean deleteAfterRead, String notification) {
         setPresentation(style, senderDisplay, "", "", deleteAfterRead, notification);
     }
@@ -106,6 +109,7 @@ public final class AntmailMessage {
         this.notification = notification == null ? "" : notification;
     }
     public void markFromPlayer() { fromPlayer = true; }
+    public void markJunk() { junk = true; }
     public void setDeliveryStatus(String status) {
         deliveryStatus = status == null || status.isBlank() ? "DELIVERED" : status;
         searchText = null;
@@ -153,6 +157,7 @@ public final class AntmailMessage {
         if (deleteAfterRead) tag.putBoolean(DELETE_AFTER_READ_TAG, true);
         if (!notification.isBlank()) tag.putString(NOTIFICATION_TAG, notification);
         if (fromPlayer) tag.putBoolean(FROM_PLAYER_TAG, true);
+        if (junk) tag.putBoolean(JUNK_TAG, true);
         if (includeAttachments) {
             ListTag attachmentTags = new ListTag();
             for (AntmailAttachment attachment : attachments) attachmentTags.add(attachment.toTag());
@@ -183,6 +188,7 @@ public final class AntmailMessage {
         message.deleteAfterRead = tag.getBooleanOr(DELETE_AFTER_READ_TAG, false);
         message.notification = tag.getStringOr(NOTIFICATION_TAG, "");
         message.fromPlayer = tag.getBooleanOr(FROM_PLAYER_TAG, false);
+        message.junk = tag.getBooleanOr(JUNK_TAG, false);
         message.hasAttachments = tag.getBooleanOr("HasAttachments", false) || !attachments.isEmpty();
         return message;
     }

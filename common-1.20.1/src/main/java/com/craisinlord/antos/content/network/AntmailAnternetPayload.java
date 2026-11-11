@@ -17,6 +17,8 @@ public record AntmailAnternetPayload(int action, String first, String second, St
     public static final int PERMANENT_DELETE = 11;
     public static final int UNARCHIVE = 12;
     public static final int UPDATE_PROFILE = 13;
+    public static final int JUNK_BLOCK = 14;
+    public static final int JUNK_BLOCK_ALL = 15;
     public static final int MAX_FIELD_CHARS = 65536;
 
 

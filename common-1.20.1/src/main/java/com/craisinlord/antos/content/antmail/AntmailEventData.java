@@ -25,6 +25,8 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     private static final AntmailEventData INSTANCE = new AntmailEventData();
     private static volatile Map<ResourceLocation, Definition> definitions = Map.of();
     private static volatile Map<ResourceLocation, Pool> pools = Map.of();
+    private static volatile Set<ResourceLocation> junk = Set.of();
+    private static volatile Map<String, String> junkSenderNames = Map.of();
     private static volatile TriggerIndex triggers = new TriggerIndex(Map.of(), Map.of(), Map.of());
     private static final int RANDOM_MAIL_BATCH = 16;
     private static final int ADVANCEMENT_EVENT_BACKFILL_TICKS = 1200;
@@ -40,6 +42,24 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     public static Definition definition(String id) {
         ResourceLocation key = id == null || id.isBlank() ? null : ResourceLocation.tryParse(id);
         return key == null ? null : definitions.get(key);
+    }
+
+    public static boolean isJunk(ResourceLocation id) {
+        return id != null && junk.contains(id);
+    }
+
+    public static boolean isJunkSender(String sender) {
+        return junkSenderNames.containsKey(AntmailServerData.normalizeSender(sender));
+    }
+
+    public static String junkSenderName(String sender) {
+        String normalized = AntmailServerData.normalizeSender(sender);
+        String name = junkSenderNames.get(normalized);
+        return name == null || name.isBlank() ? normalized : name;
+    }
+
+    private static boolean junkBlocked(AntmailServerData data, AntmailAddress address, ResourceLocation id, Definition definition) {
+        return junk.contains(id) && data.junkBlocked(address, definition.sender());
     }
 
     public static List<ResourceLocation> definitionIds() {
@@ -204,7 +224,8 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
             for (ResourceLocation id : standalone) {
                 Definition definition = definitions.get(id);
                 if (random.nextDouble() >= definition.trigger().chance()) continue;
-                if (subscriptionEligible(pass, address, id, definition) && conditionsPass(pass, address, player, definition)) fire(server, data, address, id, definition);
+                if (!junkBlocked(data, address, id, definition) && subscriptionEligible(pass, address, id, definition)
+                        && conditionsPass(pass, address, player, definition)) fire(server, data, address, id, definition);
             }
             for (Map.Entry<ResourceLocation, List<ResourceLocation>> poolEntry : poolMembers.entrySet()) {
                 Pool pool = pools.get(poolEntry.getKey());
@@ -213,6 +234,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
                 for (ResourceLocation id : poolEntry.getValue()) {
                     Definition definition = definitions.get(id);
                     if (definition.once() && data.isClaimed(address, id) || data.isScheduled(address, id)) continue;
+                    if (junkBlocked(data, address, id, definition)) continue;
                     if (subscriptionEligible(pass, address, id, definition) && conditionsPass(pass, address, player, definition)) eligible.add(id);
                 }
                 if (eligible.isEmpty()) continue;
@@ -292,6 +314,10 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
             return;
         }
         if (dayTime < entry.dueTime()) return;
+        if (junkBlocked(data, entry.address(), entry.definitionId(), definition)) {
+            data.unschedule(entry);
+            return;
+        }
         ServerPlayer player = pass.player(entry.address());
         if (player == null && definition.conditions() != null && definition.conditions().needsPlayer()) {
             data.parkUntilOnline(entry);
@@ -337,6 +363,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
                     server.overworld().getGameTime(), attachments, id.toString());
             message.setPresentation(definition.style(), definition.senderDisplay(), definition.senderAvatarItem(),
                     definition.senderAvatarEntity(), definition.deleteAfterRead(), definition.notification());
+            if (junk.contains(id)) message.markJunk();
             AntmailDeliveryResult.Status status = data.deliver(server, message, recordFullMailbox).status();
             if (coinAccount != null && (status == AntmailDeliveryResult.Status.DELIVERED || status == AntmailDeliveryResult.Status.QUEUED)) {
                 com.craisinlord.antos.content.antazon.AntazonServerData.access(server).credit(coinAccount, definition.antcoins());
@@ -412,6 +439,8 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     @Override
     protected Loaded prepare(ResourceManager manager, ProfilerFiller profiler) {
         Map<ResourceLocation, Pool> loadedPools = new HashMap<>();
+        Set<ResourceLocation> unblockablePools = new java.util.HashSet<>();
+        Set<ResourceLocation> unblockableMessages = new java.util.HashSet<>();
         for (var resource : manager.listResources("antmail/pool", path -> path.getPath().endsWith(".json")).entrySet()) {
             ResourceLocation id = idFor(resource.getKey(), "antmail/pool/");
             try (var reader = resource.getValue().openAsReader()) {
@@ -419,6 +448,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
                 double chance = object.has("chance_per_day") ? object.get("chance_per_day").getAsDouble() : 1.0D;
                 int max = object.has("max_per_day") ? object.get("max_per_day").getAsInt() : 1;
                 loadedPools.put(id, new Pool(Math.max(0.0D, Math.min(1.0D, chance)), Math.max(0, max), object.has("subscription_only") && object.get("subscription_only").getAsBoolean()));
+                if (object.has("blockable") && !object.get("blockable").getAsBoolean()) unblockablePools.add(id);
             } catch (Exception exception) {
                 AntOS.LOGGER.warn("Ignoring malformed Antmail pool {}: {}", id, exception.getMessage());
             }
@@ -430,6 +460,8 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
                 JsonElement element = JsonParser.parseReader(reader);
                 if (!element.isJsonObject()) continue;
                 Definition definition = parse(id, element.getAsJsonObject());
+                JsonObject raw = element.getAsJsonObject();
+                if (raw.has("blockable") && !raw.get("blockable").getAsBoolean()) unblockableMessages.add(id);
                 if (definition.trigger().pool() != null && !loadedPools.containsKey(definition.trigger().pool())) {
                     AntOS.LOGGER.warn("Antmail message {} uses missing pool {}; it will never be drawn", id, definition.trigger().pool());
                 }
@@ -438,7 +470,19 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
                 AntOS.LOGGER.warn("Ignoring malformed Antmail message {}: {}", id, exception.getMessage());
             }
         }
-        return new Loaded(Map.copyOf(loaded), Map.copyOf(loadedPools));
+        Set<ResourceLocation> loadedJunk = new java.util.HashSet<>();
+        Map<String, String> senderNames = new java.util.TreeMap<>();
+        for (Map.Entry<ResourceLocation, Definition> entry : loaded.entrySet()) {
+            Definition definition = entry.getValue();
+            if (!definition.trigger().type().equals("random") || unblockableMessages.contains(entry.getKey())
+                    || definition.trigger().pool() != null && unblockablePools.contains(definition.trigger().pool())) continue;
+            String sender = AntmailServerData.normalizeSender(definition.sender());
+            if (sender.isEmpty()) continue;
+            loadedJunk.add(entry.getKey());
+            String name = definition.senderDisplay().isBlank() ? sender : definition.senderDisplay();
+            senderNames.merge(sender, name, (first, second) -> first.equals(sender) ? second : first);
+        }
+        return new Loaded(Map.copyOf(loaded), Map.copyOf(loadedPools), Set.copyOf(loadedJunk), Map.copyOf(senderNames));
     }
 
     private static ResourceLocation idFor(ResourceLocation file, String prefix) {
@@ -506,6 +550,8 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     protected void apply(Loaded loaded, ResourceManager manager, ProfilerFiller profiler) {
         definitions = loaded.messages();
         pools = loaded.pools();
+        junk = loaded.junk();
+        junkSenderNames = loaded.junkSenderNames();
         triggers = TriggerIndex.of(loaded.messages());
     }
 
@@ -544,7 +590,11 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         }
     }
 
-    public record Loaded(Map<ResourceLocation, Definition> messages, Map<ResourceLocation, Pool> pools) {
+    public record Loaded(Map<ResourceLocation, Definition> messages, Map<ResourceLocation, Pool> pools,
+                         Set<ResourceLocation> junk, Map<String, String> junkSenderNames) {
+        public Loaded(Map<ResourceLocation, Definition> messages, Map<ResourceLocation, Pool> pools) {
+            this(messages, pools, Set.of(), Map.of());
+        }
     }
 
     public record Definition(String sender, String subject, String body, Trigger trigger, boolean once, Conditions conditions,

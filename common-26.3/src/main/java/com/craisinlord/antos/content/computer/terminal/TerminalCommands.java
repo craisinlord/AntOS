@@ -1,5 +1,6 @@
 package com.craisinlord.antos.content.computer.terminal;
 
+import com.craisinlord.antos.api.terminal.TerminalActionRegistry;
 import com.craisinlord.antos.content.antazon.AntazonUnlockMail;
 import com.craisinlord.antos.content.computer.ComputerDiskData;
 import com.craisinlord.antos.content.computer.ComputerDiskFiles;
@@ -15,8 +16,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 public final class TerminalCommands {
     private TerminalCommands() { }
@@ -34,6 +37,23 @@ public final class TerminalCommands {
         if (needsProfile && context == null || !requirementsMet(definition, context, fileSystem, directory)) {
             if (definition.lockedOutput().isEmpty()) return null;
             return new TerminalResult(TerminalResult.Status.SUCCESS, lines(definition.lockedOutput(), player, context, directory), directory, false, null);
+        }
+        List<String> actionOutput = List.of();
+        if (definition.action() != null) {
+            TerminalActionRegistry.Action action = TerminalActionRegistry.get(definition.action());
+            if (action == null) return TerminalResult.error(directory, TerminalText.of("error.action_unavailable", command.name()));
+            boolean remote = computer == null || computer.isRemoteWorkspace();
+            BlockPos pos = !remote && computer instanceof BlockEntity blockEntity ? blockEntity.getBlockPos() : null;
+            TerminalActionRegistry.Result actionResult;
+            try {
+                actionResult = action.run(new TerminalActionRegistry.Context(player, pos, remote, command.arguments(), directory));
+            } catch (RuntimeException exception) {
+                com.craisinlord.antos.AntOS.LOGGER.error("Terminal action {} failed", definition.action(), exception);
+                actionResult = null;
+            }
+            if (actionResult == null) return TerminalResult.error(directory, TerminalText.of("error.action_unavailable", command.name()));
+            actionOutput = actionLines(actionResult.lines(), player, context, directory);
+            if (!actionResult.success()) return new TerminalResult(TerminalResult.Status.ERROR, actionOutput, directory, false, null);
         }
         boolean changed = false;
         if (context != null) {
@@ -54,7 +74,8 @@ public final class TerminalCommands {
                 if (entry.isPresent() && !entry.get().isDirectory()) open = entry.get().path();
             } catch (RuntimeException ignored) { }
         }
-        List<String> output = lines(definition.output(), player, context, directory);
+        List<String> output = new ArrayList<>(lines(definition.output(), player, context, directory));
+        output.addAll(actionOutput);
         return new TerminalResult(open == null ? TerminalResult.Status.SUCCESS : TerminalResult.Status.OPEN, output, directory, definition.clear(), open);
     }
 
@@ -135,12 +156,28 @@ public final class TerminalCommands {
         return any ? results.contains(true) : !results.contains(false);
     }
 
-    private static List<String> lines(List<TerminalCommandData.Line> lines, ServerPlayer player, Context context, String directory) {
+    private static List<String> actionLines(List<TerminalActionRegistry.Line> lines, ServerPlayer player, Context context, String directory) {
+        List<String> values = placeholderValues(player, context, directory);
+        List<String> encoded = new ArrayList<>();
+        for (TerminalActionRegistry.Line line : lines) {
+            List<String> lineValues = new ArrayList<>(values);
+            lineValues.addAll(line.arguments());
+            String style = TerminalCommandData.STYLES.contains(line.style()) ? line.style() : "output";
+            encoded.add(TerminalText.styled(style, line.speed(), line.delay(), line.text(), lineValues));
+        }
+        return encoded;
+    }
+
+    private static List<String> placeholderValues(ServerPlayer player, Context context, String directory) {
         long dayTime = player.level().getServer().overworld().getOverworldClockTime();
         long ticks = (dayTime + 6000L) % 24000L;
         String time = String.format(Locale.ROOT, "%02d:%02d", ticks / 1000L, ticks % 1000L * 60L / 1000L);
-        List<String> values = List.of(player.getName().getString(), context == null ? player.getName().getString() : context.account().displayUsername(),
+        return List.of(player.getName().getString(), context == null ? player.getName().getString() : context.account().displayUsername(),
                 directory, time, String.valueOf(dayTime / 24000L + 1));
+    }
+
+    private static List<String> lines(List<TerminalCommandData.Line> lines, ServerPlayer player, Context context, String directory) {
+        List<String> values = placeholderValues(player, context, directory);
         List<String> encoded = new ArrayList<>();
         for (TerminalCommandData.Line line : lines) {
             String text = line.text();

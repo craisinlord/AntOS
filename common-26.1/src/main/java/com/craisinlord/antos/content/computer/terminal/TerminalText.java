@@ -45,6 +45,12 @@ public final class TerminalText {
     public static String resolve(Styled line) {
         String text = net.minecraft.locale.Language.getInstance().getOrDefault(line.text(), line.text());
         for (int index = 0; index < PLACEHOLDERS.size() && index < line.values().size(); index++) text = text.replace(PLACEHOLDERS.get(index), line.values().get(index));
+        if (line.values().size() > PLACEHOLDERS.size()) {
+            Object[] extra = line.values().subList(PLACEHOLDERS.size(), line.values().size()).toArray();
+            try {
+                text = String.format(java.util.Locale.ROOT, text, extra);
+            } catch (java.util.IllegalFormatException ignored) { }
+        }
         return text;
     }
 

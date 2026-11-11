@@ -104,6 +104,14 @@ public final class AntmailNetworking {
         return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.UPDATE_PROFILE, displayName, avatarItem, "", "", "", 0L, 0L));
     }
 
+    public static void setJunkSenderBlocked(String sender, boolean blocked) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.JUNK_BLOCK, sender, Boolean.toString(blocked), "", "", "", 0L, 0L));
+    }
+
+    public static void setBlockAllJunk(boolean blocked) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.JUNK_BLOCK_ALL, Boolean.toString(blocked), "", "", "", "", 0L, 0L));
+    }
+
     public static boolean fits(String recipient, String subject, String body, List<AntmailAttachment> attachments) {
         return new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), "", 0L, 0L).fits();
     }

@@ -27,6 +27,11 @@ public final class AntmailClientState {
                 }
             });
     private static final Map<String, AntmailProfile> PROFILES = new ConcurrentHashMap<>();
+    private static volatile java.util.List<JunkSender> junkBlocked = java.util.List.of();
+    private static volatile boolean junkBlockAll;
+
+    public record JunkSender(String address, String name) {
+    }
 
     private AntmailClientState() {
     }
@@ -61,6 +66,7 @@ public final class AntmailClientState {
                 Snapshot decoded = new Snapshot(payload, tag, AntmailMailbox.fromTag(tag), requestKey(tag.getInt("Folder"),
                         tag.getString("Query"), tag.getBoolean("UnreadOnly"), tag.getBoolean("AttachmentsOnly")));
                 updateProfiles(tag);
+                updateJunk(tag);
                 snapshot = decoded;
                 mailbox = payload;
                 version = payload.version();
@@ -112,6 +118,8 @@ public final class AntmailClientState {
         version = 0L;
         DETAILS.clear();
         PROFILES.clear();
+        junkBlocked = java.util.List.of();
+        junkBlockAll = false;
     }
 
     public static AntmailAnternetResultPayload get() {
@@ -141,6 +149,43 @@ public final class AntmailClientState {
         } catch (RuntimeException ignored) {
             return new AntmailProfile("", "");
         }
+    }
+
+    public static java.util.List<JunkSender> junkBlocked() {
+        return junkBlocked;
+    }
+
+    public static boolean junkBlockAll() {
+        return junkBlockAll;
+    }
+
+    public static boolean junkSenderBlocked(String address) {
+        if (address == null) return false;
+        for (JunkSender sender : junkBlocked) if (sender.address().equalsIgnoreCase(address)) return true;
+        return false;
+    }
+
+    public static void setJunkSenderBlocked(String address, String name, boolean blocked) {
+        java.util.List<JunkSender> updated = new java.util.ArrayList<>(junkBlocked);
+        updated.removeIf(sender -> sender.address().equalsIgnoreCase(address));
+        if (blocked) updated.add(new JunkSender(address, name));
+        junkBlocked = java.util.List.copyOf(updated);
+    }
+
+    public static void setJunkBlockAll(boolean blocked) {
+        junkBlockAll = blocked;
+    }
+
+    private static void updateJunk(CompoundTag snapshot) {
+        if (!snapshot.contains("JunkBlocked", 9)) return;
+        java.util.List<JunkSender> loaded = new java.util.ArrayList<>();
+        ListTag rows = snapshot.getList("JunkBlocked", 10);
+        for (int i = 0; i < rows.size(); i++) {
+            CompoundTag row = rows.getCompound(i);
+            if (!row.getString("Address").isBlank()) loaded.add(new JunkSender(row.getString("Address"), row.getString("Name")));
+        }
+        junkBlocked = java.util.List.copyOf(loaded);
+        junkBlockAll = snapshot.getBoolean("JunkBlockAll");
     }
 
     private static void updateProfiles(CompoundTag snapshot) {

@@ -175,7 +175,8 @@ final class AntmailApp extends ComputerApp {
             boolean inboxSelected = activeFolder.equals("inbox");
             boolean sentSelected = activeFolder.equals("sent");
             boolean draftsSelected = activeFolder.equals("drafts");
-            boolean moreSelected = activeFolder.equals("archive") || activeFolder.equals("trash") || activeFolder.equals("profile");
+            boolean moreSelected = activeFolder.equals("archive") || activeFolder.equals("trash") || activeFolder.equals("profile")
+                    || activeFolder.equals("junk");
             int inboxX = x;
             int sentX = inboxX + folderSlotWidth;
             int draftsX = sentX + folderSlotWidth;
@@ -246,6 +247,8 @@ final class AntmailApp extends ComputerApp {
                 drawAction(g, x, actionY, 36, "BACK", Ui.ACCENT);
                 drawAction(g, x + 36 + actionGap, actionY, 70, "CLEAR ICON", Ui.ACCENT);
                 drawAction(g, x + navWidth - 44, actionY, 44, "SAVE", Ui.ACCENT);
+            } else if (state.mode.equals("junk")) {
+                renderJunk(g, x, y, navWidth, h);
             } else if (state.mode.equals("compose")) {
                 g.fill(x, y + 22, x + navWidth, y + 23, Ui.BORDER_STRONG);
                 AntmailComposeLayout composeLayout = composeLayout(y, h, navWidth);
@@ -354,7 +357,7 @@ final class AntmailApp extends ComputerApp {
                     String localizedSubject = AntOSPlayerText.apply(AntmailRenderMarkers.stripStyleMarkers(localizedMailText(message.subject())));
                     String localizedBody = AntOSPlayerText.apply(localizedMailText(message.body()));
                     String sharedProduct = antazonProductLink(localizedBody);
-                    AntmailDetailLayout detail = detailLayout(y, h, !sharedProduct.isBlank(), showRetry);
+                    AntmailDetailLayout detail = detailLayout(y, h, !sharedProduct.isBlank() || junkLink(message), showRetry);
                     if (corrupted) g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), Ui.CORRUPT_BACKGROUND);
                     String moveLabel = switch (state.originMode) {
                         case "archive" -> "INBOX";
@@ -393,6 +396,12 @@ final class AntmailApp extends ComputerApp {
                     g.drawString(font, Component.literal("TO    " + screen.trimToWidth(message.recipient().fullAddress(), navWidth - 39 - font.width("TO    "))), x + 31, detail.senderY() + 14, detailColor, false);
                     if (corrupted) localizedSubject = AntmailGlitchText.flicker(localizedSubject, 10, message.id().hashCode());
                     g.drawString(font, Component.literal(screen.trimToWidth(localizedSubject, navWidth - 6)), x, detail.subjectY(), headerColor, false);
+                    if (junkLink(message)) {
+                        String junkLabel = junkLinkLabel(message);
+                        int junkX = x + navWidth - font.width(junkLabel) - 6;
+                        boolean junkHover = screen.hovered(junkX, detail.productY() - 1, font.width(junkLabel), 11);
+                        g.drawString(font, Component.literal(junkLabel), junkX, detail.productY(), junkHover ? Ui.TEXT : Ui.TEXT_STRONG, false);
+                    }
                     if (!sharedProduct.isBlank()) g.drawString(font, Component.literal(sharedProduct.equals("merchant://deliveries") ? Component.translatable("computer.antos.merchant.open_mail_link").getString() : "[ OPEN ANTAZON PRODUCT ]"), x, detail.productY(), Ui.TEXT_STRONG, false);
                     float bodyTextScale = 0.85F;
                     int bodyLineAdvance = 9;
@@ -631,11 +640,12 @@ final class AntmailApp extends ComputerApp {
                 screen.beginLayer(g);
                 int menuWidth = Math.max(88, font.width("MY PROFILE") + 14);
                 int menuX = Math.max(x, Math.min(moreX, x + navWidth - menuWidth));
-                g.fill(menuX, y + 20, menuX + menuWidth, y + 76, Ui.BACKGROUND);
-                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 76, Ui.BORDER_STRONG);
+                g.fill(menuX, y + 20, menuX + menuWidth, y + 94, Ui.BACKGROUND);
+                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 94, Ui.BORDER_STRONG);
                 g.drawString(font, Component.literal("ARCHIVE"), menuX + 6, y + 25, Ui.TEXT, false);
                 g.drawString(font, Component.literal("TRASH"), menuX + 6, y + 43, Ui.TEXT, false);
                 g.drawString(font, Component.literal("MY PROFILE"), menuX + 6, y + 61, Ui.TEXT, false);
+                g.drawString(font, Component.literal("JUNK MAIL"), menuX + 6, y + 79, Ui.TEXT, false);
             }
             if (!state.undoActions.isEmpty() && System.currentTimeMillis() < state.undoActions.peekLast().until()
                     && !state.mode.equals("compose") && !state.mode.equals("message")) {
@@ -701,6 +711,109 @@ final class AntmailApp extends ComputerApp {
 
     private record AntmailComposeLayout(int width, int bodyTop, int footerTop, int summaryY, int bodyBottom,
                                         int pickerTop, int menuTop, int menuHeight, int pickerBottom) { }
+
+    private static final int JUNK_ROWS_TOP = 107;
+    private static final int JUNK_ROW_HEIGHT = 12;
+
+    private boolean junkLink(AntmailMessage message) {
+        return message != null && message.junk() && !message.fromPlayer() && !state.sent;
+    }
+
+    private String junkLinkLabel(AntmailMessage message) {
+        return AntmailClientState.junkSenderBlocked(message.sender().fullAddress()) ? "[ RESUBSCRIBE ]" : "[ UNSUBSCRIBE ]";
+    }
+
+    private void toggleJunkSender(AntmailMessage message) {
+        String address = message.sender().fullAddress();
+        String name = message.senderDisplay().isBlank() ? address : message.senderDisplay();
+        boolean block = !AntmailClientState.junkSenderBlocked(address);
+        AntmailClientState.setJunkSenderBlocked(address, name, block);
+        AntmailNetworking.setJunkSenderBlocked(address, block);
+        setStatus(block ? "UNSUBSCRIBED // NO MORE MAIL FROM " + name.toUpperCase(Locale.ROOT)
+                : "RESUBSCRIBED TO " + name.toUpperCase(Locale.ROOT));
+        requestState(true);
+    }
+
+    private int junkVisibleRows(int h) {
+        return Math.max(1, (h - 18 - JUNK_ROWS_TOP) / JUNK_ROW_HEIGHT);
+    }
+
+    private void renderJunk(ThemedGraphics g, int x, int y, int navWidth, int h) {
+        g.fill(x, y + 22, x + navWidth, y + 23, Ui.BORDER_STRONG);
+        g.drawString(font, Component.literal("JUNK MAIL"), x, y + 29, Ui.TEXT_STRONG, false);
+        drawAction(g, x + navWidth - 36, y + 25, 36, "BACK", Ui.ACCENT);
+        boolean blockAll = AntmailClientState.junkBlockAll();
+        boolean toggleHover = screen.hovered(x, y + 46, navWidth, 18);
+        g.fill(x, y + 46, x + navWidth, y + 64, toggleHover ? Ui.HOVER : Ui.SURFACE);
+        screen.box(g, x, y + 46, x + navWidth, y + 64, toggleHover ? Ui.TEXT : Ui.LINE);
+        g.drawString(font, Component.literal(screen.trimToWidth((blockAll ? "[X] " : "[ ] ") + "BLOCK ALL JUNK MAIL", navWidth - 8)),
+                x + 4, y + 51, blockAll ? Ui.TEXT_STRONG : Ui.TEXT, false);
+        List<net.minecraft.util.FormattedCharSequence> note = font.split(
+                Component.literal("Only random junk mail. Anything important still gets through."), Math.max(1, navWidth));
+        for (int line = 0; line < Math.min(2, note.size()); line++) {
+            g.drawString(font, note.get(line), x, y + 69 + line * 10, Ui.TEXT, false);
+        }
+        g.drawString(font, Component.literal("UNSUBSCRIBED"), x, y + 93, Ui.TEXT_STRONG, false);
+        g.fill(x, y + 103, x + navWidth, y + 104, Ui.LINE);
+        List<AntmailClientState.JunkSender> blocked = AntmailClientState.junkBlocked();
+        int visible = junkVisibleRows(h);
+        int maximum = Math.max(0, blocked.size() - visible);
+        state.listMaximumScroll = maximum;
+        state.listScroll = Math.max(0, Math.min(state.listScroll, maximum));
+        if (blocked.isEmpty()) {
+            List<net.minecraft.util.FormattedCharSequence> empty = font.split(
+                    Component.literal("Nothing here yet. Open an ad and click Unsubscribe."), Math.max(1, navWidth));
+            for (int line = 0; line < Math.min(2, empty.size()); line++) {
+                g.drawString(font, empty.get(line), x, y + JUNK_ROWS_TOP + line * 10, Ui.TEXT_PLACEHOLDER, false);
+            }
+            return;
+        }
+        String undo = "[ RESUBSCRIBE ]";
+        int undoWidth = font.width(undo);
+        int end = Math.min(blocked.size(), state.listScroll + visible);
+        for (int index = state.listScroll; index < end; index++) {
+            AntmailClientState.JunkSender sender = blocked.get(index);
+            int rowY = y + JUNK_ROWS_TOP + (index - state.listScroll) * JUNK_ROW_HEIGHT;
+            String name = sender.name().isBlank() ? sender.address() : sender.name();
+            g.drawString(font, Component.literal(screen.trimToWidth(name, navWidth - undoWidth - 16)), x, rowY, Ui.TEXT, false);
+            int undoX = x + navWidth - undoWidth - 6;
+            boolean hover = screen.hovered(undoX, rowY - 1, undoWidth, 11);
+            g.drawString(font, Component.literal(undo), undoX, rowY, hover ? Ui.TEXT : Ui.TEXT_STRONG, false);
+        }
+        screen.drawScrollbar(g, x + navWidth - 4, y + JUNK_ROWS_TOP, visible * JUNK_ROW_HEIGHT, visible, blocked.size(), state.listScroll, maximum);
+    }
+
+    private void clickJunk(double mouseX, double mouseY, int x, int y, int navWidth, int h) {
+        if (screen.inside(x + navWidth - 36, y + 25, 36, 18, mouseX, mouseY)) {
+            clearStatus();
+            state.mode = state.junkOriginMode;
+            state.sent = state.mode.equals("sent");
+            state.listScroll = 0;
+            requestState(true);
+            return;
+        }
+        if (screen.inside(x, y + 46, navWidth, 18, mouseX, mouseY)) {
+            boolean blockAll = !AntmailClientState.junkBlockAll();
+            AntmailClientState.setJunkBlockAll(blockAll);
+            AntmailNetworking.setBlockAllJunk(blockAll);
+            setStatus(blockAll ? "ALL JUNK MAIL BLOCKED" : "JUNK MAIL ALLOWED AGAIN");
+            requestState(true);
+            return;
+        }
+        List<AntmailClientState.JunkSender> blocked = AntmailClientState.junkBlocked();
+        String undo = "[ RESUBSCRIBE ]";
+        int undoWidth = font.width(undo);
+        int undoX = x + navWidth - undoWidth - 6;
+        if (mouseY < y + JUNK_ROWS_TOP - 1 || mouseX < undoX || mouseX >= undoX + undoWidth) return;
+        int index = (int) ((mouseY - (y + JUNK_ROWS_TOP - 1)) / JUNK_ROW_HEIGHT) + state.listScroll;
+        if (index < state.listScroll || index >= Math.min(blocked.size(), state.listScroll + junkVisibleRows(h))) return;
+        AntmailClientState.JunkSender sender = blocked.get(index);
+        String name = sender.name().isBlank() ? sender.address() : sender.name();
+        AntmailClientState.setJunkSenderBlocked(sender.address(), name, false);
+        AntmailNetworking.setJunkSenderBlocked(sender.address(), false);
+        setStatus("RESUBSCRIBED TO " + name.toUpperCase(Locale.ROOT));
+        requestState(true);
+    }
 
     private boolean canReply(AntmailMessage message) {
         return !state.sent && message.fromPlayer() && message.definitionId().isBlank();
@@ -999,7 +1112,7 @@ final class AntmailApp extends ComputerApp {
                 ? selectedMessage(AntmailClientState.getMailbox()) : null;
         boolean showRetry = trackMessage != null && state.sent && !trackMessage.deliveryStatus().equals("DELIVERED");
         String trackBody = trackMessage == null ? "" : AntOSPlayerText.apply(localizedMailText(trackMessage.body()));
-        AntmailDetailLayout detailLayout = detailLayout(contentY, contentH, !antazonProductLink(trackBody).isBlank(), showRetry);
+        AntmailDetailLayout detailLayout = detailLayout(contentY, contentH, !antazonProductLink(trackBody).isBlank() || junkLink(trackMessage), showRetry);
         int antmailDetailTrackHeight = Math.max(1, detailLayout.bodyBottom() - detailLayout.bodyTop());
         boolean antmailDetailTrack = state.mode.equals("message")
                 && screen.inside(contentX + contentW - 6, detailLayout.bodyTop(), 6, antmailDetailTrackHeight, mouseX, mouseY);
@@ -1122,6 +1235,21 @@ final class AntmailApp extends ComputerApp {
             state.profileDisplayName = profile.displayName();
             state.profileAvatarItem = profile.avatarItem();
             state.profileStatus = "";
+        } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
+                navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 76,
+                Math.max(88, font.width("MY PROFILE") + 14), 18, mouseX, mouseY)) {
+            state.moreOpen = false;
+            state.junkOriginMode = state.mode.equals("message") ? state.originMode : state.mode;
+            if (state.junkOriginMode.equals("junk") || state.junkOriginMode.equals("profile") || state.junkOriginMode.equals("compose")) {
+                state.junkOriginMode = "inbox";
+            }
+            clearStatus();
+            state.mode = "junk";
+            state.searchFocused = false;
+            state.focused = false;
+            state.listScroll = 0;
+            state.messageId = null;
+            requestState(true);
         } else if (screen.inside(contentX + composeX, contentY, navWidth - composeX, 20, mouseX, mouseY)) {
             state.moreOpen = false;
             state.searchFocused = false;
@@ -1159,6 +1287,8 @@ final class AntmailApp extends ComputerApp {
             } else {
                 state.searchFocused = false;
             }
+        } else if (state.mode.equals("junk")) {
+            clickJunk(mouseX, mouseY, contentX, contentY, navWidth, contentH);
         } else if (state.mode.equals("profile")) {
             int actionY = contentY + 151;
             if (screen.inside(contentX + 40, contentY + 55, Math.max(1, navWidth - 40), 18, mouseX, mouseY)) {
@@ -1221,7 +1351,15 @@ final class AntmailApp extends ComputerApp {
             boolean replyAvailable = message != null && canReply(message);
             boolean messageShowRetry = message != null && state.sent && !message.deliveryStatus().equals("DELIVERED");
             String localizedBody = message == null ? "" : AntOSPlayerText.apply(localizedMailText(message.body()));
-            AntmailDetailLayout detail = detailLayout(contentY, contentH, !antazonProductLink(localizedBody).isBlank(), messageShowRetry);
+            AntmailDetailLayout detail = detailLayout(contentY, contentH, !antazonProductLink(localizedBody).isBlank() || junkLink(message), messageShowRetry);
+            if (junkLink(message)) {
+                String junkLabel = junkLinkLabel(message);
+                int junkX = contentX + navWidth - font.width(junkLabel) - 6;
+                if (screen.inside(junkX, detail.productY() - 1, font.width(junkLabel), 11, mouseX, mouseY)) {
+                    toggleJunkSender(message);
+                    return true;
+                }
+            }
             int actionX = contentX + 38;
             if (replyAvailable && screen.inside(actionX, detail.actionY(), 42, 18, mouseX, mouseY)) {
                 startReply(message);
@@ -1435,13 +1573,13 @@ final class AntmailApp extends ComputerApp {
             boolean showRetry = message != null && state.sent && !message.deliveryStatus().equals("DELIVERED");
             String body = message == null ? "" : AntOSPlayerText.apply(localizedMailText(message.body()));
             AntmailDetailLayout detail = detailLayout(contentY, screen.windowHeight(window) - 34,
-                    !antazonProductLink(body).isBlank(), showRetry);
+                    !antazonProductLink(body).isBlank() || junkLink(message), showRetry);
             if (screen.inside(contentX, detail.bodyTop(), contentW, detail.bodyBottom() - detail.bodyTop(), localX, localY)) {
                 state.detailScroll = Math.max(0, Math.min(state.detailMaximumScroll,
                         state.detailScroll - (int) Math.signum(scrollY)));
             }
         } else if (state.mode.equals("inbox") || state.mode.equals("sent") || state.mode.equals("drafts")
-                || state.mode.equals("archive") || state.mode.equals("trash")) {
+                || state.mode.equals("archive") || state.mode.equals("trash") || state.mode.equals("junk")) {
             state.listScroll = Math.max(0, Math.min(state.listMaximumScroll,
                     state.listScroll - (int) Math.signum(scrollY)));
         }
@@ -1975,6 +2113,7 @@ final class AntmailApp extends ComputerApp {
         String profileDisplayName = "";
         String profileAvatarItem = "";
         String profileOriginMode = "inbox";
+        String junkOriginMode = "inbox";
         String profileStatus = "";
         boolean profilePending;
         AntmailAnternetResultPayload profileBaseline;

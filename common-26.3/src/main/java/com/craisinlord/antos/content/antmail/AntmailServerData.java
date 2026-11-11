@@ -49,6 +49,9 @@ public final class AntmailServerData extends SavedData {
     private final Map<AntmailAddress, Set<Identifier>> packageClaims = new LinkedHashMap<>();
     private final Map<AntmailAddress, Set<Identifier>> pendingPackages = new LinkedHashMap<>();
     private long randomMailDay = Long.MIN_VALUE;
+    private static final int MAX_BLOCKED_SENDERS = 256;
+    private final Map<AntmailAddress, Set<String>> blockedJunkSenders = new LinkedHashMap<>();
+    private final Set<AntmailAddress> blockAllJunk = new LinkedHashSet<>();
 
     public static AntmailServerData create() {
         return new AntmailServerData();
@@ -148,6 +151,25 @@ public final class AntmailServerData extends SavedData {
         loadIdSets(tag.getListOrEmpty("CompletedTasks"), data.completedTasks);
         loadIdSets(tag.getListOrEmpty("PackageClaims"), data.packageClaims);
         loadIdSets(tag.getListOrEmpty("PendingPackages"), data.pendingPackages);
+        ListTag junkTags = tag.getListOrEmpty("JunkBlocked");
+        for (int i = 0; i < junkTags.size(); i++) {
+            try {
+                CompoundTag row = junkTags.getCompoundOrEmpty(i);
+                Set<String> senders = new LinkedHashSet<>();
+                ListTag senderTags = row.getListOrEmpty("Senders");
+                for (int j = 0; j < senderTags.size(); j++) senders.add(normalizeSender(senderTags.getStringOr(j, "")));
+                senders.remove("");
+                if (!senders.isEmpty()) data.blockedJunkSenders.put(AntmailAddress.parse(row.getStringOr("Address", "")), senders);
+            } catch (RuntimeException ignored) {
+            }
+        }
+        ListTag blockAllTags = tag.getListOrEmpty("JunkBlockAll");
+        for (int i = 0; i < blockAllTags.size(); i++) {
+            try {
+                data.blockAllJunk.add(AntmailAddress.parse(blockAllTags.getStringOr(i, "")));
+            } catch (RuntimeException ignored) {
+            }
+        }
         ListTag profileTags = tag.getListOrEmpty("AntmailProfiles");
         for (int i = 0; i < profileTags.size(); i++) {
             CompoundTag profileTag = profileTags.getCompoundOrEmpty(i);
@@ -271,6 +293,20 @@ public final class AntmailServerData extends SavedData {
         tag.put("CompletedTasks", saveIdSets(completedTasks));
         tag.put("PackageClaims", saveIdSets(packageClaims));
         tag.put("PendingPackages", saveIdSets(pendingPackages));
+        ListTag junkTags = new ListTag();
+        for (Map.Entry<AntmailAddress, Set<String>> entry : blockedJunkSenders.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            CompoundTag row = new CompoundTag();
+            row.putString("Address", entry.getKey().fullAddress());
+            ListTag senderTags = new ListTag();
+            for (String sender : entry.getValue()) senderTags.add(net.minecraft.nbt.StringTag.valueOf(sender));
+            row.put("Senders", senderTags);
+            junkTags.add(row);
+        }
+        tag.put("JunkBlocked", junkTags);
+        ListTag blockAllTags = new ListTag();
+        for (AntmailAddress address : blockAllJunk) blockAllTags.add(net.minecraft.nbt.StringTag.valueOf(address.fullAddress()));
+        tag.put("JunkBlockAll", blockAllTags);
         ListTag profileTags = new ListTag();
         for (Map.Entry<AntmailAddress, AntmailProfile> entry : profiles.entrySet()) {
             CompoundTag profileTag = new CompoundTag();
@@ -646,6 +682,59 @@ public final class AntmailServerData extends SavedData {
 
     public synchronized long mailboxVersion(AntmailAddress address) {
         return mailboxVersions.getOrDefault(address, 1L);
+    }
+
+    public static String normalizeSender(String sender) {
+        if (sender == null || sender.isBlank()) return "";
+        try {
+            return (sender.contains("@") ? AntmailAddress.parse(sender) : AntmailAddress.ofUsername(sender)).fullAddress();
+        } catch (RuntimeException ignored) {
+            return sender.trim().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    public synchronized boolean junkBlocked(AntmailAddress address, String sender) {
+        if (address == null) return false;
+        if (blockAllJunk.contains(address)) return true;
+        Set<String> blocked = blockedJunkSenders.get(address);
+        return blocked != null && blocked.contains(normalizeSender(sender));
+    }
+
+    public synchronized boolean blocksAllJunk(AntmailAddress address) {
+        return address != null && blockAllJunk.contains(address);
+    }
+
+    public synchronized List<String> blockedJunkSenders(AntmailAddress address) {
+        Set<String> blocked = address == null ? null : blockedJunkSenders.get(address);
+        return blocked == null ? List.of() : List.copyOf(blocked);
+    }
+
+    public synchronized boolean setJunkSenderBlocked(AntmailAddress address, String sender, boolean blocked) {
+        String normalized = normalizeSender(sender);
+        if (address == null || normalized.isEmpty()) return false;
+        Set<String> senders = blockedJunkSenders.computeIfAbsent(address, ignored -> new LinkedHashSet<>());
+        boolean changed;
+        if (blocked) {
+            if (!senders.contains(normalized) && senders.size() >= MAX_BLOCKED_SENDERS) return false;
+            changed = senders.add(normalized);
+        } else {
+            changed = senders.remove(normalized);
+        }
+        if (senders.isEmpty()) blockedJunkSenders.remove(address);
+        if (changed) {
+            bumpVersion(address);
+            setDirty();
+        }
+        return true;
+    }
+
+    public synchronized void setBlockAllJunk(AntmailAddress address, boolean blocked) {
+        if (address == null) return;
+        boolean changed = blocked ? blockAllJunk.add(address) : blockAllJunk.remove(address);
+        if (changed) {
+            bumpVersion(address);
+            setDirty();
+        }
     }
 
     public synchronized void touchMailbox(AntmailAddress address) {

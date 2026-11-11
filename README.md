@@ -836,6 +836,7 @@ Every profile automatically gets `<username>@antmail.com`. Data-driven messages 
 | `deliver_window` | Minecraft-time window for arrival. Messages wait in a queue until conditions and window allow. |
 | `antcoins` | Positive whole number credited on delivery, shown as a transfer line. Repeating mail pays each time. Nothing is paid or shown while Antazon is disabled. |
 | `delivery` | Grants item stacks when the message is read (default) or arrives (`"on": "deliver"`). Separate from attachments. |
+| `blockable` | `random` messages are junk mail that players can unsubscribe from. `false` keeps this one unblockable. See [junk mail](#junk-mail-and-unsubscribing). |
 
 ### Presentation
 
@@ -889,11 +890,17 @@ With JEI installed, AntOS and JEI hand off to each other and each jump returns w
 }
 ```
 
-Point random messages at it with `"trigger": { "type": "random", "pool": "examplemod:field_rumors", "weight": 2 }`. A pool draws unseen eligible messages by weight for each profile, then cycles once all have been seen.
+Point random messages at it with `"trigger": { "type": "random", "pool": "examplemod:field_rumors", "weight": 2 }`. A pool draws unseen eligible messages by weight for each profile, then cycles once all have been seen. Messages the player has blocked are left out of the draw. Add `"blockable": false` to the pool file to make every message in it unblockable.
 
 ### Subscription-only mail
 
 Add `"subscription_only": true` to a pool file, or to a single message's random `trigger`. Those messages are only eligible for profiles subscribed to the message or its pool through a disk's or terminal command's `subscribe`. Chances, weights, schedules, conditions, and `once` still apply. Without the flag, random mail is open to everyone. Rewards and commands bypass trigger eligibility. The template includes a restricted pool and a standalone subscribed message.
+
+### Junk mail and unsubscribing
+
+Every data-defined message with a `random` trigger counts as junk mail. Players can open one and click **[ UNSUBSCRIBE ]** to stop all random mail from that sender address. **MORE > JUNK MAIL** lists the senders they unsubscribed from (each with **[ RESUBSCRIBE ]**) and has a **BLOCK ALL JUNK MAIL** toggle. Both settings are saved per Antmail address on the server. Blocking only skips random mail. Advancement, task, `mail_read`, reward and command mail from the same sender still arrives, and so does player mail.
+
+To keep a random message unblockable (story mail written as random drops, for example), add `"blockable": false` to the message, or to its pool file to cover the whole pool. Unsubscribing never removes a disk subscription, so resubscribing brings the newsletter back.
 
 ## Antazon
 
@@ -1142,7 +1149,7 @@ Custom Terminal commands are matched on the server, and their definitions never 
 **Matching.**
 
 - `command` and up to eight `aliases` use 1–32 lowercase letters, digits, `.`, `_`, or `-`.
-- Typed arguments must match `arguments` exactly, in order and count, with no wildcards. Quoting works as usual (`"open vault"` is one argument).
+- Typed arguments must match `arguments` in order and count. An argument written as `"*"` matches any one word, and `"variadic": true` also accepts any number of extra words after the last argument. Quoting works as usual (`"open vault"` is one argument).
 - Matching ignores case unless `case_sensitive: true`.
 - Several definitions can share a name with different arguments. If two share both name and arguments, the first by ID wins.
 
@@ -1172,6 +1179,7 @@ Custom Terminal commands are matched on the server, and their definitions never 
 - Files without a folder go under `Terminal/<command>/`. Programs from a command stay in Games permanently, with no disk needed. Rewards use the disk reward types.
 - `once` (default `true`) grants effects on each profile's first run; with `"once": false`, rewards pay on every run.
 - `open` opens a file in Text or Paint after the output finishes.
+- `action` names a server-side action another mod registered with `TerminalActionRegistry.register(id, action)` (`com.craisinlord.antos.api.terminal`). It runs every time the command matches, after requirements pass. It gets the player, the computer block's position (`null` on a phone or other remote workspace), and every typed argument. Its lines print after `output`. Text can be a translation key with `%s` slots filled from the line's arguments. If the action returns an error, the command stops: nothing counts as run and no effects are granted. An unregistered action prints a "not available on this system" error.
 
 Every successful run is saved on the profile and counts for `requires.commands`, Antazon `unlock_commands`, and `terminal_command` objectives. The first run sends the Antazon unlock email if it unlocks listings. Commands with requirements or effects need a signed-in account; output-only commands work for anyone.
 
@@ -1331,7 +1339,7 @@ The `/antos tasks` commands without a player argument act on your own signed-in 
 - **Disks.** Inserting a disk adds it to the profile. **EJECT DISK** in the Disks Library drops it at the player; permanent unlocks are kept and one-time rewards are never repeated. Inserting an already-installed disk leaves it in hand with **Already installed**. Phones can queue disks before sign-in and return duplicates. Disks on older computers migrate into a profile the first time it's opened there.
 - **Disks Library.** Disks are grouped by category with collection counts, search, and filters. Undiscovered disks show as silhouettes with `???`, and search never reveals them. Disk pages link to their entries, tasks, wallpapers, games, files, and Antazon listings. Links to disabled apps are inactive.
 - **Tasks app.** Drag to pan, scroll or Shift+scroll to move, and Ctrl+wheel or `-`/`+` to zoom. **CENTER** frames the tab and **FIND**/Ctrl+F searches. Locked tasks show a lock, and a `!` marks claimable rewards. Clicking a prerequisite opens it; one in another tab asks first. Clicking an item icon shows its recipe.
-- **Antmail.** Players can write to each other and attach text files, Paint images, or AntCoins (when Antazon is on).
+- **Antmail.** Players can write to each other and attach text files, Paint images, or AntCoins (when Antazon is on). Random mail shows **[ UNSUBSCRIBE ]**, and **MORE > JUNK MAIL** lists unsubscribed senders and has a block-all toggle.
 
 ## Troubleshooting
 

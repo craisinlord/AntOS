@@ -74,6 +74,8 @@ public final class AntmailServerHandler {
             case AntmailAnternetPayload.PERMANENT_DELETE -> handlePermanentDelete(player, payload.first());
             case AntmailAnternetPayload.UNARCHIVE -> handleUnarchive(player, payload.first(), parseFolder(payload.second(), 0));
             case AntmailAnternetPayload.UPDATE_PROFILE -> handleProfileUpdate(player, payload.first(), payload.second());
+            case AntmailAnternetPayload.JUNK_BLOCK -> handleJunkBlock(player, payload.first(), Boolean.parseBoolean(payload.second()));
+            case AntmailAnternetPayload.JUNK_BLOCK_ALL -> handleJunkBlockAll(player, Boolean.parseBoolean(payload.first()));
             default -> result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "invalid_action", "");
         }
     }
@@ -270,6 +272,53 @@ public final class AntmailServerHandler {
         }
         data.setProfile(address, displayName, avatarItem, player.level().getServer());
         sendProfileUpdateResult(player, data, address, "profile_saved", AntmailDeliveryResult.Status.DELIVERED);
+    }
+
+    private static void handleJunkBlock(ServerPlayer player, String senderInput, boolean blocked) {
+        if (authorizedComputer(player) == null) {
+            result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "unauthorized", "");
+            return;
+        }
+        AntmailServerData data = AntmailServerData.access(player.level().getServer());
+        AntmailAddress address = addressFor(player, data);
+        if (address == null) {
+            result(player, AntmailDeliveryResult.Status.ADDRESS_NOT_FOUND.ordinal(), "", "", "unconfigured", "");
+            return;
+        }
+        String sender = senderInput == null || senderInput.length() > 64 ? "" : senderInput.trim();
+        if (sender.isEmpty() || blocked && !com.craisinlord.antos.content.antmail.AntmailEventData.isJunkSender(sender)
+                || !data.setJunkSenderBlocked(address, sender, blocked)) {
+            result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), address.fullAddress(), "", "junk_failed", "");
+            return;
+        }
+        result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), "", blocked ? "junk_blocked" : "junk_unblocked", "");
+    }
+
+    private static void handleJunkBlockAll(ServerPlayer player, boolean blocked) {
+        if (authorizedComputer(player) == null) {
+            result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "unauthorized", "");
+            return;
+        }
+        AntmailServerData data = AntmailServerData.access(player.level().getServer());
+        AntmailAddress address = addressFor(player, data);
+        if (address == null) {
+            result(player, AntmailDeliveryResult.Status.ADDRESS_NOT_FOUND.ordinal(), "", "", "unconfigured", "");
+            return;
+        }
+        data.setBlockAllJunk(address, blocked);
+        result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), "", "junk_saved", "");
+    }
+
+    private static void appendJunkSettings(AntmailServerData data, net.minecraft.nbt.CompoundTag snapshot, AntmailAddress address) {
+        net.minecraft.nbt.ListTag blocked = new net.minecraft.nbt.ListTag();
+        for (String sender : data.blockedJunkSenders(address)) {
+            net.minecraft.nbt.CompoundTag row = new net.minecraft.nbt.CompoundTag();
+            row.putString("Address", sender);
+            row.putString("Name", com.craisinlord.antos.content.antmail.AntmailEventData.junkSenderName(sender));
+            blocked.add(row);
+        }
+        snapshot.put("JunkBlocked", blocked);
+        snapshot.putBoolean("JunkBlockAll", data.blocksAllJunk(address));
     }
 
     private static void sendProfileUpdateResult(ServerPlayer player, AntmailServerData data, AntmailAddress address,
@@ -484,6 +533,7 @@ public final class AntmailServerHandler {
         while (true) {
             var snapshot = mailbox.toPageTag(folder, page, query, unreadOnly, attachmentsOnly, draftAttachments, maxRows);
             data.appendProfiles(snapshot, address);
+            appendJunkSettings(data, snapshot, address);
             String encoded = encodeOrNull(snapshot);
             if (encoded != null && encoded.length() <= MAX_RESULT_DATA_CHARS) return encoded;
             int rows = snapshot.getIntOr("PageSize", 0);

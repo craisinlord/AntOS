@@ -512,6 +512,7 @@
   "computer.antos.terminal.error.unterminated_quote": "ERROR: UNTERMINATED QUOTE",
   "computer.antos.terminal.error.argument_too_long": "ERROR: ARGUMENT TOO LONG",
   "computer.antos.terminal.error.invalid_command": "ERROR: UNKNOWN COMMAND: %s (TRY HELP)",
+  "computer.antos.terminal.error.action_unavailable": "ERROR: %s IS NOT AVAILABLE ON THIS SYSTEM",
   "computer.antos.terminal.error.no_help": "ERROR: NO HELP FOR %s",
   "computer.antos.terminal.error.path_not_found": "ERROR: PATH NOT FOUND: %s",
   "computer.antos.terminal.error.usage": "USAGE: %s",

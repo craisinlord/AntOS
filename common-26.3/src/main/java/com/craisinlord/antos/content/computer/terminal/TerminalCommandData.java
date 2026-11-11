@@ -140,14 +140,22 @@ public final class TerminalCommandData {
             return false;
         }).toList();
         String open = string(object, "open", "");
-        if (output.isEmpty() && lockedOutput.isEmpty() && rewards.isEmpty() && !requires.any() && open.isBlank()
+        String actionText = string(object, "action", "");
+        Identifier action = actionText.isBlank() ? null : Identifier.tryParse(actionText);
+        if (!actionText.isBlank() && action == null) {
+            AntOS.LOGGER.warn("Ignoring terminal command {} because 'action' is not a valid ID", id);
+            return null;
+        }
+        boolean variadic = bool(object, "variadic", false);
+        if (output.isEmpty() && lockedOutput.isEmpty() && rewards.isEmpty() && !requires.any() && open.isBlank() && action == null
                 && ids(object, "entries").isEmpty() && ids(object, "tasks").isEmpty() && features.files().isEmpty() && features.programs().isEmpty()) {
             AntOS.LOGGER.warn("Ignoring terminal command {} because it has no output and does nothing", id);
             return null;
         }
         return new Definition(id, List.copyOf(names), List.copyOf(arguments), caseSensitive, hidden, usage, string(object, "description", ""),
                 string(object, "hint", ""), requires, output, lockedOutput, bool(object, "once", true), bool(object, "clear", false),
-                ids(object, "entries"), ids(object, "tasks"), wallpaperId, features.files(), features.programs(), features.subscriptions(), rewards, open);
+                ids(object, "entries"), ids(object, "tasks"), wallpaperId, features.files(), features.programs(), features.subscriptions(), rewards, open,
+                action, variadic);
     }
 
     private static List<Line> lines(Identifier id, JsonElement element, String style, boolean typing, int speed) {
@@ -224,7 +232,7 @@ public final class TerminalCommandData {
                              String usage, String description, String hint, Requirements requires, List<Line> output, List<Line> lockedOutput,
                              boolean once, boolean clear, List<Identifier> entries, List<Identifier> tasks, Identifier wallpaper,
                              List<DiskFeatures.File> files, List<Identifier> programs, List<Identifier> subscriptions,
-                             List<ComputerGuideData.TaskReward> rewards, String open) {
+                             List<ComputerGuideData.TaskReward> rewards, String open, Identifier action, boolean variadic) {
         public String command() { return names.get(0); }
 
         public boolean hasEffects() {
@@ -232,8 +240,9 @@ public final class TerminalCommandData {
         }
 
         public boolean matches(List<String> given) {
-            if (given.size() != arguments.size()) return false;
-            for (int index = 0; index < given.size(); index++) {
+            if (variadic ? given.size() < arguments.size() : given.size() != arguments.size()) return false;
+            for (int index = 0; index < arguments.size(); index++) {
+                if (arguments.get(index).equals("*")) continue;
                 if (caseSensitive ? !given.get(index).equals(arguments.get(index)) : !given.get(index).equalsIgnoreCase(arguments.get(index))) return false;
             }
             return true;
