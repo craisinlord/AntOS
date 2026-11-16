@@ -151,7 +151,6 @@ final class TasksApp extends ComputerApp {
     private List<ComputerTasksClientState.TaskRow> viewReadyRows = List.of();
     private List<ComputerTasksClientState.TaskRow> claimScopeRows;
     private List<ComputerTasksClientState.TaskRow> claimableRows;
-    private String claimScopeCategory;
     private String claimScopeQuery;
     private final Map<String, String> staticTranslations = new HashMap<>();
     private Object staticTranslationsLanguage;
@@ -170,6 +169,9 @@ final class TasksApp extends ComputerApp {
     private long claimPendingSince;
     private final List<String> claimBatchRemaining = new ArrayList<>();
     private int claimBatchNumber;
+    private int idleRefreshTicks;
+    private List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> readyCountRows;
+    private int readyCount;
     private static final long CLAIM_TIMEOUT_MS = 10000L;
     private boolean pinPending;
     private long seenClaimSequence;
@@ -188,12 +190,26 @@ final class TasksApp extends ComputerApp {
     private int[] pickerReadyButton = new int[4];
     private final List<PoolChoiceButton> pickerButtons = new ArrayList<>();
 
-    void tick(boolean windowOpen) {
+    void tick(boolean loggedIn, boolean windowOpen) {
         if (windowOpen && (!windowWasOpen || --refreshTicks <= 0)) {
             ComputerNetworking.requestTasks(com.craisinlord.antos.content.client.ComputerTasksClientState.requestToken());
             refreshTicks = 40;
+        } else if (!windowOpen && loggedIn && --idleRefreshTicks <= 0) {
+            ComputerNetworking.requestTasks(com.craisinlord.antos.content.client.ComputerTasksClientState.requestToken());
+            idleRefreshTicks = 200;
         }
         windowWasOpen = windowOpen;
+    }
+
+    int readyCount() {
+        List<com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow> rows = com.craisinlord.antos.content.client.ComputerTasksClientState.get();
+        if (rows != readyCountRows) {
+            int count = 0;
+            for (var row : rows) if (row.visible() && !row.isLink() && row.claimable()) count++;
+            readyCountRows = rows;
+            readyCount = count;
+        }
+        return readyCount;
     }
 
     void opened() {
@@ -2215,10 +2231,12 @@ final class TasksApp extends ComputerApp {
                     shownSummary = summary;
                     summaryUntil = System.currentTimeMillis() + 8000L;
                 }
-                if (summary.error().equals("busy")) showNotice(tr("busy"));
-                else if (!summary.failedIds().isEmpty()) showNotice(failedClaimNotice(summary.failedIds()));
+                if (summary.error().equals("busy")) {
+                    showNotice(tr("busy"));
+                    claimBatchRemaining.clear();
+                } else if (!summary.failedIds().isEmpty()) showNotice(failedClaimNotice(summary.failedIds()));
                 else if (summary.claimed() == 0) showNotice(tr("claim_failed"));
-                if (summary.claimed() > 0 && summary.failedIds().isEmpty() && !claimBatchRemaining.isEmpty()) {
+                if (!claimBatchRemaining.isEmpty()) {
                     claimBatchNumber++;
                     sendNextClaimBatch();
                 } else if (claimBatchRemaining.isEmpty()) {
@@ -2287,16 +2305,14 @@ final class TasksApp extends ComputerApp {
 
     private List<ComputerTasksClientState.TaskRow> tasksInClaimScope() {
         String query = searchText.trim().toLowerCase(Locale.ROOT);
-        if (claimScopeRows != null && query.equals(claimScopeQuery) && java.util.Objects.equals(selectedCategory, claimScopeCategory)) return claimScopeRows;
+        if (claimScopeRows != null && query.equals(claimScopeQuery)) return claimScopeRows;
         List<ComputerTasksClientState.TaskRow> result = new ArrayList<>();
         for (var row : viewVisibleRows) {
-            if (!selectedCategory.isBlank() && !selectedCategory.equals(row.category())) continue;
             if (!query.isEmpty() && !plain(row.title()).toLowerCase(Locale.ROOT).contains(query)
                     && !plain(row.description()).toLowerCase(Locale.ROOT).contains(query)) continue;
             result.add(row);
         }
         claimScopeRows = result;
-        claimScopeCategory = selectedCategory;
         claimScopeQuery = query;
         claimableRows = null;
         return result;
@@ -2322,7 +2338,7 @@ final class TasksApp extends ComputerApp {
         List<ComputerTasksClientState.TaskRow> claimable = claimableTasks();
         if (claimable.isEmpty()) return;
         claimBatchRemaining.clear();
-        claimBatchNumber = 0;
+        claimBatchNumber = 1;
         List<String> choices = new ArrayList<>();
         List<String> ready = new ArrayList<>();
         for (var task : claimable) (needsChoice(task) ? choices : ready).add(task.id());
@@ -2337,9 +2353,12 @@ final class TasksApp extends ComputerApp {
     }
 
     private void sendClaim(List<String> taskIds) {
+        if (claimPending) {
+            for (String taskId : taskIds) if (!claimBatchRemaining.contains(taskId)) claimBatchRemaining.add(taskId);
+            return;
+        }
         claimBatchRemaining.clear();
         claimBatchRemaining.addAll(taskIds);
-        claimBatchNumber = 1;
         sendNextClaimBatch();
     }
 

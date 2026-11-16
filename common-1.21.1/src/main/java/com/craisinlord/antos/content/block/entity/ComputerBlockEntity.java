@@ -97,6 +97,10 @@ public final class ComputerBlockEntity extends BlockEntity implements GeoBlockEn
     private boolean neighborSignal(Level level, BlockPos pos) {
         long now = level.getGameTime();
         if (!neighborSignalKnown || now - neighborSignalCheckedAt >= 20L || now < neighborSignalCheckedAt) {
+            // A computer at a chunk edge would otherwise load (or generate) the next chunk on the server thread.
+            if (!level.hasChunksAt(pos.offset(-1, 0, -1), pos.offset(1, 0, 1))) {
+                return neighborSignal;
+            }
             neighborSignal = level.hasNeighborSignal(pos);
             neighborSignalKnown = true;
             neighborSignalCheckedAt = now;

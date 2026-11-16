@@ -160,6 +160,8 @@ public final class AntmailMailbox {
             if (!normalizedQuery.isBlank() && !message.searchText().contains(normalizedQuery)) continue;
             filtered.add(message);
         }
+        java.util.Collections.reverse(filtered);
+        filtered.sort(java.util.Comparator.comparingLong(AntmailMessage::createdAt).reversed());
         List<AntmailMessage> rows = filtered.size() > maxRows ? filtered.subList(0, Math.max(0, maxRows)) : filtered;
         int unread = 0;
         for (AntmailMessage message : inbox) if (!message.read()) unread++;

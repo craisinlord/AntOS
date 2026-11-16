@@ -56,6 +56,10 @@ public final class AntmailNetworking {
         sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.READ, messageId.toString(), "true", "", "", "", 0L, 0L));
     }
 
+    public static void markAllRead() {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.READ, "*", "true", "", "", "", 0L, 0L));
+    }
+
     public static void markUnread(UUID messageId) {
         sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.READ, messageId.toString(), "false", "", "", "", 0L, 0L));
     }

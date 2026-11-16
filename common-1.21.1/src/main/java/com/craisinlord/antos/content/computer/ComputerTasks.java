@@ -112,7 +112,13 @@ public final class ComputerTasks {
         int processed = 0;
         for (Map.Entry<ResourceLocation, Map<Integer, String>> request : requests.entrySet()) {
             if (processed++ >= MAX_CLAIM_ALL) break;
-            List<ComputerGuideData.TaskReward> taskReceipt = claimTask(player, computer, request.getKey(), request.getValue(), stacks);
+            List<ComputerGuideData.TaskReward> taskReceipt;
+            try {
+                taskReceipt = claimTask(player, computer, request.getKey(), request.getValue(), stacks);
+            } catch (RuntimeException exception) {
+                AntOS.LOGGER.error("Failed to claim task {} for {}", request.getKey(), player.getGameProfile().getName(), exception);
+                taskReceipt = null;
+            }
             if (taskReceipt == null) failed.add(request.getKey());
             else {
                 claimed.add(request.getKey());

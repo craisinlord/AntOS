@@ -330,6 +330,25 @@ public final class AntmailServerHandler {
         return AntmailServerData.access(server).accountIdForAddress(server, address);
     }
 
+    private static void markAllRead(ServerPlayer player, ComputerWorkspace computer, AntmailServerData data, AntmailAddress address) {
+        AntmailMailbox mailbox = data.mailboxOrCreate(address);
+        List<AntmailMessage> unread = mailbox.inbox().stream().filter(message -> !message.read()).toList();
+        boolean archiveChanged = false;
+        for (AntmailMessage message : unread) {
+            mailbox.markRead(message.id());
+            if (message.definitionId().isBlank()) continue;
+            try {
+                unlockArchivePages(player, computer, message);
+                com.craisinlord.antos.content.computer.ComputerTasks.recordEvent(player, computer, "mail_read", net.minecraft.resources.ResourceLocation.parse(message.definitionId()));
+                archiveChanged = true;
+            } catch (RuntimeException ignored) { }
+            com.craisinlord.antos.content.antmail.AntmailEventData.onMailRead(player, address, message);
+        }
+        if (!unread.isEmpty()) data.touchMailbox(address);
+        if (archiveChanged) ComputerAccessHandler.sendArchive(player, computer);
+        result(player, unread.isEmpty() ? AntmailDeliveryResult.Status.FAILED.ordinal() : AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), "*", unread.isEmpty() ? "not_found" : "", "");
+    }
+
     public static void handle(ServerPlayer player, AntmailReadPayload payload) {
         ComputerWorkspace computer = authorizedComputer(player);
         if (computer == null) {
@@ -340,6 +359,10 @@ public final class AntmailServerHandler {
         AntmailAddress address = addressFor(player, data);
         if (address == null) {
             result(player, AntmailDeliveryResult.Status.ADDRESS_NOT_FOUND.ordinal(), "", payload.messageId(), "unconfigured", "");
+            return;
+        }
+        if (payload.read() && payload.messageId().equals("*")) {
+            markAllRead(player, computer, data, address);
             return;
         }
         try {

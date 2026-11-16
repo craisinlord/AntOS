@@ -314,7 +314,7 @@ public final class ComputerScreen extends Screen {
         session.antmail.tick(loggedIn);
         session.merchant.tick(loggedIn, loggedIn && session.windows.stream().anyMatch(window -> window.type.equals("MERCHANT") && !window.minimized));
         session.antazon.tick(loggedIn, session.windows.stream().anyMatch(window -> window.type.equals("ANTAZON") && !window.minimized));
-        tasks.tick(loggedIn && session.windows.stream().anyMatch(window -> window.type.equals("TASKS") && !window.minimized));
+        tasks.tick(loggedIn, loggedIn && session.windows.stream().anyMatch(window -> window.type.equals("TASKS") && !window.minimized));
         var accountSession = com.craisinlord.antos.content.client.AnternetAccountClientState.latest();
         if (!loggedIn && !creatingAccount && !accountWaiting && !faceIdAutoLoginStarted
                 && AnternetAccountClientState.faceIdStatusRevision() > faceIdStatusAtOpen) {
@@ -760,7 +760,7 @@ public final class ComputerScreen extends Screen {
             session.windows.add(activeWindow);
         }
         int layer = 1;
-        for (Window window : session.windows) {
+        for (Window window : List.copyOf(session.windows)) {
             if (!window.minimized) renderWindow(g, window, l, t, mouseX, mouseY, layer++);
         }
         if (lookPickerOpen()) {
@@ -964,6 +964,10 @@ public final class ComputerScreen extends Screen {
             if (app.equals("ANTMAIL") && session.antmail.hasUnreadMessages()) drawNotificationBadge(g, 35, 6);
             if (app.equals("ANTAZON") && session.antazon.hasUnseenDeals()) drawNotificationBadge(g, 35, 6);
             if (app.equals("MERCHANT") && session.merchant.hasPending()) drawNotificationBadge(g, 35, 6);
+            if (app.equals("TASKS")) {
+                int ready = tasks.readyCount();
+                if (ready > 0) drawCountBadge(g, 35, 6, ready);
+            }
             Component label = Component.translatable(appNameKey(app));
             if (expandedDesktop()) g.drawCenteredString(font, label, 25, 35, Ui.TEXT_STRONG);
             else g.drawString(font, label, 0, 35, Ui.TEXT_STRONG, false);
@@ -982,6 +986,12 @@ public final class ComputerScreen extends Screen {
 
     private void drawDesktopIcon(GuiGraphics g, String type, int x, int y) {
         PixelIcons.desktop(g, type, x - PixelIcons.DESKTOP_SIZE / 2.0F, y - 3.5F);
+    }
+
+    private void drawCountBadge(GuiGraphics g, int x, int y, int count) {
+        for (int[] rect : BADGE_RECTS) g.fill(x - 6 + rect[0], y - 6 + rect[1], x - 6 + rect[2], y - 6 + rect[3], rect[4] == 0 ? Ui.BACKGROUND : Ui.ACCENT);
+        String label = Integer.toString(Math.min(99, count));
+        g.drawString(font, label, x + 1 - font.width(label) / 2, y - 3, Ui.BACKGROUND, false);
     }
 
     private void drawNotificationBadge(GuiGraphics g, int x, int y) {

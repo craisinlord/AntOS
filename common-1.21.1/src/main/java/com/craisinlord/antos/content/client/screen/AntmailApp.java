@@ -638,14 +638,15 @@ final class AntmailApp extends ComputerApp {
             }
             if (state.moreOpen) {
                 screen.beginLayer(g);
-                int menuWidth = Math.max(88, font.width("MY PROFILE") + 14);
+                int menuWidth = Math.max(88, font.width("MARK ALL READ") + 14);
                 int menuX = Math.max(x, Math.min(moreX, x + navWidth - menuWidth));
-                g.fill(menuX, y + 20, menuX + menuWidth, y + 94, Ui.BACKGROUND);
-                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 94, Ui.BORDER_STRONG);
+                g.fill(menuX, y + 20, menuX + menuWidth, y + 112, Ui.BACKGROUND);
+                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 112, Ui.BORDER_STRONG);
                 g.drawString(font, Component.literal("ARCHIVE"), menuX + 6, y + 25, Ui.TEXT, false);
                 g.drawString(font, Component.literal("TRASH"), menuX + 6, y + 43, Ui.TEXT, false);
                 g.drawString(font, Component.literal("MY PROFILE"), menuX + 6, y + 61, Ui.TEXT, false);
                 g.drawString(font, Component.literal("JUNK MAIL"), menuX + 6, y + 79, Ui.TEXT, false);
+                g.drawString(font, Component.literal("MARK ALL READ"), menuX + 6, y + 97, hasUnreadMessages() ? Ui.TEXT : Ui.TEXT_PLACEHOLDER, false);
             }
             if (!state.undoActions.isEmpty() && System.currentTimeMillis() < state.undoActions.peekLast().until()
                     && !state.mode.equals("compose") && !state.mode.equals("message")) {
@@ -1203,8 +1204,8 @@ final class AntmailApp extends ComputerApp {
         } else if (screen.inside(contentX + folderSlotWidth * 3, contentY, folderSlotWidth, 20, mouseX, mouseY)) {
             state.moreOpen = !state.moreOpen;
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
-                navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 20,
-                Math.max(88, font.width("MY PROFILE") + 14), 18, mouseX, mouseY)) {
+                navWidth - Math.max(88, font.width("MARK ALL READ") + 14))), contentY + 20,
+                Math.max(88, font.width("MARK ALL READ") + 14), 18, mouseX, mouseY)) {
             state.moreOpen = false;
             clearStatus();
             state.mode = "archive";
@@ -1213,8 +1214,8 @@ final class AntmailApp extends ComputerApp {
             state.messageId = null;
             requestState(true);
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
-                navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 38,
-                Math.max(88, font.width("MY PROFILE") + 14), 20, mouseX, mouseY)) {
+                navWidth - Math.max(88, font.width("MARK ALL READ") + 14))), contentY + 38,
+                Math.max(88, font.width("MARK ALL READ") + 14), 20, mouseX, mouseY)) {
             state.moreOpen = false;
             clearStatus();
             state.mode = "trash";
@@ -1223,8 +1224,8 @@ final class AntmailApp extends ComputerApp {
             state.messageId = null;
             requestState(true);
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
-                navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 56,
-                Math.max(88, font.width("MY PROFILE") + 14), 20, mouseX, mouseY)) {
+                navWidth - Math.max(88, font.width("MARK ALL READ") + 14))), contentY + 56,
+                Math.max(88, font.width("MARK ALL READ") + 14), 20, mouseX, mouseY)) {
             state.moreOpen = false;
             state.profileOriginMode = state.mode;
             clearStatus();
@@ -1236,8 +1237,17 @@ final class AntmailApp extends ComputerApp {
             state.profileAvatarItem = profile.avatarItem();
             state.profileStatus = "";
         } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
-                navWidth - Math.max(88, font.width("MY PROFILE") + 14))), contentY + 76,
-                Math.max(88, font.width("MY PROFILE") + 14), 18, mouseX, mouseY)) {
+                navWidth - Math.max(88, font.width("MARK ALL READ") + 14))), contentY + 94,
+                Math.max(88, font.width("MARK ALL READ") + 14), 18, mouseX, mouseY)) {
+            state.moreOpen = false;
+            if (hasUnreadMessages()) {
+                AntmailNetworking.markAllRead();
+                setStatus("ALL MAIL MARKED READ");
+                requestState(true);
+            }
+        } else if (state.moreOpen && screen.inside(contentX + Math.max(0, Math.min(folderSlotWidth * 3,
+                navWidth - Math.max(88, font.width("MARK ALL READ") + 14))), contentY + 76,
+                Math.max(88, font.width("MARK ALL READ") + 14), 18, mouseX, mouseY)) {
             state.moreOpen = false;
             state.junkOriginMode = state.mode.equals("message") ? state.originMode : state.mode;
             if (state.junkOriginMode.equals("junk") || state.junkOriginMode.equals("profile") || state.junkOriginMode.equals("compose")) {
