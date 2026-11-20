@@ -958,6 +958,7 @@ final class TasksApp extends ComputerApp {
         } else {
             drawTeamButton(g, menuX + 4, menuY + 20, 82, "LEAVE TEAM", false);
         }
+        if (state != null && AntOSSettings.appEnabled("ANTMAIL")) drawTeamButton(g, menuX + 4, menuY + 38, 72, "MAIL TEAM", false);
         if (state == null && !invites.isEmpty()) {
             var invite = invites.get(0);
             String inviteLabel = "FROM " + invite.inviterName().toUpperCase(Locale.ROOT) + " // "
@@ -974,9 +975,19 @@ final class TasksApp extends ComputerApp {
     }
 
     private int teamMenuHeight() {
-        return com.craisinlord.antos.content.client.ComputerTasksClientState.team() == null
-                && !com.craisinlord.antos.content.client.ComputerTasksClientState.invites().isEmpty() ? 58 : 38;
+        boolean noTeam = com.craisinlord.antos.content.client.ComputerTasksClientState.team() == null;
+        return noTeam && !com.craisinlord.antos.content.client.ComputerTasksClientState.invites().isEmpty()
+                || !noTeam && AntOSSettings.appEnabled("ANTMAIL") ? 58 : 38;
     }
+
+    /** Opens Antmail with a new message addressed to the whole team. */
+    private void mailTeam(com.craisinlord.antos.content.client.ComputerTasksClientState.TeamInfo team) {
+        teamMenuOpen = false;
+        teamInviteFocused = false;
+        screen.open("ANTMAIL");
+        screen.session.antmail.composeTo("team:" + team.id());
+    }
+
 
     private Set<ResourceLocation> unlockedArchiveIds(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task) {
         List<ResourceLocation> diskSource = com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.activatedDisks();
@@ -1915,14 +1926,14 @@ final class TasksApp extends ComputerApp {
         mapScrollY = Math.max(limits[2], Math.min(limits[3], centerY - (mapY + mapH / 2)));
     }
 
-    void openDisplayTask(String id) {
+    boolean openDisplayTask(String id) {
         ensureRestored();
         ensureView();
         var target = viewRowsById.get(id);
-        if (target != null && target.visible() && !target.isLink()) {
-            openSearchResult(target);
-            screen.open("TASKS");
-        }
+        if (target == null || !target.visible() || target.isLink()) return false;
+        openSearchResult(target);
+        screen.open("TASKS");
+        return true;
     }
 
     private void openSearchResult(com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task) {
@@ -2820,6 +2831,9 @@ final class TasksApp extends ComputerApp {
             } else if (team != null && !team.owner()
                     && screen.inside(teamMenuX + 4, teamMenuY + 20, 82, 15, mouseX, mouseY)) {
                 ComputerNetworking.leaveTeam();
+            } else if (team != null && AntOSSettings.appEnabled("ANTMAIL")
+                    && screen.inside(teamMenuX + 4, teamMenuY + 38, 72, 15, mouseX, mouseY)) {
+                mailTeam(team);
             }
             return true;
         }

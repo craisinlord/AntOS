@@ -7,8 +7,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-public record AntmailDraft(UUID id, AntmailAddress sender, AntmailAddress recipient, String subject, String body, List<AntmailAttachment> attachments) {
+public record AntmailDraft(UUID id, AntmailAddress sender, AntmailAddress recipient, String subject, String body, List<AntmailAttachment> attachments, String recipients) {
+    public AntmailDraft(UUID id, AntmailAddress sender, AntmailAddress recipient, String subject, String body, List<AntmailAttachment> attachments) {
+        this(id, sender, recipient, subject, body, attachments, recipient == null ? "" : recipient.fullAddress());
+    }
     public AntmailDraft {
+        recipients = recipients == null ? (recipient == null ? "" : recipient.fullAddress()) : recipients;
+        if (recipients.length() > 8192) throw new IllegalArgumentException("recipient_limit");
         id = id == null ? UUID.randomUUID() : id;
         subject = subject == null ? "" : subject;
         body = body == null ? "" : body;
@@ -19,7 +24,7 @@ public record AntmailDraft(UUID id, AntmailAddress sender, AntmailAddress recipi
     }
 
     public AntmailDraft withoutAttachments() {
-        return attachments.isEmpty() ? this : new AntmailDraft(id, sender, recipient, subject, body, List.of());
+        return attachments.isEmpty() ? this : new AntmailDraft(id, sender, recipient, subject, body, List.of(), recipients);
     }
 
     public CompoundTag toTag() {
@@ -27,6 +32,7 @@ public record AntmailDraft(UUID id, AntmailAddress sender, AntmailAddress recipi
         tag.putString("Id", id.toString());
         if (sender != null) tag.putString("From", sender.fullAddress());
         if (recipient != null) tag.putString("To", recipient.fullAddress());
+        tag.putString("Recipients", recipients);
         tag.putString("Subject", subject);
         tag.putString("Body", body);
         ListTag attachmentTags = new ListTag();
@@ -42,7 +48,7 @@ public record AntmailDraft(UUID id, AntmailAddress sender, AntmailAddress recipi
         UUID id = UUID.fromString(tag.getString("Id"));
         AntmailAddress sender = tag.contains("From") ? AntmailAddress.parse(tag.getString("From")) : null;
         AntmailAddress recipient = tag.contains("To") ? AntmailAddress.parse(tag.getString("To")) : null;
-        return new AntmailDraft(id, sender, recipient, tag.getString("Subject"), tag.getString("Body"), attachments);
+        return new AntmailDraft(id, sender, recipient, tag.getString("Subject"), tag.getString("Body"), attachments, tag.contains("Recipients") ? tag.getString("Recipients") : recipient == null ? "" : recipient.fullAddress());
     }
 }
 

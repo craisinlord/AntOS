@@ -149,7 +149,7 @@ public final class JeiIndex {
                 ComputerGuideData.Task task = definitions.tasks().get(index);
                 if (!ComputerTasks.visible(task, progress)) continue;
                 boolean complete = progress.isComplete(task.id());
-                boolean claimed = complete && accountId != null && ComputerTasks.hasClaimableRewards(task) && data.hasClaimedTaskReward(accountId, task.id());
+                boolean claimed = complete && accountId != null && ComputerTasks.hasClaimableRewards(task) && data.hasClaimedTaskReward(accountId, player.getUUID(), task.id());
                 int status = claimed ? 3 : complete ? 2 : ComputerTasks.available(task, progress) ? 1 : 0;
                 rows.add(index * 4 + status);
             }

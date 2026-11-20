@@ -87,7 +87,7 @@ final class MerchantApp extends ComputerApp {
     }
 
     void tick(boolean loggedIn, boolean open) {
-        if (!loggedIn || !com.craisinlord.antos.config.AntOSSettings.appEnabled("MERCHANT")) return;
+        if (!loggedIn || !AppAvailability.enabled("MERCHANT")) return;
         for (JsonObject result : MerchantClientState.drain()) {
             boolean mutation = pending != null && MerchantProtocol.matches(result, "request", string(pending, "request"));
             boolean current = MerchantProtocol.matches(result, "query", queryId) || mutation;

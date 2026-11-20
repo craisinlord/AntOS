@@ -222,7 +222,7 @@ public final class AntazonClientState {
             case ORDER -> {
                 AntOSUiSounds.play(AntOSUiSounds.Cue.ORDER);
                 ComputerNotificationClientState.record("order", net.minecraft.network.chat.Component.translatable("computer.antos.notify.order_title"),
-                        net.minecraft.network.chat.Component.translatable("computer.antos.notify.order_message"), "", iconItem, iconEntity);
+                        net.minecraft.network.chat.Component.translatable("computer.antos.notify.order_message"), "", iconItem, iconEntity, "");
             }
             case SALE -> {
                 AntOSUiSounds.play(AntOSUiSounds.Cue.SALE);

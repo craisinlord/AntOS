@@ -148,8 +148,8 @@ public final class ComputerTasks {
             }
         }
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
-        if (data.hasClaimedTaskReward(account.accountId(), taskId)) return null;
-        if (!data.markTaskRewardClaimed(account.accountId(), taskId)) return null;
+        if (data.hasClaimedTaskReward(account.accountId(), player.getUUID(), taskId)) return null;
+        if (!data.markTaskRewardClaimed(account.accountId(), player.getUUID(), taskId)) return null;
         return grantRewards(player, task.id(), task.rewards(), selectedChoices, stacks);
     }
 
@@ -611,7 +611,7 @@ public final class ComputerTasks {
         java.util.BitSet claimedTasks = new java.util.BitSet(tasks.size());
         if (account != null) for (int index = 0; index < tasks.size(); index++) {
             ComputerGuideData.Task task = tasks.get(index);
-            if (hasClaimableRewards(task) && accountData.hasClaimedTaskReward(account.accountId(), task.id())) claimedTasks.set(index);
+            if (hasClaimableRewards(task) && accountData.hasClaimedTaskReward(account.accountId(), player.getUUID(), task.id())) claimedTasks.set(index);
         }
         List<ResourceLocation> pinnedTasks = account == null ? List.of() : accountData.pinnedTasks(account.accountId());
         ItemCounts counts = new ItemCounts(player);
@@ -908,6 +908,11 @@ public final class ComputerTasks {
                 case "archive" -> {
                 }
                 case "mail" -> { if (deliverMailReward(player, sourceId, reward)) receipt.add(reward); }
+                case "wallpaper" -> {
+                    var account = accountForProgress(player);
+                    if (account != null) ComputerDesktopEffects.applyToAccount(player.server, account.accountId(),
+                            ComputerDesktopEffects.WallpaperChange.fromFlags(reward.target(), reward.mode()), null);
+                }
             }
         }
         if (!stacks.isEmpty()) {

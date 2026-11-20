@@ -376,8 +376,14 @@ public final class ComputerScreen extends Screen {
         if (desktop != null && !desktop.isBlank()) {
             try {
                 ComputerDesktopState state = new ComputerDesktopState();
-                state.load(AntmailWire.decodeTag(desktop));
+                net.minecraft.nbt.CompoundTag decoded = AntmailWire.decodeTag(desktop);
+                state.load(decoded);
                 updateDesktopSession(state);
+                if (decoded.contains(com.craisinlord.antos.content.computer.ComputerDesktopEffects.TAKEOVER_CONTENT_TAG)) {
+                    var content = com.craisinlord.antos.content.antmail.AntmailTakeover.fromTag(
+                            decoded.getCompound(com.craisinlord.antos.content.computer.ComputerDesktopEffects.TAKEOVER_CONTENT_TAG));
+                    if (content != null) takeover = new TakeoverOverlay(content);
+                }
             } catch (RuntimeException ignored) {
             }
         }
@@ -432,7 +438,12 @@ public final class ComputerScreen extends Screen {
         graphics.fill(left + 5, top + 5, left + desktopWidth - 5, top + desktopHeight - 5, Ui.SURFACE);
         pointerX = localMouseX;
         pointerY = localMouseY;
-        if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseX, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseY); else renderLogin(graphics, left, top);
+        boolean takeoverShown = takeoverActive();
+        if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, takeoverShown || notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseX, takeoverShown || notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseY); else renderLogin(graphics, left, top);
+        if (takeoverShown) {
+            graphics.flush();
+            takeover.render(graphics, font, left, top, desktopWidth, desktopHeight, localMouseX, localMouseY);
+        }
         renderFrameGrip(graphics, left, top);
         graphics.pose().popPose();
         renderFrameOutline(graphics);
@@ -441,6 +452,18 @@ public final class ComputerScreen extends Screen {
 
     float uiScale() {
         return viewport().scale();
+    }
+
+    private TakeoverOverlay takeover;
+
+    private boolean takeoverActive() {
+        return takeover != null && loggedIn && session.bootTicks <= 0;
+    }
+
+    private void dismissTakeover() {
+        takeover = null;
+        AntOSUiSounds.play(Cue.CLICK);
+        ComputerNetworking.dismissTakeover();
     }
 
     private DesktopViewport viewport() {
@@ -940,7 +963,7 @@ public final class ComputerScreen extends Screen {
     private static String appDescriptionKey(String app) { return "computer.antos.app." + app.toLowerCase(Locale.ROOT) + ".description"; }
 
     private static List<String> desktopApps() {
-        return java.util.Arrays.stream(ICONS).filter(AntOSSettings::appEnabled).toList();
+        return java.util.Arrays.stream(ICONS).filter(AppAvailability::enabled).toList();
     }
 
     private List<String> renderedDesktopApps() {
@@ -2009,6 +2032,10 @@ public final class ComputerScreen extends Screen {
         mouseY = (mouseY - centerY) / scale;
         int l = -desktopWidth / 2;
         int t = -desktopHeight / 2;
+        if (takeoverActive()) {
+            if (button == 0 && takeover.hit(mouseX, mouseY)) dismissTakeover();
+            return true;
+        }
         if (!loggedIn) {
             if (button != 0) return true;
             AntOSUiSounds.play(Cue.CLICK);
@@ -2311,6 +2338,7 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (takeoverActive()) return true;
         float scale = uiScale();
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && displays.scroll((mouseX - centerX) / scale, (mouseY - centerY) / scale, scrollY)) return true;
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && notifications.scroll((mouseX - centerX) / scale, (mouseY - centerY) / scale, scrollY)) return true;
@@ -2339,6 +2367,7 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public boolean charTyped(char codePoint, int modifiers) {
+        if (takeoverActive()) return true;
         if (loggedIn && displays.charTyped(codePoint)) return true;
         if (loggedIn && displays.modal()) return true;
         if (!loggedIn) {
@@ -2372,6 +2401,11 @@ public final class ComputerScreen extends Screen {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (loggedIn && session.onboardingCompleted && !typingInActiveWindow() && OpenAntOSKey.isOpenKey(keyCode, scanCode)) {
             onClose();
+            return true;
+        }
+        if (takeoverActive()) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) onClose();
+            else if ((keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER || keyCode == GLFW.GLFW_KEY_SPACE) && takeover.ready()) dismissTakeover();
             return true;
         }
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && displays.key(keyCode)) return true;
@@ -2484,7 +2518,7 @@ public final class ComputerScreen extends Screen {
         return com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.installedDisks();
     }
     void open(String type) {
-        if (!AntOSSettings.appEnabled(type)) return;
+        if (!AppAvailability.enabled(type)) return;
         AntOSUiSounds.play(Cue.OPEN);
         if (type.equals("DISKS") && AntOSSettings.appEnabled("ANTAZON")) session.antazon.refreshListings();
         for (int index = 0; index < session.windows.size(); index++) {

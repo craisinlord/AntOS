@@ -220,3 +220,29 @@ tasks.register('notificationHistoryTest', JavaExec) {
         mainClass = testClass
     }
 }
+
+var antmailAudienceClasses = layout.buildDirectory.dir('classes/java/antmailAudienceTest')
+tasks.register('compileAntmailAudienceTests', JavaCompile) {
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(17) }
+    dependsOn tasks.named('compileJava')
+    source files('../common-1.20.1/src/test/java/com/craisinlord/antos/content/antmail/AntmailAudienceTest.java', '../common-1.20.1/src/test/java/com/craisinlord/antos/content/client/screen/AntmailPanelTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = antmailAudienceClasses
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+tasks.register('antmailAudienceTest', JavaExec) {
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+    group = 'verification'
+    dependsOn tasks.named('compileAntmailAudienceTests')
+    classpath = files(antmailAudienceClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.antmail.AntmailAudienceTest'
+}
+
+tasks.register('antmailPanelTest', JavaExec) {
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+    group = 'verification'
+    dependsOn tasks.named('compileAntmailAudienceTests')
+    classpath = files(antmailAudienceClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.client.screen.AntmailPanelTest'
+}

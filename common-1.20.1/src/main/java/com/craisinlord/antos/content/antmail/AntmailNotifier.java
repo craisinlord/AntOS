@@ -20,7 +20,7 @@ public final class AntmailNotifier {
             if (AnternetAccountHandler.session(player) == null && !carriesPhone(player)) continue;
             SoundEvent sound = sound(message.notification());
             ComputerAccessHandler.sendNotification(player, "mail", message.displaySender(), String.valueOf(message.corrupted()),
-                    sound == null ? "" : sound.getLocation().toString(), message.senderAvatarItem(), message.senderAvatarEntity());
+                    sound == null ? "" : sound.getLocation().toString(), message.senderAvatarItem(), message.senderAvatarEntity(), message.id().toString());
         }
     }
 
@@ -28,7 +28,7 @@ public final class AntmailNotifier {
                                                 ComputerGuideData.Objective objective) {
         if (player == null || task == null || objective == null || !objective.notifyPlayer()) return;
         ComputerAccessHandler.sendNotification(player, "task", task.titleKey(), objective.descriptionKey(),
-                SoundEvents.NOTE_BLOCK_CHIME.value().getLocation().toString(), task.iconItem(), task.iconEntity());
+                SoundEvents.NOTE_BLOCK_CHIME.value().getLocation().toString(), task.iconItem(), task.iconEntity(), task.id().toString());
     }
 
     private static boolean carriesPhone(ServerPlayer player) {

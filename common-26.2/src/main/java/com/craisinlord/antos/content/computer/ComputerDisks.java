@@ -47,7 +47,7 @@ public final class ComputerDisks {
             return InstallResult.ALREADY_INSTALLED;
         }
         if (!data.addProfileDisk(account.accountId(), diskId)) return InstallResult.INVALID;
-        if (spent) data.claimDiskRewards(account.accountId(), diskId);
+        if (spent) data.claimDiskRewards(account.accountId(), player.getUUID(), diskId);
         if (!disk.features().encryption().enabled() || data.diskState(account.accountId()).activated(diskId)) activate(player, workspace, account, disk);
         ComputerAccessHandler.refreshAfterDisk(player, workspace);
         player.sendOverlayMessage(Component.translatable(data.diskState(account.accountId()).activated(diskId)
@@ -121,7 +121,7 @@ public final class ComputerDisks {
     private static void grantRewards(ServerPlayer player, ComputerWorkspaceData.AccountInfo account, ComputerGuideData.Disk disk) {
         if (disk.rewards().isEmpty()) return;
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.level().getServer());
-        if (!data.claimDiskRewards(account.accountId(), disk.id())) return;
+        if (!data.claimDiskRewards(account.accountId(), player.getUUID(), disk.id())) return;
         List<ComputerGuideData.TaskReward> receipt = ComputerTasks.deliverRewards(player, disk.id(), disk.rewards(), Map.of());
         var encoded = ComputerGuideData.encodeRewards(receipt);
         for (var element : encoded) if (element.getAsJsonObject().has("body")) element.getAsJsonObject().addProperty("body", "");

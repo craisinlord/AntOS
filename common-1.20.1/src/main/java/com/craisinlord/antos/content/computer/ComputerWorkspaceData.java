@@ -32,7 +32,11 @@ public final class ComputerWorkspaceData extends SavedData {
     private static final String FACE_ID_LINKS_TAG = "FaceIdLinks";
     private static final String TEAMS_TAG = "Teams";
     private static final String TEAM_INVITES_TAG = "TeamInvites";
+    /** Teams are capped so a whole team always fits in one Antmail send. */
+    public static final int MAX_TEAM_MEMBERS = 64;
     private static final String CLAIMED_REWARDS_TAG = "ClaimedTaskRewards";
+    private static final String PLAYER_TASK_CLAIMS_TAG = "PlayerTaskRewardClaims";
+    private static final String PLAYER_DISK_CLAIMS_TAG = "PlayerDiskRewardClaims";
     private static final String PINNED_TASKS_TAG = "PinnedTasks";
     public static final int MAX_PINNED_TASKS = 5;
     private static final String PENDING_ANTOS_GRANTS_TAG = "PendingAntOSGrants";
@@ -60,6 +64,8 @@ public final class ComputerWorkspaceData extends SavedData {
     private final Map<UUID, UUID> teamByAccount = new LinkedHashMap<>();
     private final Map<UUID, TeamInvite> teamInvites = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> claimedTaskRewards = new LinkedHashMap<>();
+    private final Map<UUID, Set<ResourceLocation>> playerTaskClaims = new LinkedHashMap<>();
+    private final Map<UUID, Set<ResourceLocation>> playerDiskClaims = new LinkedHashMap<>();
     private final Map<UUID, Set<ResourceLocation>> pinnedTasks = new LinkedHashMap<>();
     private final Map<UUID, Set<PendingAntOSGrant>> pendingAntOSGrants = new LinkedHashMap<>();
 
@@ -227,6 +233,11 @@ public final class ComputerWorkspaceData extends SavedData {
                     } catch (RuntimeException ignored) { }
                 }
                 if (!team.members.contains(ownerId)) team.members.add(ownerId);
+                CompoundTag epochTags = row.getCompound("MemberEpochs");
+                for (String key : epochTags.getAllKeys()) {
+                    try { team.epochs.put(UUID.fromString(key), UUID.fromString(epochTags.getString(key))); } catch (RuntimeException ignored) { }
+                }
+                team.fillEpochs();
                 team.progress.load(row.getCompound("Progress"));
                 data.teams.put(teamId, team);
                 data.teamByAccount.put(ownerId, teamId);
@@ -260,6 +271,8 @@ public final class ComputerWorkspaceData extends SavedData {
                 data.claimedTaskRewards.put(accountId, claimed);
             } catch (RuntimeException ignored) { }
         }
+        loadPlayerClaims(tag.getList(PLAYER_TASK_CLAIMS_TAG, 10), data.playerTaskClaims);
+        loadPlayerClaims(tag.getList(PLAYER_DISK_CLAIMS_TAG, 10), data.playerDiskClaims);
         ListTag pinnedRows = tag.getList(PINNED_TASKS_TAG, 10);
         for (int index = 0; index < pinnedRows.size(); index++) {
             CompoundTag row = pinnedRows.getCompound(index);
@@ -532,6 +545,21 @@ public final class ComputerWorkspaceData extends SavedData {
                         .map(account -> new TeamMember(account.accountId(), account.displayUsername(), account.accountId().equals(team.ownerId))).toList());
     }
 
+    /** The team with this ID as an Antmail audience, or null if it no longer exists. */
+    public synchronized TeamMailAudience teamMailAudience(UUID teamId) {
+        Team team = teamId == null ? null : teams.get(teamId);
+        if (team == null) return null;
+        Account owner = accounts.get(team.ownerId);
+        Map<UUID, UUID> epochs = new LinkedHashMap<>();
+        for (UUID member : team.members) if (accounts.containsKey(member) && team.epochs.containsKey(member)) epochs.put(member, team.epochs.get(member));
+        return new TeamMailAudience(team.id, team.ownerId, owner == null ? "" : owner.displayUsername(), java.util.Collections.unmodifiableMap(epochs));
+    }
+
+    public synchronized UUID teamIdOf(UUID accountId) {
+        UUID teamId = accountId == null ? null : teamByAccount.get(accountId);
+        return teamId != null && teams.containsKey(teamId) ? teamId : null;
+    }
+
     public synchronized List<TeamInviteInfo> invitations(UUID accountId) {
         return teamInvites.values().stream().filter(invite -> invite.recipientId().equals(accountId))
                 .map(invite -> {
@@ -548,7 +576,7 @@ public final class ComputerWorkspaceData extends SavedData {
         UUID teamId = UUID.randomUUID();
         Team team = new Team(teamId, ownerId);
         team.progress.load(shard(ownerId).snapshot.getCompound("TaskProgress"));
-        team.members.add(ownerId);
+        team.join(ownerId);
         teams.put(teamId, team);
         teamByAccount.put(ownerId, teamId);
         setDirty();
@@ -560,7 +588,7 @@ public final class ComputerWorkspaceData extends SavedData {
         Team team = teamId == null ? null : teams.get(teamId);
         Account recipient = accounts.get(accountIdByUsername.get(normalizeUsername(targetUsername)));
         if (team == null || !team.ownerId.equals(ownerId) || recipient == null || recipient.accountId().equals(ownerId)
-                || teamByAccount.containsKey(recipient.accountId())) return null;
+                || teamByAccount.containsKey(recipient.accountId()) || team.members.size() >= MAX_TEAM_MEMBERS) return null;
         if (teamInvites.values().stream().anyMatch(invite -> invite.teamId().equals(teamId)
                 && invite.recipientId().equals(recipient.accountId()))) return null;
         UUID inviteId = UUID.randomUUID();
@@ -574,13 +602,14 @@ public final class ComputerWorkspaceData extends SavedData {
         if (accountId == null || invite == null || !invite.recipientId().equals(accountId) || teamByAccount.containsKey(accountId)) return false;
         Team team = teams.get(invite.teamId());
         if (team == null) { teamInvites.remove(inviteId); setDirty(); return false; }
+        if (team.members.size() >= MAX_TEAM_MEMBERS) return false;
         ComputerAccountShard shard = accountShard(accountId);
         if (shard != null) {
             ComputerTaskProgress personal = new ComputerTaskProgress();
             personal.load(shard.snapshot.getCompound("TaskProgress"));
             team.progress.mergeFrom(personal);
         }
-        team.members.add(accountId);
+        team.join(accountId);
         teamByAccount.put(accountId, team.id);
         teamInvites.values().removeIf(other -> other.recipientId().equals(accountId));
         setDirty();
@@ -601,6 +630,7 @@ public final class ComputerWorkspaceData extends SavedData {
         if (team == null || team.ownerId.equals(accountId)) return false;
         persistTeamProgressToAccount(team, accountId);
         team.members.remove(accountId);
+        team.epochs.remove(accountId);
         teamByAccount.remove(accountId);
         setDirty();
         return true;
@@ -656,6 +686,53 @@ public final class ComputerWorkspaceData extends SavedData {
         boolean changed = claimedTaskRewards.computeIfAbsent(accountId, ignored -> new LinkedHashSet<>()).add(taskId);
         if (changed) setDirty();
         return changed;
+    }
+
+    public synchronized boolean hasClaimedTaskReward(UUID accountId, UUID playerId, ResourceLocation taskId) {
+        return hasClaimedTaskReward(accountId, taskId) || playerClaimBlocked(playerTaskClaims, playerId, taskId);
+    }
+
+    public synchronized boolean markTaskRewardClaimed(UUID accountId, UUID playerId, ResourceLocation taskId) {
+        if (playerClaimBlocked(playerTaskClaims, playerId, taskId) || !markTaskRewardClaimed(accountId, taskId)) return false;
+        recordPlayerClaim(playerTaskClaims, playerId, taskId);
+        return true;
+    }
+
+    private boolean playerClaimBlocked(Map<UUID, Set<ResourceLocation>> claims, UUID playerId, ResourceLocation id) {
+        return playerId != null && id != null && com.craisinlord.antos.config.AntOSSettings.rewardsOncePerPlayer()
+                && claims.getOrDefault(playerId, Set.of()).contains(id);
+    }
+
+    private void recordPlayerClaim(Map<UUID, Set<ResourceLocation>> claims, UUID playerId, ResourceLocation id) {
+        if (playerId == null || id == null) return;
+        if (claims.computeIfAbsent(playerId, ignored -> new LinkedHashSet<>()).add(id)) setDirty();
+    }
+
+    private static void loadPlayerClaims(ListTag rows, Map<UUID, Set<ResourceLocation>> claims) {
+        for (int index = 0; index < rows.size(); index++) {
+            CompoundTag row = rows.getCompound(index);
+            try {
+                UUID playerId = UUID.fromString(row.getString("Player"));
+                Set<ResourceLocation> ids = new LinkedHashSet<>();
+                ListTag values = row.getList("Ids", 8);
+                for (int idIndex = 0; idIndex < values.size(); idIndex++) {
+                    ResourceLocation parsed = ResourceLocation.tryParse(values.getString(idIndex));
+                    if (parsed != null) ids.add(parsed);
+                }
+                if (!ids.isEmpty()) claims.put(playerId, ids);
+            } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private static ListTag savePlayerClaims(Map<UUID, Set<ResourceLocation>> claims) {
+        ListTag rows = new ListTag();
+        for (Map.Entry<UUID, Set<ResourceLocation>> entry : claims.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            CompoundTag row = new CompoundTag(); row.putString("Player", entry.getKey().toString());
+            ListTag ids = new ListTag(); entry.getValue().forEach(id -> ids.add(net.minecraft.nbt.StringTag.valueOf(id.toString())));
+            row.put("Ids", ids); rows.add(row);
+        }
+        return rows;
     }
 
     public synchronized List<ResourceLocation> pinnedTasks(UUID accountId) {
@@ -727,6 +804,12 @@ public final class ComputerWorkspaceData extends SavedData {
         if (shard == null || !shard.collectedDisks.contains(diskId)) return false;
         if (shard.diskRewardReceipts.putIfAbsent(diskId, "[]") != null) return false;
         shard.setDirty();
+        return true;
+    }
+
+    public synchronized boolean claimDiskRewards(UUID accountId, UUID playerId, ResourceLocation diskId) {
+        if (playerClaimBlocked(playerDiskClaims, playerId, diskId) || !claimDiskRewards(accountId, diskId)) return false;
+        recordPlayerClaim(playerDiskClaims, playerId, diskId);
         return true;
     }
 
@@ -991,6 +1074,9 @@ public final class ComputerWorkspaceData extends SavedData {
             row.putString("Id", team.id.toString()); row.putString("Owner", team.ownerId.toString());
             ListTag members = new ListTag();
             team.members.forEach(member -> members.add(net.minecraft.nbt.StringTag.valueOf(member.toString())));
+            CompoundTag epochTags = new CompoundTag();
+            team.epochs.forEach((member, epoch) -> { if (team.members.contains(member)) epochTags.putString(member.toString(), epoch.toString()); });
+            row.put("MemberEpochs", epochTags);
             row.put("Members", members); row.put("Progress", team.progress.save()); teamRows.add(row);
         }
         tag.put(TEAMS_TAG, teamRows);
@@ -1008,6 +1094,8 @@ public final class ComputerWorkspaceData extends SavedData {
             row.put("Tasks", ids); claims.add(row);
         }
         tag.put(CLAIMED_REWARDS_TAG, claims);
+        tag.put(PLAYER_TASK_CLAIMS_TAG, savePlayerClaims(playerTaskClaims));
+        tag.put(PLAYER_DISK_CLAIMS_TAG, savePlayerClaims(playerDiskClaims));
         ListTag pins = new ListTag();
         for (Map.Entry<UUID, Set<ResourceLocation>> entry : pinnedTasks.entrySet()) {
             if (entry.getValue().isEmpty()) continue;
@@ -1034,9 +1122,19 @@ public final class ComputerWorkspaceData extends SavedData {
         private final UUID id;
         private final UUID ownerId;
         private final Set<UUID> members = new LinkedHashSet<>();
+        /** Per-membership identifiers. A member who leaves and rejoins gets a new one, so Antmail can tell the stints apart. */
+        private final Map<UUID, UUID> epochs = new LinkedHashMap<>();
         private final ComputerTaskProgress progress = new ComputerTaskProgress();
         private Team(UUID id, UUID ownerId) { this.id = id; this.ownerId = ownerId; }
+        private void join(UUID member) { members.add(member); epochs.put(member, UUID.randomUUID()); }
+        private void fillEpochs() {
+            epochs.keySet().retainAll(members);
+            for (UUID member : members) epochs.computeIfAbsent(member, ignored -> UUID.randomUUID());
+        }
     }
+
+    /** Team membership as Antmail needs it: the live roster with each member's current membership epoch. */
+    public record TeamMailAudience(UUID id, UUID ownerId, String ownerName, Map<UUID, UUID> epochs) { }
 
     private record TeamInvite(UUID id, UUID teamId, UUID recipientId, UUID inviterId, long createdAt) { }
 

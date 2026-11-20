@@ -47,6 +47,43 @@ public final class AntmailMessage {
     private boolean junk;
     private boolean hasAttachments;
     private String searchText;
+    private AntmailBatch batch;
+    private UUID conversationId;
+    private int sourceFolder = -1;
+    public int sourceFolder() { return sourceFolder; }
+    public void setSourceFolder(int value) { sourceFolder = value == 0 || value == 1 || value == 3 || value == 4 ? value : -1; }
+    private UUID logicalSend;
+    public UUID logicalSend() { return logicalSend == null ? id : logicalSend; }
+    public void setLogicalSend(UUID value) { logicalSend = value; }
+    public AntmailBatch batch() { return batch; }
+    /** "group" for directory conversations, "team" for team mail; null for messages from before teams could be mailed. */
+    private String conversationKind;
+    /** Group name or team owner name captured at send time; null when unknown (older mail). */
+    private String conversationName;
+    public static final int MAX_CONVERSATION_NAME = 64;
+    /** Normalizes a stored conversation name: blank, oversized, or control-character names are dropped. */
+    public static String conversationNameOrNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() || trimmed.length() > MAX_CONVERSATION_NAME || trimmed.chars().anyMatch(Character::isISOControl) ? null : trimmed;
+    }
+    public String conversationName() { return conversationId == null ? null : conversationName; }
+    public UUID conversationId() { return conversationId; }
+    public String conversationKind() { return conversationId == null ? null : conversationKind == null ? AntmailDirectory.CONVERSATION_GROUP : conversationKind; }
+    /** The recipient token that reaches everyone in this message's conversation, or null for ordinary mail. */
+    public String replyAllToken() {
+        if (conversationId == null) return null;
+        return (AntmailDirectory.CONVERSATION_TEAM.equals(conversationKind()) ? "team:" : "conversation:") + conversationId;
+    }
+    public String recipientSummary() { return batch == null ? recipient.fullAddress() : batch.recipients(); }
+    public void setBatch(AntmailBatch value) { batch = value; conversationId = value.conversation(); conversationKind = value.conversationKind(); conversationName = value.conversationName(); searchText = null; }
+    public void setConversation(UUID value) { setConversation(value, null); }
+    public void setConversation(UUID value, String kind) { setConversation(value, kind, conversationName); }
+    public void setConversation(UUID value, String kind, String name) {
+        conversationId = value;
+        conversationKind = AntmailDirectory.CONVERSATION_TEAM.equals(kind) ? kind : null;
+        conversationName = value == null ? null : conversationNameOrNull(name);
+    }
 
     public AntmailMessage(UUID id, AntmailAddress sender, AntmailAddress recipient, String subject, String body, long createdAt, List<AntmailAttachment> attachments, boolean read) {
         AntmailValidation.Result result = AntmailValidation.validateMessage(sender, recipient, subject, body, attachments);
@@ -119,7 +156,7 @@ public final class AntmailMessage {
         String text = searchText;
         if (text == null) {
             text = (sender.fullAddress() + " " + displaySender() + " " + recipient.fullAddress() + " " + subject + " " + body + " "
-                    + deliveryStatus).toLowerCase(java.util.Locale.ROOT);
+                    + deliveryStatus + " " + (batch == null ? "" : batch.deliveries().toString())).toLowerCase(java.util.Locale.ROOT);
             searchText = text;
         }
         return text;
@@ -141,6 +178,11 @@ public final class AntmailMessage {
 
     private CompoundTag toTag(boolean includeAttachments, int bodyLimit) {
         CompoundTag tag = new CompoundTag();
+        if (logicalSend != null) tag.putString("LogicalSend", logicalSend.toString());
+        if (batch != null) tag.putString("Batch", batch.save());
+        if (conversationId != null) tag.putString("Conversation", conversationId.toString());
+        if (conversationId != null && AntmailDirectory.CONVERSATION_TEAM.equals(conversationKind)) tag.putString("ConversationKind", conversationKind);
+        if (conversationId != null && conversationName != null) tag.putString("ConversationName", conversationName);
         tag.putString(ID_TAG, id.toString());
         tag.putString(FROM_TAG, sender.fullAddress());
         tag.putString(TO_TAG, recipient.fullAddress());
@@ -179,6 +221,9 @@ public final class AntmailMessage {
         ListTag attachmentTags = tag.getList(ATTACHMENTS_TAG, 10);
         for (int index = 0; index < attachmentTags.size(); index++) attachments.add(AntmailAttachment.fromTag(attachmentTags.getCompound(index)));
         AntmailMessage message = new AntmailMessage(UUID.fromString(tag.getString(ID_TAG)), AntmailAddress.parse(tag.getString(FROM_TAG)), AntmailAddress.parse(tag.getString(TO_TAG)), tag.getString(SUBJECT_TAG), tag.getString(BODY_TAG), tag.getLong(CREATED_TAG), attachments, tag.getBoolean(READ_TAG));
+        if (tag.contains("LogicalSend")) message.logicalSend = UUID.fromString(tag.getString("LogicalSend"));
+        if (tag.contains("Batch")) message.setBatch(AntmailBatch.load(tag.getString("Batch")));
+        if (tag.contains("Conversation")) message.setConversation(UUID.fromString(tag.getString("Conversation")), tag.getString("ConversationKind"), tag.getString("ConversationName"));
         message.setDeliveryStatus(tag.getString(DELIVERY_STATUS_TAG));
         message.definitionId = tag.getString(DEFINITION_ID_TAG);
         message.style = tag.getString(STYLE_TAG);
@@ -189,6 +234,7 @@ public final class AntmailMessage {
         message.notification = tag.getString(NOTIFICATION_TAG);
         message.fromPlayer = tag.getBoolean(FROM_PLAYER_TAG);
         message.junk = tag.getBoolean(JUNK_TAG);
+        if (tag.contains("SourceFolder")) message.setSourceFolder(tag.getInt("SourceFolder"));
         message.hasAttachments = tag.getBoolean("HasAttachments") || !attachments.isEmpty();
         return message;
     }

@@ -243,10 +243,13 @@ final class NotificationPanel extends ComputerApp {
     private void activate(NotificationHistory.Entry entry) {
         ComputerNotificationClientState.markRead(entry.id());
         String app = app(entry.kind());
-        if (app.isEmpty() || !AntOSSettings.appEnabled(app)) return;
+        if (app.isEmpty() || !AppAvailability.enabled(app)) return;
         close();
+        if (app.equals("TASKS") && !entry.target().isBlank() && screen.tasks.openDisplayTask(entry.target())) return;
         screen.open(app);
         if (app.equals("ANTAZON")) screen.session.antazon.openNotification(entry.kind());
+        else if (app.equals("ANTMAIL") && !entry.target().isBlank()) screen.session.antmail.openNotification(entry.target());
+        else if (app.equals("TASKS") && !entry.target().isBlank()) screen.tasks.select(entry.target());
     }
 
     boolean click(double mouseX, double mouseY, int button) {

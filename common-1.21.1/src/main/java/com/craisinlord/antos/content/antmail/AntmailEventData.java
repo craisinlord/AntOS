@@ -28,6 +28,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     private static volatile Set<ResourceLocation> junk = Set.of();
     private static volatile Map<String, String> junkSenderNames = Map.of();
     private static volatile TriggerIndex triggers = new TriggerIndex(Map.of(), Map.of(), Map.of());
+    private static volatile Map<ResourceLocation, AntmailTakeover> takeovers = Map.of();
     private static final int RANDOM_MAIL_BATCH = 16;
     private static final int ADVANCEMENT_EVENT_BACKFILL_TICKS = 1200;
     private static volatile boolean advancementEvents;
@@ -60,6 +61,14 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
 
     private static boolean junkBlocked(AntmailServerData data, AntmailAddress address, ResourceLocation id, Definition definition) {
         return junk.contains(id) && data.junkBlocked(address, definition.sender());
+    }
+
+    public static AntmailTakeover takeover(ResourceLocation id) {
+        return id == null ? null : takeovers.get(id);
+    }
+
+    public static List<ResourceLocation> takeoverIds() {
+        return takeovers.keySet().stream().sorted(Comparator.comparing(ResourceLocation::toString)).toList();
     }
 
     public static List<ResourceLocation> definitionIds() {
@@ -99,9 +108,10 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     }
 
     public static void onTick(MinecraftServer server) {
-        long dayTime = server.overworld().getDayTime();
-        long day = dayTime / 24000L;
+        long gameTime = server.overworld().getGameTime();
+        long day = gameTime / 24000L;
         AntmailServerData data = AntmailServerData.access(server);
+        data.rebaseSchedule(gameTime, server.overworld().getDayTime(), AntmailEventData::maxDelayFor);
         if (data.beginRandomMailDay(day)) data.queueRandomMail(data.profileAddresses(server));
         List<AntmailAddress> randomBatch = data.takeRandomMail(RANDOM_MAIL_BATCH);
         if (!randomBatch.isEmpty()) rollRandomMail(server, data, randomBatch);
@@ -218,7 +228,10 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         if (standalone.isEmpty() && poolMembers.isEmpty()) return;
         Pass pass = new Pass(server, data, null);
         for (AntmailAddress address : addresses) {
-            if (data.inboxFull(address)) continue;
+            if (data.inboxFull(address) && !data.canMakeRoom(address)) {
+                AntmailNotifier.inboxFull(server, address);
+                continue;
+            }
             ServerPlayer player = pass.player(address);
             for (ResourceLocation id : standalone) {
                 Definition definition = definitions.get(id);
@@ -279,40 +292,47 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
 
     private static void fire(MinecraftServer server, AntmailServerData data, AntmailAddress address, ResourceLocation id, Definition definition) {
         if (definition == null || data.isScheduled(address, id) || definition.once() && data.isClaimed(address, id)) return;
-        long now = server.overworld().getDayTime();
-        long today = now / 24000L;
-        long delayDays = Math.max(0, definition.trigger().delay());
-        long delayTicks = Math.max(0L, definition.trigger().delayTicks());
-        long dueTime = (today + delayDays) * 24000L + delayTicks;
-        if (delayDays == 0L) dueTime = now + delayTicks;
-        data.scheduleAtTime(address, id, dueTime);
-        if (delayDays <= 0L && delayTicks <= 0L) processScheduled(server, data, address, id);
+        long delay = maxDelayTicks(definition);
+        data.scheduleAtTime(address, id, server.overworld().getGameTime() + delay);
+        if (delay <= 0L) processScheduled(server, data, address, id);
+    }
+
+    private static long maxDelayTicks(Definition definition) {
+        if (definition == null) return 0L;
+        return Math.max(0, definition.trigger().delay()) * 24000L + Math.max(0L, definition.trigger().delayTicks());
+    }
+
+    private static long maxDelayFor(ResourceLocation id) {
+        return maxDelayTicks(definitions.get(id));
     }
 
     private static void processSchedule(MinecraftServer server, AntmailServerData data, Map<AntmailAddress, ServerPlayer> online) {
-        long dayTime = server.overworld().getDayTime();
-        List<AntmailServerData.ScheduledMail> due = data.dueSchedule(dayTime / 24000L);
+        long gameTime = server.overworld().getGameTime();
+        List<AntmailServerData.ScheduledMail> due = data.dueSchedule(gameTime / 24000L);
         if (due.isEmpty()) return;
+        long dayTime = server.overworld().getDayTime();
         Pass pass = new Pass(server, data, online);
-        for (AntmailServerData.ScheduledMail entry : due) attempt(server, data, pass, entry, dayTime);
+        for (AntmailServerData.ScheduledMail entry : due) attempt(server, data, pass, entry, gameTime, dayTime);
     }
 
     private static void processScheduled(MinecraftServer server, AntmailServerData data, AntmailAddress address, ResourceLocation id) {
         List<AntmailServerData.ScheduledMail> entries = data.scheduledFor(address, id);
         if (entries.isEmpty()) return;
+        long gameTime = server.overworld().getGameTime();
         long dayTime = server.overworld().getDayTime();
         Pass pass = new Pass(server, data, null);
-        for (AntmailServerData.ScheduledMail entry : entries) attempt(server, data, pass, entry, dayTime);
+        for (AntmailServerData.ScheduledMail entry : entries) attempt(server, data, pass, entry, gameTime, dayTime);
     }
 
-    private static void attempt(MinecraftServer server, AntmailServerData data, Pass pass, AntmailServerData.ScheduledMail entry, long dayTime) {
+    private static void attempt(MinecraftServer server, AntmailServerData data, Pass pass, AntmailServerData.ScheduledMail entry,
+                                long gameTime, long dayTime) {
         if (!data.isScheduled(entry)) return;
         Definition definition = definitions.get(entry.definitionId());
         if (definition == null) {
             data.unschedule(entry);
             return;
         }
-        if (dayTime < entry.dueTime()) return;
+        if (gameTime < entry.dueTime()) return;
         if (junkBlocked(data, entry.address(), entry.definitionId(), definition)) {
             data.unschedule(entry);
             return;
@@ -363,9 +383,16 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
             message.setPresentation(definition.style(), definition.senderDisplay(), definition.senderAvatarItem(),
                     definition.senderAvatarEntity(), definition.deleteAfterRead(), definition.notification());
             if (junk.contains(id)) message.markJunk();
+            data.makeRoom(recipient);
             AntmailDeliveryResult.Status status = data.deliver(server, message, recordFullMailbox).status();
+            if (status == AntmailDeliveryResult.Status.MAILBOX_FULL) AntmailNotifier.inboxFull(server, recipient);
             if (coinAccount != null && (status == AntmailDeliveryResult.Status.DELIVERED || status == AntmailDeliveryResult.Status.QUEUED)) {
                 com.craisinlord.antos.content.antazon.AntazonServerData.access(server).credit(coinAccount, definition.antcoins());
+            }
+            if ((definition.wallpaper() != null || definition.takeover() != null)
+                    && (status == AntmailDeliveryResult.Status.DELIVERED || status == AntmailDeliveryResult.Status.QUEUED)) {
+                UUID profile = data.accountIdForAddress(server, recipient);
+                if (profile != null) com.craisinlord.antos.content.computer.ComputerDesktopEffects.applyToAccount(server, profile, definition.wallpaper(), definition.takeover());
             }
             return status;
         } catch (IllegalArgumentException exception) {
@@ -481,7 +508,22 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
             String name = definition.senderDisplay().isBlank() ? sender : definition.senderDisplay();
             senderNames.merge(sender, name, (first, second) -> first.equals(sender) ? second : first);
         }
-        return new Loaded(Map.copyOf(loaded), Map.copyOf(loadedPools), Set.copyOf(loadedJunk), Map.copyOf(senderNames));
+        Map<ResourceLocation, AntmailTakeover> loadedTakeovers = new HashMap<>();
+        for (var resource : manager.listResources("computer/takeover", path -> path.getPath().endsWith(".json")).entrySet()) {
+            ResourceLocation id = idFor(resource.getKey(), "computer/takeover/");
+            try (var reader = resource.getValue().openAsReader()) {
+                JsonElement element = JsonParser.parseReader(reader);
+                if (!element.isJsonObject()) continue;
+                loadedTakeovers.put(id, AntmailTakeover.parse(id, element.getAsJsonObject()));
+            } catch (Exception exception) {
+                AntOS.LOGGER.warn("Ignoring malformed takeover {}: {}", id, exception.getMessage());
+            }
+        }
+        for (Map.Entry<ResourceLocation, Definition> entry : loaded.entrySet()) {
+            ResourceLocation takeover = entry.getValue().takeover();
+            if (takeover != null && !loadedTakeovers.containsKey(takeover)) AntOS.LOGGER.warn("Antmail message {} uses missing takeover {}", entry.getKey(), takeover);
+        }
+        return new Loaded(Map.copyOf(loaded), Map.copyOf(loadedPools), Set.copyOf(loadedJunk), Map.copyOf(senderNames), Map.copyOf(loadedTakeovers));
     }
 
     private static ResourceLocation idFor(ResourceLocation file, String prefix) {
@@ -521,12 +563,17 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         }
         AntmailPackages.Delivery delivery = object.has("delivery") && object.get("delivery").isJsonObject()
                 ? AntmailPackages.parse(object.getAsJsonObject("delivery")) : null;
+        var wallpaper = com.craisinlord.antos.content.computer.ComputerDesktopEffects.WallpaperChange.parse("Antmail message " + id, object.get("wallpaper"));
+        String takeoverText = string(object, "takeover");
+        ResourceLocation takeover = takeoverText.isBlank() ? null : ResourceLocation.tryParse(takeoverText);
+        if (!takeoverText.isBlank() && takeover == null) AntOS.LOGGER.warn("Antmail message {} has an invalid takeover ID {}", id, takeoverText);
         return new Definition(object.get("sender").getAsString(), object.get("subject").getAsString(), object.get("body").getAsString(),
                 trigger, once, conditions, string(object, "style"), string(object, "sender_display"),
                 string(object, "sender_avatar_item"), string(object, "sender_avatar_entity"),
                 object.has("delete_after_read") && object.get("delete_after_read").getAsBoolean(), window,
                 string(object, "notification"), delivery,
-                object.has("antcoins") && object.get("antcoins").isJsonPrimitive() ? Math.max(0L, object.get("antcoins").getAsLong()) : 0L);
+                object.has("antcoins") && object.get("antcoins").isJsonPrimitive() ? Math.max(0L, object.get("antcoins").getAsLong()) : 0L,
+                wallpaper, takeover);
     }
 
     private static String string(JsonObject object, String key) {
@@ -552,6 +599,7 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         junk = loaded.junk();
         junkSenderNames = loaded.junkSenderNames();
         triggers = TriggerIndex.of(loaded.messages());
+        takeovers = loaded.takeovers();
     }
 
     private record TriggerIndex(Map<String, List<ResourceLocation>> byType, Map<String, List<ResourceLocation>> byValue,
@@ -590,16 +638,27 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
     }
 
     public record Loaded(Map<ResourceLocation, Definition> messages, Map<ResourceLocation, Pool> pools,
-                         Set<ResourceLocation> junk, Map<String, String> junkSenderNames) {
+                         Set<ResourceLocation> junk, Map<String, String> junkSenderNames, Map<ResourceLocation, AntmailTakeover> takeovers) {
         public Loaded(Map<ResourceLocation, Definition> messages, Map<ResourceLocation, Pool> pools) {
-            this(messages, pools, Set.of(), Map.of());
+            this(messages, pools, Set.of(), Map.of(), Map.of());
+        }
+        public Loaded(Map<ResourceLocation, Definition> messages, Map<ResourceLocation, Pool> pools,
+                      Set<ResourceLocation> junk, Map<String, String> junkSenderNames) {
+            this(messages, pools, junk, junkSenderNames, Map.of());
         }
     }
 
     public record Definition(String sender, String subject, String body, Trigger trigger, boolean once, Conditions conditions,
                              String style, String senderDisplay, String senderAvatarItem, String senderAvatarEntity,
                              boolean deleteAfterRead, DeliverWindow window,
-                             String notification, AntmailPackages.Delivery delivery, long antcoins) {
+                             String notification, AntmailPackages.Delivery delivery, long antcoins,
+                             com.craisinlord.antos.content.computer.ComputerDesktopEffects.WallpaperChange wallpaper, ResourceLocation takeover) {
+        public Definition(String sender, String subject, String body, Trigger trigger, boolean once, Conditions conditions,
+                          String style, String senderDisplay, String senderAvatarItem, String senderAvatarEntity,
+                          boolean deleteAfterRead, DeliverWindow window, String notification, AntmailPackages.Delivery delivery, long antcoins) {
+            this(sender, subject, body, trigger, once, conditions, style, senderDisplay, senderAvatarItem, senderAvatarEntity,
+                    deleteAfterRead, window, notification, delivery, antcoins, null, null);
+        }
         public Definition(String sender, String subject, String body, Trigger trigger, boolean once, Conditions conditions,
                           String style, String senderDisplay, String senderAvatarItem, String senderAvatarEntity,
                           boolean deleteAfterRead, DeliverWindow window, String notification, AntmailPackages.Delivery delivery) {

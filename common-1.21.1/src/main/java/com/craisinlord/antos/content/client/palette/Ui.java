@@ -91,6 +91,15 @@ public final class Ui {
     public static int CORRUPT = 0xFFFF3B3B;
     public static int CORRUPT_DIM = 0xFF9A1414;
     public static int CORRUPT_BACKGROUND = 0xFF080000;
+    public static final int HIJACK = 0xFFE8173C;
+    public static final int HIJACK_DIM = 0xFF8C0F26;
+    public static final int HIJACK_BACKGROUND = 0xFF140004;
+    public static final int HIJACK_BAND = 0xFF4A0614;
+    public static final int HIJACK_TEXT = 0xFFFFD6DC;
+    public static final int HIJACK_SCANLINE = 0x228C0F26;
+    public static final int HIJACK_TITLE_BAND = 0xB04A0614;
+    public static final int HIJACK_INK = 0xFF000000;
+    public static final int CORRUPT_SCANLINE = 0x229A1414;
     public static int GAME_CORRECT = 0xFF538D4E;
     public static int GAME_PRESENT = 0xFFB59F3B;
     public static int GAME_ABSENT = 0xFF3A403A;

@@ -40,10 +40,13 @@ import org.lwjgl.glfw.GLFW;
 final class AntmailApp extends ComputerApp {
     private static final long STATUS_DURATION_MS = 6000L;
     final State state = new State();
+    private final AntmailDirectoryPanel directoryPanel = new AntmailDirectoryPanel();
+    private final AntmailConversationPanel conversationPanel = new AntmailConversationPanel();
+    private final AntmailDeliveryPanel deliveryPanel = new AntmailDeliveryPanel();
     private java.util.UUID detailRequestedId;
     private long detailRequestedAt;
     private String wrappedBodyText;
-    private boolean wrappedBodyCorrupted;
+    private AntmailGlitchText.Tone wrappedBodyTone = AntmailGlitchText.Tone.PLAIN;
     private int wrappedBodyWidth = -1;
     private net.minecraft.client.gui.Font wrappedBodyFont;
     private net.minecraft.locale.Language wrappedBodyLanguage;
@@ -64,6 +67,7 @@ final class AntmailApp extends ComputerApp {
 
     void tick(boolean loggedIn) {
         processSendResult();
+        if (loggedIn && state.mode.equals("directory")) directoryPanel.tick();
         AntmailAnternetResultPayload mailResult = AntmailClientState.get();
         syncPaintAttachment();
         screen.session.text.sync();
@@ -73,6 +77,7 @@ final class AntmailApp extends ComputerApp {
             state.refreshTicks = refreshInterval;
         } else if (loggedIn && --state.refreshTicks <= 0) {
             requestState();
+            if (state.mode.equals("conversation")) conversationPanel.refresh();
             state.refreshTicks = refreshInterval;
         }
         if (loggedIn && AntmailClientState.getMailbox() == null) state.stateWaitTicks++;
@@ -176,7 +181,7 @@ final class AntmailApp extends ComputerApp {
             boolean sentSelected = activeFolder.equals("sent");
             boolean draftsSelected = activeFolder.equals("drafts");
             boolean moreSelected = activeFolder.equals("archive") || activeFolder.equals("trash") || activeFolder.equals("profile")
-                    || activeFolder.equals("junk");
+                    || activeFolder.equals("junk") || activeFolder.equals("directory") || activeFolder.equals("conversation");
             int inboxX = x;
             int sentX = inboxX + folderSlotWidth;
             int draftsX = sentX + folderSlotWidth;
@@ -247,6 +252,13 @@ final class AntmailApp extends ComputerApp {
                 drawAction(g, x, actionY, 36, "BACK", Ui.ACCENT);
                 drawAction(g, x + 36 + actionGap, actionY, 70, "CLEAR ICON", Ui.ACCENT);
                 drawAction(g, x + navWidth - 44, actionY, 44, "SAVE", Ui.ACCENT);
+            } else if (state.mode.equals("directory")) {
+                directoryPanel.render(this, g, x, y + 25, w, h - 25);
+            } else if (state.mode.equals("conversation")) {
+                conversationPanel.render(screen, g, x, y + 25, w, h - 25, () -> openDirectory("conversation"),
+                        this::replyToConversation, message -> openMessage(message, "conversation"));
+            } else if (state.mode.equals("deliveries")) {
+                deliveryPanel.render(screen, g, x, y + 25, w, h - 25);
             } else if (state.mode.equals("junk")) {
                 renderJunk(g, x, y, navWidth, h);
             } else if (state.mode.equals("compose")) {
@@ -254,9 +266,8 @@ final class AntmailApp extends ComputerApp {
                 AntmailComposeLayout composeLayout = composeLayout(y, h, navWidth);
                 g.drawString(font, Component.literal("TO"), x, y + 27, Ui.TEXT_STRONG, false);
                 boolean invalidRecipient = !state.recipient.isBlank()
-                        && !AntmailAddress.isValidAddress(state.recipient.trim());
-                g.drawString(font, Component.literal(screen.trimToWidth(state.focused && state.field == 1 && screen.caretVisible()
-                        ? screen.insertCaret(state.recipient, state.cursor) : state.recipient, navWidth - 30)), x + 27, y + 27,
+                        && !com.craisinlord.antos.content.antmail.AntmailRecipients.valid(state.recipient.trim());
+                g.drawString(font, Component.literal(AntmailRecipientPicker.display(state.recipient, state.cursor, state.focused && state.field == 1, screen.caretVisible(), navWidth - 78, font::width)), x + 27, y + 27,
                         invalidRecipient ? Ui.CORRUPT : Ui.TEXT, false);
                 g.fill(x, y + 38, x + navWidth, y + 39, Ui.LINE);
                 g.drawString(font, Component.literal("SUBJECT"), x, y + 44, Ui.TEXT_STRONG, false);
@@ -267,6 +278,7 @@ final class AntmailApp extends ComputerApp {
                 boolean bodyFocused = state.focused && state.field == 3;
                 String body = state.body.isEmpty() && !bodyFocused ? "Write your message..." : state.body;
                 List<AntmailBodyLine> bodyLines = wrapBody(body, navWidth - 10);
+                drawAction(g, x + navWidth - 44, y + 24, 44, Component.translatable("computer.antos.mail.pick_shortcut").getString(), Ui.ACCENT);
                 int bodyVisible = Math.max(1, (composeLayout.bodyBottom() - composeLayout.bodyTop()) / 11);
                 int bodyMaximum = Math.max(0, bodyLines.size() - bodyVisible);
                 int cursorLine = state.body.isEmpty() ? 0
@@ -349,18 +361,24 @@ final class AntmailApp extends ComputerApp {
             } else if (state.mode.equals("message")) {
                 AntmailMessage message = selectedMessage(result);
                 if (message != null) {
-                    boolean showRetry = state.sent && !message.deliveryStatus().equals("DELIVERED");
+                    boolean showRetry = state.sent && (message.batch() != null || !message.deliveryStatus().equals("DELIVERED"));
                     boolean corrupted = message.corrupted() && !state.sent;
-                    int headerColor = corrupted ? Ui.CORRUPT : Ui.ACCENT;
-                    int detailColor = corrupted ? Ui.CORRUPT_DIM : Ui.TEXT;
+                    boolean hijacked = message.hijacked() && !state.sent;
+                    AntmailGlitchText.Tone tone = hijacked ? AntmailGlitchText.Tone.HIJACKED : corrupted ? AntmailGlitchText.Tone.CORRUPTED : AntmailGlitchText.Tone.PLAIN;
+                    int headerColor = hijacked ? Ui.HIJACK : corrupted ? Ui.CORRUPT : Ui.ACCENT;
+                    int detailColor = hijacked ? Ui.HIJACK : corrupted ? Ui.CORRUPT_DIM : Ui.TEXT;
                     boolean replyAvailable = canReply(message);
                     String localizedSubject = AntOSPlayerText.apply(AntmailRenderMarkers.stripStyleMarkers(localizedMailText(message.subject())));
                     String localizedBody = AntOSPlayerText.apply(localizedMailText(message.body()));
                     String sharedProduct = antazonProductLink(localizedBody);
                     AntmailDetailLayout detail = detailLayout(y, h, !sharedProduct.isBlank() || junkLink(message), showRetry);
                     if (corrupted) g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), Ui.CORRUPT_BACKGROUND);
-                    String moveLabel = switch (state.originMode) {
-                        case "archive" -> "INBOX";
+                    if (hijacked) {
+                        g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), Ui.HIJACK_BACKGROUND);
+                        g.fill(x + 29, detail.senderY(), x + navWidth - 2, detail.senderY() + 12, Ui.HIJACK_BAND);
+                    }
+                    String moveLabel = switch (messageSourceMode()) {
+                        case "archive" -> state.sent ? "SENT" : "INBOX";
                         case "trash" -> "RESTORE";
                         default -> "ARCHIVE";
                     };
@@ -368,17 +386,17 @@ final class AntmailApp extends ComputerApp {
                     drawAction(g, actionX, detail.actionY(), 36, "BACK", headerColor);
                     actionX += 38;
                     if (replyAvailable) {
-                        drawAction(g, actionX, detail.actionY(), 42, "REPLY", Ui.ACCENT);
-                        actionX += 44;
+                        drawAction(g, actionX, detail.actionY(), message.conversationId() == null ? 42 : 66, message.conversationId() == null ? "REPLY" : Component.translatable("computer.antos.mail.reply_all").getString(), Ui.ACCENT);
+                        actionX += message.conversationId() == null ? 44 : 68;
                     }
-                    int moveWidth = state.originMode.equals("trash") ? 52 : 48;
+                    int moveWidth = messageSourceMode().equals("trash") ? 52 : 48;
                     drawAction(g, actionX, detail.actionY(), moveWidth, moveLabel, headerColor);
                     actionX += moveWidth + 2;
-                    String deleteLabel = state.originMode.equals("trash")
+                    String deleteLabel = messageSourceMode().equals("trash")
                             && Objects.equals(state.confirmDeleteId, message.id())
                             && System.currentTimeMillis() < state.confirmDeleteUntil ? "SURE?" : "DELETE";
                     drawAction(g, actionX, detail.actionY(), 42, deleteLabel, headerColor);
-                    if (state.originMode.equals("inbox")) {
+                    if (messageSourceMode().equals("inbox")) {
                         drawAction(g, actionX + 44, detail.actionY(), 36, "UNREAD", headerColor);
                     }
                     AntmailProfile messageSenderProfile = AntmailClientState.getProfile(message.sender().fullAddress());
@@ -392,8 +410,8 @@ final class AntmailApp extends ComputerApp {
                     renderAvatar(g, detailAvatarName,
                             message.fromPlayer() ? messageSenderProfile.avatarItem() : message.senderAvatarItem(),
                             message.fromPlayer() ? "" : message.senderAvatarEntity(), x, detail.senderY(), 24);
-                    g.drawString(font, Component.literal("FROM  " + screen.trimToWidth(fromLabel, navWidth - 39 - font.width("FROM  "))), x + 31, detail.senderY() + 2, detailColor, false);
-                    g.drawString(font, Component.literal("TO    " + screen.trimToWidth(message.recipient().fullAddress(), navWidth - 39 - font.width("TO    "))), x + 31, detail.senderY() + 14, detailColor, false);
+                    g.drawString(font, Component.literal("FROM  " + screen.trimToWidth(fromLabel, navWidth - 39 - font.width("FROM  "))), x + 31, detail.senderY() + 2, hijacked ? Ui.HIJACK_TEXT : detailColor, false);
+                    g.drawString(font, Component.literal("TO    " + screen.trimToWidth(message.recipientSummary(), navWidth - 39 - font.width("TO    "))), x + 31, detail.senderY() + 14, detailColor, false);
                     if (corrupted) localizedSubject = AntmailGlitchText.flicker(localizedSubject, 10, message.id().hashCode());
                     g.drawString(font, Component.literal(screen.trimToWidth(localizedSubject, navWidth - 6)), x, detail.subjectY(), headerColor, false);
                     if (junkLink(message)) {
@@ -406,7 +424,7 @@ final class AntmailApp extends ComputerApp {
                     float bodyTextScale = 0.85F;
                     int bodyLineAdvance = 9;
                     int bodyWrapWidth = Math.max(1, (int) ((navWidth - 16) / bodyTextScale));
-                    List<net.minecraft.util.FormattedCharSequence> bodyLines = wrapBody(localizedBody, corrupted, bodyWrapWidth);
+                    List<net.minecraft.util.FormattedCharSequence> bodyLines = wrapBody(localizedBody, tone, bodyWrapWidth);
                     int contentHeight = bodyLines.size() * bodyLineAdvance + (message.attachments().isEmpty() ? 0 : 6);
                     for (AntmailAttachment attachment : message.attachments()) {
                         contentHeight += attachment instanceof AntmailAttachment.Render render
@@ -489,7 +507,7 @@ final class AntmailApp extends ComputerApp {
                         g.disableScissor();
                     }
                     if (showRetry) {
-                        String retryLabel = state.retryMessageId.equals(message.id().toString()) ? "[ RETRYING... ]" : "[ RETRY DELIVERY ]";
+                        String retryLabel = message.batch() != null ? Component.translatable("computer.antos.mail.delivery_results").getString() : state.retryMessageId.equals(message.id().toString()) ? "[ RETRYING... ]" : "[ RETRY DELIVERY ]";
                         g.drawString(font, Component.literal(retryLabel), x, y + h - 20, Ui.TEXT_STRONG, false);
                     }
                 }
@@ -511,7 +529,7 @@ final class AntmailApp extends ComputerApp {
                     int deleteX = x + navWidth - 20;
                     if (screen.inside(x, rowY - 1, navWidth - 7, 20, screen.session.mouseX, screen.session.mouseY)) screen.drawHover(g, x, rowY - 1, navWidth - 7, 20);
                     g.drawString(font, Component.literal(screen.trimToWidth(draft.subject().isBlank() ? "Untitled draft" : draft.subject(), navWidth - 40)), x + 2, rowY, Ui.TEXT_STRONG, false);
-                    g.drawString(font, Component.literal(screen.trimToWidth(draft.recipient() == null ? "No recipient" : draft.recipient().fullAddress(), navWidth - 40)), x + 2, rowY + 9, Ui.TEXT, false);
+                    g.drawString(font, Component.literal(screen.trimToWidth(draft.recipients().isBlank() ? "No recipient" : draft.recipients(), navWidth - 40)), x + 2, rowY + 9, Ui.TEXT, false);
                     drawAction(g, deleteX, rowY - 1, 18, "X", Ui.ACCENT);
                     g.fill(x, rowY + 19, x + navWidth - 9, rowY + 20, Ui.LINE);
                 }
@@ -542,8 +560,9 @@ final class AntmailApp extends ComputerApp {
                     int rowY = listTop + row * rowHeight;
                     if (screen.inside(x, rowY - 1, navWidth - 7, rowHeight, screen.session.mouseX, screen.session.mouseY)) screen.drawHover(g, x, rowY - 1, navWidth - 7, rowHeight);
                     boolean corruptedRow = message.corrupted() && !state.sent;
+                    boolean hijackedRow = message.hijacked() && !state.sent;
                 AntmailAddress rowAddress = state.sent ? message.recipient() : message.sender();
-                String rowSender = state.sent ? displayAddress(rowAddress) : displaySender(message);
+                String rowSender = state.sent ? message.recipientSummary() : displaySender(message);
                 AntmailProfile rowProfile = AntmailClientState.getProfile(rowAddress.fullAddress());
                 if ((!state.sent && message.fromPlayer() || state.sent) && !rowProfile.displayName().isBlank()) {
                     rowSender = rowProfile.displayName();
@@ -557,6 +576,7 @@ final class AntmailApp extends ComputerApp {
                         rowSubject = AntmailGlitchText.flicker(rowSubject, 12, message.id().hashCode() + 7);
                         rowColor = message.read() ? Ui.CORRUPT_DIM : Ui.CORRUPT;
                     }
+                    if (hijackedRow) rowColor = message.read() ? Ui.HIJACK_DIM : Ui.HIJACK;
                 String avatarItem = state.sent ? rowProfile.avatarItem()
                         : message.fromPlayer() ? rowProfile.avatarItem() : message.senderAvatarItem();
                 String avatarEntity = !state.sent && !message.fromPlayer() ? message.senderAvatarEntity() : "";
@@ -575,7 +595,7 @@ final class AntmailApp extends ComputerApp {
                     int dateWidth = Math.round(font.width(gameDate) * dateScale);
                     int dateX = x + navWidth - 10 - dateWidth;
                     g.drawString(font, Component.literal(screen.trimToWidth(rowSender, Math.max(1, dateX - textX - 5))), textX, rowY,
-                            !message.read() && !state.sent ? Ui.ACCENT : Ui.TEXT, false);
+                            hijackedRow ? rowColor : !message.read() && !state.sent ? Ui.ACCENT : Ui.TEXT, false);
                     if (navWidth >= 120) {
                         g.pose().pushPose();
                         try {
@@ -592,7 +612,7 @@ final class AntmailApp extends ComputerApp {
                     g.pose().translate(x + 31, rowY + 9, 0);
                     g.pose().scale(rowTextScale, rowTextScale, 1.0F);
                     g.drawString(font, Component.literal(screen.trimToWidth(rowSubject + status, Math.max(1, (int) ((navWidth - 40) / rowTextScale)))),
-                            0, 0, message.read() ? Ui.TEXT : rowColor, false);
+                            0, 0, message.read() && !hijackedRow ? Ui.TEXT : rowColor, false);
                     g.pose().popPose();
                     String attachmentFlag = message.hasAttachments() ? "[FILE]" : "";
                     int previewWidth = navWidth - 40 - font.width(attachmentFlag) - 4;
@@ -620,11 +640,15 @@ final class AntmailApp extends ComputerApp {
                         g.fill(x, rowY + rowHeight - 1, x + navWidth - 9, rowY + rowHeight, Ui.LINE);
                     }
                 }
-                int rangeStart = messages.isEmpty() ? 0 : state.listScroll + 1;
-                int rangeEnd = Math.min(messages.size(), state.listScroll + visible);
+                var pageSnapshot = AntmailClientState.snapshot(result);
+                int pageOffset = pageSnapshot == null ? 0 : pageSnapshot.tag().getInt("Page");
+                int rangeStart = messages.isEmpty() ? 0 : pageOffset + state.listScroll + 1;
+                int rangeEnd = pageOffset + Math.min(messages.size(), state.listScroll + visible);
                 String rangeLabel = messages.isEmpty() ? (total == 0 ? "" : "NO MATCHING MESSAGES")
-                        : "SHOWING " + rangeStart + "-" + rangeEnd + " / " + messages.size();
-                g.drawString(font, Component.literal(rangeLabel), x + 2, y + h - 14, Ui.TEXT, false);
+                        : "SHOWING " + rangeStart + "-" + rangeEnd + " / " + total;
+                g.drawString(font, Component.literal(screen.trimToWidth(rangeLabel, navWidth - 90)), x + 2, y + h - 14, Ui.TEXT, false);
+                if (pageOffset > 0) drawAction(g, x + navWidth - 82, y + h - 19, 38, "<", Ui.ACCENT);
+                if (pageSnapshot != null && pageSnapshot.tag().getBoolean("More")) drawAction(g, x + navWidth - 40, y + h - 19, 38, ">", Ui.ACCENT);
                 if (messages.isEmpty()) {
                     String emptyLabel = state.search.isBlank() && !state.unreadOnly && !state.attachmentsOnly
                             ? switch (state.mode) {
@@ -640,12 +664,14 @@ final class AntmailApp extends ComputerApp {
                 screen.beginLayer(g);
                 int menuWidth = Math.max(88, font.width("MARK ALL READ") + 14);
                 int menuX = Math.max(x, Math.min(moreX, x + navWidth - menuWidth));
-                g.fill(menuX, y + 20, menuX + menuWidth, y + 112, Ui.BACKGROUND);
-                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 112, Ui.BORDER_STRONG);
+                g.fill(menuX, y + 20, menuX + menuWidth, y + 148, Ui.BACKGROUND);
+                screen.box(g, menuX, y + 20, menuX + menuWidth, y + 148, Ui.BORDER_STRONG);
                 g.drawString(font, Component.literal("ARCHIVE"), menuX + 6, y + 25, Ui.TEXT, false);
                 g.drawString(font, Component.literal("TRASH"), menuX + 6, y + 43, Ui.TEXT, false);
                 g.drawString(font, Component.literal("MY PROFILE"), menuX + 6, y + 61, Ui.TEXT, false);
                 g.drawString(font, Component.literal("JUNK MAIL"), menuX + 6, y + 79, Ui.TEXT, false);
+                g.drawString(font, Component.translatable("computer.antos.mail.contacts_shortcut"), menuX + 6, y + 115, Ui.TEXT, false);
+                g.drawString(font, Component.translatable("computer.antos.mail.groups_shortcut"), menuX + 6, y + 133, Ui.TEXT, false);
                 g.drawString(font, Component.literal("MARK ALL READ"), menuX + 6, y + 97, hasUnreadMessages() ? Ui.TEXT : Ui.TEXT_PLACEHOLDER, false);
             }
             if (!state.undoActions.isEmpty() && System.currentTimeMillis() < state.undoActions.peekLast().until()
@@ -672,7 +698,7 @@ final class AntmailApp extends ComputerApp {
             if (state.mode.equals("message") && state.sent) {
                 AntmailMessage message = selectedMessage(result);
                 if (message != null && !message.deliveryStatus().equals("DELIVERED")) {
-                    String retryLabel = state.retryMessageId.equals(message.id().toString()) ? "[ RETRYING... ]" : "[ RETRY DELIVERY ]";
+                    String retryLabel = message.batch() != null ? Component.translatable("computer.antos.mail.delivery_results").getString() : state.retryMessageId.equals(message.id().toString()) ? "[ RETRYING... ]" : "[ RETRY DELIVERY ]";
                     statusX += font.width(retryLabel) + 8;
                     statusY = y + h - 20;
                 }
@@ -690,11 +716,11 @@ final class AntmailApp extends ComputerApp {
         return !state.status.isEmpty() && !state.mode.equals("compose") && !state.mode.equals("profile");
     }
 
-    private List<net.minecraft.util.FormattedCharSequence> wrapBody(String text, boolean corrupted, int width) {
-        if (width != wrappedBodyWidth || corrupted != wrappedBodyCorrupted || font != wrappedBodyFont || net.minecraft.locale.Language.getInstance() != wrappedBodyLanguage || !text.equals(wrappedBodyText)) {
-            wrappedBodyLines = font.split(AntmailGlitchText.body(text, corrupted, Ui.TEXT), width);
+    private List<net.minecraft.util.FormattedCharSequence> wrapBody(String text, AntmailGlitchText.Tone tone, int width) {
+        if (width != wrappedBodyWidth || tone != wrappedBodyTone || font != wrappedBodyFont || net.minecraft.locale.Language.getInstance() != wrappedBodyLanguage || !text.equals(wrappedBodyText)) {
+            wrappedBodyLines = font.split(AntmailGlitchText.body(text, tone, Ui.TEXT), width);
             wrappedBodyText = text;
-            wrappedBodyCorrupted = corrupted;
+            wrappedBodyTone = tone;
             wrappedBodyWidth = width;
             wrappedBodyLanguage = net.minecraft.locale.Language.getInstance();
             wrappedBodyFont = font;
@@ -816,11 +842,79 @@ final class AntmailApp extends ComputerApp {
         requestState(true);
     }
 
+    private boolean pageMail(boolean forward) {
+        var snapshot = AntmailClientState.snapshot(AntmailClientState.getMailbox());
+        if (snapshot == null) return true;
+        var tag = snapshot.tag();
+        if (forward && !tag.getBoolean("More")) return true;
+        state.page = forward ? tag.getInt("NextPage") : Math.max(0, tag.getInt("Page") - 20);
+        state.listScroll = 0; requestState(true); return true;
+    }
+
+    private void openDirectory(String mode) {
+        if (state.mode.equals("compose")) saveDraft();
+        String previous = state.mode.equals("compose") ? "compose" : "inbox";
+        state.mode = "directory"; state.moreOpen = false; state.focused = false; state.searchFocused = false; clearStatus();
+        directoryPanel.open(mode, token -> {
+            state.recipient = previous.equals("compose") ? addRecipient(state.recipient, token) : token;
+            state.mode = "compose"; state.focused = true; state.field = 1; state.cursor = state.recipient.length();
+        }, token -> {
+            int separator = token.indexOf(':');
+            state.mode = "conversation"; conversationPanel.open(UUID.fromString(token.substring(separator + 1)), token);
+        }, () -> state.mode = previous);
+    }
+
+    /** True for selections that must be the only recipient (groups and teams). */
+    static boolean exclusiveRecipient(String token) {
+        String value = token == null ? "" : token.trim();
+        return value.startsWith("conversation:") || value.startsWith("team:");
+    }
+
+    /**
+     * Adds a picked recipient to the compose line. Groups and teams can't be combined with anything else,
+     * so picking one replaces the line, and picking anything while one is present replaces it too.
+     */
+    static String addRecipient(String current, String token) {
+        if (current == null || current.isBlank() || exclusiveRecipient(token)) return token;
+        for (String part : current.split("[,;]")) if (exclusiveRecipient(part)) return token;
+        return current + ", " + token;
+    }
+
+    /** Subject for a reply: "Re: original" (never doubled), trimmed to the subject limit; empty without an original. */
+    private String replySubject(String original) {
+        if (original == null || original.isBlank()) return "";
+        String subject = localizedMailText(original);
+        if (!subject.regionMatches(true, 0, "Re:", 0, 3)) subject = "Re: " + subject;
+        int limit = com.craisinlord.antos.content.antmail.AntmailValidation.MAX_SUBJECT_LENGTH;
+        return subject.length() > limit ? subject.substring(0, limit) : subject;
+    }
+
+    private void replyToConversation() {
+        if (conversationPanel.id() == null) return;
+        composeConversation(conversationPanel.replyToken(), replySubject(conversationPanel.latestSubject()));
+    }
+
+    /** Starts a fresh message to a group or team, e.g. from the Tasks team menu. */
+    void composeTo(String token) {
+        if (state.mode.equals("compose")) saveDraft();
+        composeConversation(token, "");
+        state.field = 2; clearStatus();
+    }
+
+    private void composeConversation(String token, String subject) {
+        state.mode = "compose"; state.draftId = null; state.draftLoaded = true; state.recipient = token;
+        state.subject = subject == null ? "" : subject; state.body = "";
+        state.attachText = false; state.attachPaint = false; state.attachCoins = false; state.coinAmount = "";
+        state.pickingAttachment = false; state.attachmentMenu = false; state.paintAttachment = null; state.bodyScroll = 0;
+        state.focused = true; state.field = 3; state.cursor = 0; state.selectionStart = -1;
+    }
+
     private boolean canReply(AntmailMessage message) {
-        return !state.sent && message.fromPlayer() && message.definitionId().isBlank();
+        return (message.conversationId() != null || !state.sent) && message.fromPlayer() && message.definitionId().isBlank();
     }
 
     private void startReply(AntmailMessage message) {
+        if (message.conversationId() != null) { composeConversation(message.replyAllToken(), replySubject(message.subject())); return; }
         String subject = localizedMailText(message.subject());
         if (!subject.regionMatches(true, 0, "Re:", 0, 3)) subject = "Re: " + subject;
         if (subject.length() > com.craisinlord.antos.content.antmail.AntmailValidation.MAX_SUBJECT_LENGTH) {
@@ -950,7 +1044,7 @@ final class AntmailApp extends ComputerApp {
         if (mailbox == null) return List.of();
         String query = state.search.toLowerCase(Locale.ROOT);
         return mailbox.drafts().stream().filter(draft -> query.isBlank()
-                || (draft.subject() + " " + (draft.recipient() == null ? "" : draft.recipient().fullAddress()) + " " + draft.body())
+                || (draft.subject() + " " + draft.recipients() + " " + draft.body())
                 .toLowerCase(Locale.ROOT).contains(query)).toList();
     }
 
@@ -1010,6 +1104,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     String statusMessage(AntmailAnternetResultPayload result) {
+        if (result.detail().equals("partial_delivery")) return Component.translatable("computer.antos.mail.partial_delivery").getString();
         if (result.status() == 0) return Component.translatable("computer.antos.status.delivered").getString();
         if (result.status() == 1) return Component.translatable("computer.antos.status.queued").getString();
         return Component.translatable("computer.antos.status.delivery_failed", result.detail().isBlank() ? Component.translatable("computer.antos.status.server_rejected") : result.detail().toUpperCase()).getString();
@@ -1054,12 +1149,12 @@ final class AntmailApp extends ComputerApp {
     private AntmailMessage selectedMessage(AntmailAnternetResultPayload result) {
         if (state.messageId == null) return null;
         AntmailMessage detail = AntmailClientState.getMessage(state.messageId);
-        if (detail != null) return detail;
+        if (detail != null) { if (detail.sourceFolder() >= 0) state.messageFolder = detail.sourceFolder(); return detail; }
         requestMissingDetail(state.messageId);
         for (AntmailMessage summary : mailboxMessages(result, state.sent)) {
             if (summary.id().equals(state.messageId)) return summary;
         }
-        return null;
+        return conversationPanel.find(state.messageId);
     }
 
     private void requestMissingDetail(java.util.UUID id) {
@@ -1073,18 +1168,52 @@ final class AntmailApp extends ComputerApp {
     private void openMessage(AntmailMessage message, String originMode) {
         clearStatus();
         state.originMode = originMode;
-        state.sent = originMode.equals("sent");
+        state.messageFolder = message.sourceFolder() >= 0 ? message.sourceFolder() : originMode.equals("conversation") ? (message.batch() != null ? 1 : 0) : folderCode(originMode);
+        state.sent = originMode.equals("sent") || message.batch() != null;
         state.messageId = message.id();
         state.mode = "message";
         state.detailScroll = 0;
         state.attachmentHits.clear();
         state.archiveHits.clear();
         AntmailNetworking.requestMessage(message.id());
-        if (originMode.equals("inbox") && !message.read()) {
+        if (state.messageFolder == 0 && !message.read()) {
             AntmailNetworking.markRead(message.id());
             requestState(true);
         }
         state.selfDeletingId = originMode.equals("inbox") && message.deleteAfterRead() ? message.id() : null;
+    }
+
+    void openNotification(String messageId) {
+        UUID id;
+        try {
+            id = UUID.fromString(messageId);
+        } catch (IllegalArgumentException exception) {
+            return;
+        }
+        if (state.mode.equals("compose")) saveDraft();
+        state.moreOpen = false;
+        state.searchFocused = false;
+        state.focused = false;
+        AntmailMessage known = AntmailClientState.getMessage(id);
+        AntmailMailbox mailbox = mailbox(AntmailClientState.getMailbox());
+        if (known == null && mailbox != null) known = mailbox.inbox().stream().filter(message -> message.id().equals(id)).findFirst().orElse(null);
+        if (known != null) {
+            openMessage(known, "inbox");
+            return;
+        }
+        clearStatus();
+        state.originMode = "inbox";
+        state.messageFolder = com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX;
+        state.sent = false;
+        state.messageId = id;
+        state.mode = "message";
+        state.detailScroll = 0;
+        state.attachmentHits.clear();
+        state.archiveHits.clear();
+        state.selfDeletingId = null;
+        AntmailNetworking.requestMessage(id);
+        AntmailNetworking.markRead(id);
+        requestState(true);
     }
 
     private void returnToOrigin() {
@@ -1092,6 +1221,11 @@ final class AntmailApp extends ComputerApp {
         state.sent = state.mode.equals("sent");
         state.messageId = null;
         state.detailScroll = 0;
+    }
+
+    private String messageSourceMode() {
+        if (!state.originMode.equals("conversation")) return state.originMode;
+        return switch (state.messageFolder) { case 1 -> "sent"; case 3 -> "archive"; case 4 -> "trash"; default -> "inbox"; };
     }
 
     private int folderCode(String mode) {
@@ -1109,9 +1243,24 @@ final class AntmailApp extends ComputerApp {
         int contentY = y + 28;
         int contentW = w - 16;
         int contentH = h - 34;
+        if (!state.moreOpen && List.of("inbox", "sent", "archive", "trash").contains(state.mode) && mouseY >= contentY + contentH - 19 && mouseX >= contentX + contentW - 82) return pageMail(mouseX >= contentX + contentW - 40);
+        if (!state.moreOpen && mouseY >= contentY + 24) {
+            if (state.mode.equals("directory")) return directoryPanel.click(mouseX, mouseY);
+            if (state.mode.equals("conversation")) return conversationPanel.click(mouseX, mouseY);
+            if (state.mode.equals("deliveries")) {
+                if (screen.inside(contentX, contentY + 25, 40, 18, mouseX, mouseY)) { state.mode = "message"; return true; }
+                if (mouseY >= contentY + contentH - 18) deliveryPanel.retry();
+                return true;
+            }
+            if (state.mode.equals("compose") && screen.inside(contentX + contentW - 44, contentY + 24, 44, 18, mouseX, mouseY)) { openDirectory("picker"); return true; }
+        }
+        if (state.moreOpen && mouseY >= contentY + 110 && mouseY < contentY + 146) {
+            int menuX = contentX + Math.max(0, Math.min(((contentW - Math.min(56, contentW) - 4) / 4) * 3, contentW - Math.max(88, font.width("MARK ALL READ") + 14)));
+            if (mouseX >= menuX && mouseX < menuX + Math.max(88, font.width("MARK ALL READ") + 14)) { openDirectory(mouseY < contentY + 128 ? "contacts" : "conversation"); return true; }
+        }
         AntmailMessage trackMessage = state.mode.equals("message")
                 ? selectedMessage(AntmailClientState.getMailbox()) : null;
-        boolean showRetry = trackMessage != null && state.sent && !trackMessage.deliveryStatus().equals("DELIVERED");
+        boolean showRetry = trackMessage != null && state.sent && (trackMessage.batch() != null || !trackMessage.deliveryStatus().equals("DELIVERED"));
         String trackBody = trackMessage == null ? "" : AntOSPlayerText.apply(localizedMailText(trackMessage.body()));
         AntmailDetailLayout detailLayout = detailLayout(contentY, contentH, !antazonProductLink(trackBody).isBlank() || junkLink(trackMessage), showRetry);
         int antmailDetailTrackHeight = Math.max(1, detailLayout.bodyBottom() - detailLayout.bodyTop());
@@ -1145,21 +1294,7 @@ final class AntmailApp extends ComputerApp {
         } else if (!state.undoActions.isEmpty() && System.currentTimeMillis() < state.undoActions.peekLast().until()
                 && !state.mode.equals("message")
                 && screen.inside(contentX, contentY + contentH - 34, 48, 18, mouseX, mouseY)) {
-            UndoAction undo = state.undoActions.removeLast();
-            if (undo.action().equals("MOVE_TO_TRASH")) {
-                AntmailNetworking.restoreFromTrash(undo.id(),
-                        undo.folder() == com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
-                                ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
-                                : undo.folder() == com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
-                                ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
-                                : com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
-            } else if (undo.action().equals("ARCHIVE")) {
-                AntmailNetworking.restoreFromArchive(undo.id(), undo.folder());
-            } else if (undo.action().equals("RESTORE_ARCHIVE")) {
-                AntmailNetworking.archive(undo.id(), false);
-            } else if (undo.action().equals("RESTORE_TRASH")) {
-                AntmailNetworking.moveToTrash(undo.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
-            }
+            undoLast();
             setStatus("ACTION UNDONE");
             returnToOrigin();
             requestState(true);
@@ -1359,7 +1494,7 @@ final class AntmailApp extends ComputerApp {
         } else if (state.mode.equals("message")) {
             AntmailMessage message = selectedMessage(result);
             boolean replyAvailable = message != null && canReply(message);
-            boolean messageShowRetry = message != null && state.sent && !message.deliveryStatus().equals("DELIVERED");
+            boolean messageShowRetry = message != null && state.sent && (message.batch() != null || !message.deliveryStatus().equals("DELIVERED"));
             String localizedBody = message == null ? "" : AntOSPlayerText.apply(localizedMailText(message.body()));
             AntmailDetailLayout detail = detailLayout(contentY, contentH, !antazonProductLink(localizedBody).isBlank() || junkLink(message), messageShowRetry);
             if (junkLink(message)) {
@@ -1371,25 +1506,25 @@ final class AntmailApp extends ComputerApp {
                 }
             }
             int actionX = contentX + 38;
-            if (replyAvailable && screen.inside(actionX, detail.actionY(), 42, 18, mouseX, mouseY)) {
+            if (replyAvailable && screen.inside(actionX, detail.actionY(), message.conversationId() == null ? 42 : 66, 18, mouseX, mouseY)) {
                 startReply(message);
                 return true;
             }
-            if (replyAvailable) actionX += 44;
-            int moveWidth = state.originMode.equals("trash") ? 52 : 48;
+            if (replyAvailable) actionX += message.conversationId() == null ? 44 : 68;
+            int moveWidth = messageSourceMode().equals("trash") ? 52 : 48;
             if (screen.inside(actionX, detail.actionY(), moveWidth, 18, mouseX, mouseY)) {
                 if (message != null) {
-                    if (state.originMode.equals("archive")) {
-                        AntmailNetworking.restoreFromArchive(message.id());
-                    pushUndo(message.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE, "RESTORE_ARCHIVE");
+                    if (messageSourceMode().equals("archive")) {
+                        AntmailNetworking.restoreFromArchive(message.id(), state.sent ? 1 : 0);
+                    pushUndo(message.id(), state.sent ? 1 : 0, "RESTORE_ARCHIVE");
                         setStatus("MOVED TO INBOX");
-                    } else if (state.originMode.equals("trash")) {
-                        AntmailNetworking.restoreFromTrash(message.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
-                        pushUndo(message.id(), com.craisinlord.antos.content.network.AntmailStateRequestPayload.TRASH, "RESTORE_TRASH");
+                    } else if (messageSourceMode().equals("trash")) {
+                        AntmailNetworking.restoreFromTrash(message.id(), state.sent ? 1 : 0);
+                        pushUndo(message.id(), state.sent ? 1 : 0, "RESTORE_TRASH");
                         setStatus("RESTORED TO INBOX");
                     } else {
-                        AntmailNetworking.archive(message.id(), state.sent);
-                        pushUndo(message.id(), state.originMode.equals("sent")
+                        AntmailNetworking.archive(message.id(), folderCode(messageSourceMode()) == 1);
+                        pushUndo(message.id(), messageSourceMode().equals("sent")
                                 ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
                                 : com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX, "ARCHIVE");
                         setStatus("ARCHIVED");
@@ -1401,7 +1536,7 @@ final class AntmailApp extends ComputerApp {
             }
             actionX += moveWidth + 2;
             if (screen.inside(actionX, detail.actionY(), 42, 18, mouseX, mouseY) && message != null) {
-                if (state.originMode.equals("trash")) {
+                if (messageSourceMode().equals("trash")) {
                     if (Objects.equals(state.confirmDeleteId, message.id())
                             && System.currentTimeMillis() < state.confirmDeleteUntil) {
                         AntmailNetworking.permanentlyDelete(message.id());
@@ -1415,15 +1550,15 @@ final class AntmailApp extends ComputerApp {
                         setStatus("SELECT DELETE AGAIN TO PERMANENTLY REMOVE");
                     }
                 } else {
-                    AntmailNetworking.moveToTrash(message.id(), folderCode(state.originMode));
-                    pushUndo(message.id(), folderCode(state.originMode), "MOVE_TO_TRASH");
+                    AntmailNetworking.moveToTrash(message.id(), folderCode(messageSourceMode()));
+                    pushUndo(message.id(), folderCode(messageSourceMode()), "MOVE_TO_TRASH");
                     setStatus("MOVED TO TRASH // UNDO AVAILABLE");
                     returnToOrigin();
                     requestState(true);
                 }
                 return true;
             }
-            if (state.originMode.equals("inbox") && message != null
+            if (messageSourceMode().equals("inbox") && message != null
                     && screen.inside(actionX + 44, detail.actionY(), 36, 18, mouseX, mouseY)) {
                 AntmailNetworking.markUnread(message.id());
                 setStatus("MARKED UNREAD");
@@ -1437,9 +1572,10 @@ final class AntmailApp extends ComputerApp {
                 state.detailScroll = 0;
                 return true;
             }
-            if (state.sent && message != null && !message.deliveryStatus().equals("DELIVERED")
+            if (state.sent && message != null && (message.batch() != null || !message.deliveryStatus().equals("DELIVERED"))
                     && state.retryMessageId.isBlank()
                     && mouseY >= contentY + contentH - 23 && mouseY < contentY + contentH - 7) {
+                if (message.batch() != null) { deliveryPanel.open(message); state.mode = "deliveries"; return true; }
                 state.retryBaseline = AntmailClientState.get();
                 state.retryMessageId = message.id().toString();
                 state.retryTicks = 100;
@@ -1563,6 +1699,9 @@ final class AntmailApp extends ComputerApp {
     }
 
     boolean scroll(Window window, double mouseX, double mouseY, double scrollY) {
+        if (state.mode.equals("directory")) { directoryPanel.scroll(scrollY); return true; }
+        if (state.mode.equals("conversation")) { conversationPanel.scroll(scrollY); return true; }
+        if (state.mode.equals("deliveries")) { deliveryPanel.scroll(scrollY); return true; }
         if (state.mode.equals("compose")) {
             float scale = screen.uiScale();
             double localX = (mouseX - screen.centerX) / scale, localY = (mouseY - screen.centerY) / scale;
@@ -1580,7 +1719,7 @@ final class AntmailApp extends ComputerApp {
             int windowX = -screen.desktopWidth() / 2 + screen.windowLocalX(window), windowY = -screen.desktopHeight() / 2 + screen.windowLocalY(window);
             int contentX = windowX + 8, contentY = windowY + 28, contentW = screen.windowWidth(window) - 16;
             AntmailMessage message = selectedMessage(AntmailClientState.getMailbox());
-            boolean showRetry = message != null && state.sent && !message.deliveryStatus().equals("DELIVERED");
+            boolean showRetry = message != null && state.sent && (message.batch() != null || !message.deliveryStatus().equals("DELIVERED"));
             String body = message == null ? "" : AntOSPlayerText.apply(localizedMailText(message.body()));
             AntmailDetailLayout detail = detailLayout(contentY, screen.windowHeight(window) - 34,
                     !antazonProductLink(body).isBlank() || junkLink(message), showRetry);
@@ -1597,6 +1736,7 @@ final class AntmailApp extends ComputerApp {
     }
 
     boolean type(Window window, char codePoint, int modifiers) {
+        if (state.mode.equals("directory")) return directoryPanel.type(codePoint);
         if (state.sendPending) return true;
         if (state.searchFocused && codePoint >= 32
                 && state.search.length() < 48) {
@@ -1618,6 +1758,25 @@ final class AntmailApp extends ComputerApp {
 
     boolean key(Window window, int keyCode, int scanCode, int modifiers) {
         if (state.sendPending) return true;
+        if (keyCode == GLFW.GLFW_KEY_F6 || keyCode == GLFW.GLFW_KEY_F7) { openDirectory(keyCode == GLFW.GLFW_KEY_F6 ? "contacts" : "conversation"); return true; }
+        if (state.mode.equals("compose") && keyCode == GLFW.GLFW_KEY_F4) { openDirectory("picker"); return true; }
+        if (state.mode.equals("conversation") && conversationPanel.key(keyCode, modifiers)) return true;
+        if (state.mode.equals("directory")) return directoryPanel.key(keyCode, modifiers);
+        if (state.mode.equals("conversation") || state.mode.equals("deliveries")) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) { if (state.mode.equals("deliveries")) state.mode = "message"; else openDirectory("conversation"); return true; }
+            if (keyCode == GLFW.GLFW_KEY_DOWN || keyCode == GLFW.GLFW_KEY_UP) {
+                if (state.mode.equals("conversation")) conversationPanel.move(keyCode == GLFW.GLFW_KEY_DOWN ? 1 : -1);
+                else deliveryPanel.scroll(keyCode == GLFW.GLFW_KEY_DOWN ? -1 : 1);
+                return true;
+            }
+            if (state.mode.equals("conversation") && (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER)) {
+                var message = conversationPanel.selected(); if (message != null) openMessage(message, "conversation"); return true;
+            }
+            if (state.mode.equals("deliveries") && keyCode == GLFW.GLFW_KEY_R) { deliveryPanel.retry(); return true; }
+            if (keyCode == GLFW.GLFW_KEY_R && state.mode.equals("conversation")) { replyToConversation(); return true; }
+        }
+        if (state.sendPending) return true;
+        if (List.of("inbox", "sent", "archive", "trash").contains(state.mode) && (keyCode == GLFW.GLFW_KEY_PAGE_UP || keyCode == GLFW.GLFW_KEY_PAGE_DOWN)) return pageMail(keyCode == GLFW.GLFW_KEY_PAGE_DOWN);
         if (screen.activeWindow != null && screen.activeWindow.type.equals("ANTMAIL")
                 && state.pickingAttachment && keyCode == GLFW.GLFW_KEY_ESCAPE) {
             state.pickingAttachment = false;
@@ -1664,15 +1823,16 @@ final class AntmailApp extends ComputerApp {
                     returnToOrigin();
                     return true;
                 }
-                if (current != null && keyCode == GLFW.GLFW_KEY_E && !state.originMode.equals("trash")) {
-                    if (state.originMode.equals("archive")) AntmailNetworking.restoreFromArchive(current.id());
-                    else AntmailNetworking.archive(current.id(), state.sent);
-                    pushUndo(current.id(), folderCode(state.originMode), state.originMode.equals("archive") ? "RESTORE_ARCHIVE" : "ARCHIVE");
+                if (current != null && keyCode == GLFW.GLFW_KEY_E && !messageSourceMode().equals("trash")) {
+                    if (messageSourceMode().equals("archive")) AntmailNetworking.restoreFromArchive(current.id(), state.sent ? 1 : 0);
+                    else AntmailNetworking.archive(current.id(), folderCode(messageSourceMode()) == 1);
+                    pushUndo(current.id(), messageSourceMode().equals("archive") ? (state.sent ? 1 : 0) : folderCode(messageSourceMode()), messageSourceMode().equals("archive") ? "RESTORE_ARCHIVE" : "ARCHIVE");
                     setStatus("ARCHIVED // UNDO AVAILABLE");
                     returnToOrigin();
                     requestState(true);
                     return true;
                 }
+                if (current != null && current.batch() != null && keyCode == GLFW.GLFW_KEY_D) { deliveryPanel.open(current); state.mode = "deliveries"; return true; }
                 if (current != null && keyCode == GLFW.GLFW_KEY_R && canReply(current)) {
                     startReply(current);
                     return true;
@@ -1836,7 +1996,7 @@ final class AntmailApp extends ComputerApp {
         int start = hasSelection() ? Math.min(state.selectionStart, cursor) : cursor;
         int end = hasSelection() ? Math.max(state.selectionStart, cursor) : cursor;
         int maximum = state.field == 3 ? 4096 : state.field == 4 ? 12
-                : state.field == 5 ? 32 : state.field == 6 ? 128 : 64;
+                : state.field == 5 ? 32 : state.field == 6 ? 128 : state.field == 1 ? 8192 : 64;
         String replacement = text.substring(0, Math.min(text.length(), Math.max(0, maximum - (current.length() - (end - start)))));
         String updated = current.substring(0, start) + replacement + current.substring(end);
         if (state.field == 1) state.recipient = updated;
@@ -1865,6 +2025,7 @@ final class AntmailApp extends ComputerApp {
         boolean attachmentsOnly = !mode.equals("drafts") && state.attachmentsOnly;
         boolean sameRequest = AntmailClientState.snapshotKey().equals(AntmailClientState.requestKey(folder, query, unreadOnly, attachmentsOnly));
         long knownVersion = force || !sameRequest ? 0L : AntmailClientState.getVersion();
+        if (!AntmailClientState.snapshotKey().equals(AntmailClientState.requestKey(folder, query, unreadOnly, attachmentsOnly))) state.page = 0;
         AntmailNetworking.requestState(folder, state.page, knownVersion, query, unreadOnly, attachmentsOnly);
         if (force) state.stateWaitTicks = 0;
     }
@@ -1911,12 +2072,16 @@ final class AntmailApp extends ComputerApp {
             state.attachCoins = false;
             if (state.field == 4) state.focused = false;
         }
-        if (!AntmailAddress.isValidAddress(state.recipient)) {
+        if (!com.craisinlord.antos.content.antmail.AntmailRecipients.valid(state.recipient)) {
             setStatus(Component.translatable("computer.antos.status.invalid_recipient").getString());
             return;
         }
         if (state.subject.isBlank() || state.body.isBlank()) {
             setStatus(Component.translatable("computer.antos.status.subject_body_required").getString());
+            return;
+        }
+        if (state.attachCoins && !com.craisinlord.antos.content.antmail.AntmailRecipients.direct(state.recipient)) {
+            setStatus(Component.translatable("computer.antos.mail.direct_antcoins_only").getString());
             return;
         }
         if (state.attachCoins) {
@@ -1980,7 +2145,7 @@ final class AntmailApp extends ComputerApp {
         if (state.sendPending) return;
         state.draftLoaded = true;
         state.draftId = draft.id();
-        state.recipient = draft.recipient() == null ? "" : draft.recipient().fullAddress();
+        state.recipient = draft.recipients();
         state.subject = draft.subject();
         state.body = draft.body();
         state.bodyScroll = 0;
@@ -2020,7 +2185,7 @@ final class AntmailApp extends ComputerApp {
             AntmailMailbox mailbox = mailbox(result);
             if (mailbox == null) return;
             AntmailDraft draft = new AntmailDraft(state.draftId, AntmailAddress.parse(mailbox.address().fullAddress()),
-                    state.recipient.isBlank() ? null : AntmailAddress.parse(state.recipient), state.subject, state.body, composeAttachments());
+                    null, state.subject, state.body, composeAttachments(), state.recipient);
             state.draftId = draft.id();
             state.draftLoaded = true;
             if (!AntmailNetworking.saveDraft(draft)) setStatus(Component.translatable("computer.antos.status.message_too_large").getString());
@@ -2102,6 +2267,7 @@ final class AntmailApp extends ComputerApp {
         boolean focused;
         String mode = "inbox";
         String originMode = "inbox";
+        int messageFolder;
         String recipient = "";
         String subject = "";
         String body = "";
@@ -2156,6 +2322,25 @@ final class AntmailApp extends ComputerApp {
         boolean draftLoaded;
         boolean pickingAttachment;
         boolean pickingPaint;
+    }
+
+    void undoLast() {
+        if (state.undoActions.isEmpty()) return;
+        UndoAction undo = state.undoActions.removeLast();
+        if (undo.action().equals("MOVE_TO_TRASH")) {
+            AntmailNetworking.restoreFromTrash(undo.id(),
+                    undo.folder() == com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
+                            ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.SENT
+                            : undo.folder() == com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
+                            ? com.craisinlord.antos.content.network.AntmailStateRequestPayload.ARCHIVE
+                            : com.craisinlord.antos.content.network.AntmailStateRequestPayload.INBOX);
+        } else if (undo.action().equals("ARCHIVE")) {
+            AntmailNetworking.restoreFromArchive(undo.id(), undo.folder());
+        } else if (undo.action().equals("RESTORE_ARCHIVE")) {
+            AntmailNetworking.archive(undo.id(), undo.folder() == 1);
+        } else if (undo.action().equals("RESTORE_TRASH")) {
+            AntmailNetworking.moveToTrash(undo.id(), undo.folder());
+        }
     }
 
     private void pushUndo(UUID id, int folder, String action) {

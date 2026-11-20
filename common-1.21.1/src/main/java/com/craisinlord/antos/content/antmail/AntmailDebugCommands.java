@@ -17,6 +17,19 @@ import net.minecraft.server.level.ServerPlayer;
 public final class AntmailDebugCommands {
     private AntmailDebugCommands() { }
 
+    /**
+     * Dev-only smoke commands. AntmailSmoke is excluded from release jars, so it is loaded reflectively and only
+     * when ANTOS_SMOKE is set; release builds never touch the class.
+     */
+    private static void registerSmokeCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+        if (System.getenv("ANTOS_SMOKE") == null) return;
+        try {
+            Class.forName("com.craisinlord.antos.content.antmail.AntmailSmoke").getMethod("register", CommandDispatcher.class).invoke(null, dispatcher);
+        } catch (ReflectiveOperationException | LinkageError exception) {
+            com.craisinlord.antos.AntOS.LOGGER.warn("ANTOS_SMOKE is set but the smoke harness is not on the classpath", exception);
+        }
+    }
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("antos").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("mail")
@@ -31,6 +44,31 @@ public final class AntmailDebugCommands {
                                                 SharedSuggestionProvider.suggest(AntmailEventData.definitionIds().stream()
                                                         .map(ResourceLocation::toString), builder))
                                                 .executes(AntmailDebugCommands::send))))));
+        dispatcher.register(Commands.literal("antos").requires(source -> source.hasPermission(2))
+                .then(Commands.literal("takeover")
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .then(Commands.argument("id", ResourceLocationArgument.id()).suggests((context, builder) ->
+                                                SharedSuggestionProvider.suggest(AntmailEventData.takeoverIds().stream()
+                                                        .map(ResourceLocation::toString), builder))
+                                        .executes(AntmailDebugCommands::takeover)))));
+        registerSmokeCommands(dispatcher);
+    }
+
+    private static int takeover(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = EntityArgument.getPlayer(context, "player");
+        ResourceLocation id = ResourceLocationArgument.getId(context, "id");
+        if (AntmailEventData.takeover(id) == null) {
+            throw new SimpleCommandExceptionType(Component.literal("That takeover is not loaded.")).create();
+        }
+        java.util.UUID profile = com.craisinlord.antos.content.computer.ComputerDesktopEffects.accountFor(player);
+        if (profile == null) {
+            throw new SimpleCommandExceptionType(Component.literal(player.getGameProfile().getName() + " has no AntOS profile.")).create();
+        }
+        boolean queued = com.craisinlord.antos.content.computer.ComputerDesktopEffects.applyToAccount(player.server, profile, null, id);
+        context.getSource().sendSuccess(() -> Component.literal(queued
+                ? "Queued takeover " + id + " for " + player.getGameProfile().getName() + "; it shows the next time they open AntOS."
+                : "Takeover " + id + " is already queued for " + player.getGameProfile().getName() + "."), true);
+        return 1;
     }
 
     private static int trigger(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {

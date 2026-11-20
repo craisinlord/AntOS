@@ -78,7 +78,7 @@ final class ComputerResume {
             if (!element.isJsonObject()) continue;
             JsonObject row = element.getAsJsonObject();
             String type = string(row, "type");
-            if (!TYPES.contains(type) || !AntOSSettings.appEnabled(type)
+            if (!TYPES.contains(type) || !AppAvailability.enabled(type)
                     || session.windows.stream().anyMatch(window -> window.type.equals(type))) continue;
             ComputerScreen.Window window = new ComputerScreen.Window(type,
                     Component.translatable("computer.antos.app." + type.toLowerCase(Locale.ROOT) + ".window_title").getString(),

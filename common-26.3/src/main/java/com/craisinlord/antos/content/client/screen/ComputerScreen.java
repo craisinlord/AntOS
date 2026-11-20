@@ -941,7 +941,7 @@ public final class ComputerScreen extends Screen {
     private static String appDescriptionKey(String app) { return "computer.antos.app." + app.toLowerCase(Locale.ROOT) + ".description"; }
 
     private static List<String> desktopApps() {
-        return java.util.Arrays.stream(ICONS).filter(AntOSSettings::appEnabled).toList();
+        return java.util.Arrays.stream(ICONS).filter(AppAvailability::enabled).toList();
     }
 
     private List<String> renderedDesktopApps() {
@@ -2413,7 +2413,7 @@ public final class ComputerScreen extends Screen {
         return com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState.installedDisks();
     }
     void open(String type) {
-        if (!AntOSSettings.appEnabled(type)) return;
+        if (!AppAvailability.enabled(type)) return;
         AntOSUiSounds.play(Cue.OPEN);
         if (type.equals("DISKS") && AntOSSettings.appEnabled("ANTAZON")) session.antazon.refreshListings();
         for (int index = 0; index < session.windows.size(); index++) {

@@ -921,7 +921,7 @@ final class SettingsApp extends ComputerApp {
         heading(g, "help.tours");
         buttonRow(g, tr("help.antos_tour"), tr("help.replay"), false, this::replayTour);
         if (AntOSSettings.appEnabled("ANTAZON")) buttonRow(g, tr("help.antazon_tour"), tr("help.replay"), false, this::replayAntazon);
-        if (AntOSSettings.appEnabled("MERCHANT")) buttonRow(g, tr("help.merchant_tour"), tr("help.replay"), false, this::replayMerchant);
+        if (AppAvailability.enabled("MERCHANT")) buttonRow(g, tr("help.merchant_tour"), tr("help.replay"), false, this::replayMerchant);
         heading(g, "help.shortcuts");
         field(g, tr("help.search"), search, tr("help.search_placeholder"));
         String query = search.value.toLowerCase(Locale.ROOT).trim();

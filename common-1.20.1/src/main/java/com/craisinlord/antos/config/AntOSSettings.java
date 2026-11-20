@@ -623,6 +623,10 @@ public final class AntOSSettings {
         return Math.max(0, pack.passwordHintAfterFailures);
     }
 
+    public static boolean rewardsOncePerPlayer() {
+        return pack.rewardsOncePerPlayer;
+    }
+
     public static boolean sendAntazonUnlockEmail() {
         return pack.sendAntazonUnlockEmail;
     }
@@ -675,6 +679,7 @@ public final class AntOSSettings {
         private boolean archiveLookupRequiresPhone = true;
         private boolean sendAntazonUnlockEmail = true;
         private int passwordHintAfterFailures = 3;
+        private boolean rewardsOncePerPlayer = true;
         private Map<String, Boolean> builtInGames = defaultBuiltInGames();
         private Map<String, Long> gameRewards = defaultGameRewards();
         private DesktopApps desktopApps = new DesktopApps();

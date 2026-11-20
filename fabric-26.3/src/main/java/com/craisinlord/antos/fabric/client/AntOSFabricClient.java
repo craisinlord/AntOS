@@ -42,6 +42,7 @@ public final class AntOSFabricClient implements ClientModInitializer {
         net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.registerKeyMapping(com.craisinlord.antos.content.client.TaskTrackerHud.createKey(antosKeys));
         net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper.registerKeyMapping(com.craisinlord.antos.content.client.screen.OpenAntOSKey.createKey(antosKeys));
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.TaskTrackerHud.tick());
+        registerSmokeDriver();
         net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
                 net.minecraft.resources.Identifier.fromNamespaceAndPath(com.craisinlord.antos.AntOS.MODID, "task_tracker"),
                 (graphics, delta) -> com.craisinlord.antos.content.client.TaskTrackerHud.render(graphics));
@@ -57,5 +58,17 @@ public final class AntOSFabricClient implements ClientModInitializer {
         BlockEntityRendererRegistry.register(AntOSFabricContent.COMPUTER_BLOCK_ENTITY, ComputerRenderer::new);
         EntityRendererRegistry.register(AntOSFabricContent.REWARD_DROP_ENTITY, RewardDropRenderer::new);
     }
-}
 
+    /** Dev-only Antmail smoke driver; excluded from release jars, so loaded reflectively when ANTOS_SMOKE is set. */
+    private static void registerSmokeDriver() {
+        if (System.getenv("ANTOS_SMOKE") == null) return;
+        try {
+            java.lang.reflect.Method tick = Class.forName("com.craisinlord.antos.content.client.screen.AntmailSmokeDriver").getMethod("tick");
+            net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+                try { tick.invoke(null); } catch (ReflectiveOperationException exception) { throw new IllegalStateException(exception); }
+            });
+        } catch (ReflectiveOperationException | LinkageError exception) {
+            com.craisinlord.antos.AntOS.LOGGER.warn("ANTOS_SMOKE is set but the smoke driver is not on the classpath", exception);
+        }
+    }
+}

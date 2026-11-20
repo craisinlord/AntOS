@@ -11,14 +11,20 @@ public final class NotificationHistory {
     private final List<Entry> entries = new ArrayList<>();
 
     public record Entry(String id, String kind, String title, String message, long receivedAt, boolean read,
-                        String source, String iconItem, String iconEntity) {
+                        String source, String iconItem, String iconEntity, String target) {
         public Entry {
             source = source == null ? "" : source;
             iconItem = iconItem == null ? "" : iconItem;
             iconEntity = iconEntity == null ? "" : iconEntity;
+            target = target == null ? "" : target;
         }
 
-        Entry asRead() { return new Entry(id, kind, title, message, receivedAt, true, source, iconItem, iconEntity); }
+        public Entry(String id, String kind, String title, String message, long receivedAt, boolean read,
+                     String source, String iconItem, String iconEntity) {
+            this(id, kind, title, message, receivedAt, read, source, iconItem, iconEntity, "");
+        }
+
+        Entry asRead() { return new Entry(id, kind, title, message, receivedAt, true, source, iconItem, iconEntity, target); }
     }
 
     public static NotificationHistory decode(String json) {
@@ -31,7 +37,7 @@ public final class NotificationHistory {
                     if (entry == null || entry.id() == null || entry.kind() == null || entry.title() == null || entry.message() == null) continue;
                     if (history.entries.stream().anyMatch(existing -> existing.id().equals(entry.id()))) continue;
                     history.entries.add(new Entry(entry.id(), entry.kind(), entry.title(), entry.message(), entry.receivedAt(), entry.read(),
-                            entry.source(), entry.iconItem(), entry.iconEntity()));
+                            entry.source(), entry.iconItem(), entry.iconEntity(), entry.target()));
                     if (history.entries.size() == LIMIT) break;
                 }
             }
@@ -45,7 +51,11 @@ public final class NotificationHistory {
     }
 
     public Entry add(String kind, String title, String message, long receivedAt, String source, String iconItem, String iconEntity) {
-        Entry entry = new Entry(UUID.randomUUID().toString(), kind, title, message, receivedAt, false, source, iconItem, iconEntity);
+        return add(kind, title, message, receivedAt, source, iconItem, iconEntity, "");
+    }
+
+    public Entry add(String kind, String title, String message, long receivedAt, String source, String iconItem, String iconEntity, String target) {
+        Entry entry = new Entry(UUID.randomUUID().toString(), kind, title, message, receivedAt, false, source, iconItem, iconEntity, target);
         entries.add(0, entry);
         while (entries.size() > LIMIT) entries.remove(entries.size() - 1);
         return entry;

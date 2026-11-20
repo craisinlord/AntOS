@@ -14,6 +14,72 @@ public final class AntmailMailbox {
     private final List<AntmailMessage> archived = new ArrayList<>();
     private final List<AntmailMessage> trash = new ArrayList<>();
     private final List<AntmailDraft> drafts = new ArrayList<>();
+    private final java.util.Map<UUID, AntmailMessage> batches = new java.util.LinkedHashMap<>();
+    public AntmailMessage batch(UUID id) { return batches.get(id); }
+    public void recordBatch(AntmailMessage message) {
+        if (!batches.containsKey(message.id()) && batches.size() >= 4096) throw new IllegalArgumentException("send_journal_full");
+        batches.put(message.id(), message);
+        for (List<AntmailMessage> folder : List.of(inbox, sent, archived, trash)) for (int i = 0; i < folder.size(); i++) {
+            if (folder.get(i).id().equals(message.id()) && folder.get(i).sender().equals(address)) folder.set(i, message);
+        }
+    }
+    private AntmailMessage receipt(AntmailMessage message, boolean cancelled) {
+        AntmailMessage receipt = new AntmailMessage(message.id(), message.sender(), message.sender(), "", "", message.createdAt(), List.of(), true);
+        receipt.setBatch(message.batch().receipt(cancelled));
+        receipt.setDeliveryStatus(cancelled ? "CANCELLED" : "DELIVERED");
+        return receipt;
+    }
+    private boolean removeMessage(List<AntmailMessage> folder, UUID id) {
+        boolean changed = folder.removeIf(message -> message.id().equals(id));
+        if (changed && batches.containsKey(id) && findInbox(id) == null && findSent(id) == null && findArchived(id) == null && findTrash(id) == null) {
+            AntmailMessage message = batches.get(id);
+            batches.put(id, receipt(message, message.batch().failedCount() != 0 || message.batch().cancelled()));
+        }
+        return changed;
+    }
+    public boolean canRecordBatch() { return batches.size() < 4096; }
+    public List<AntmailMessage> conversation(UUID id) { return conversation(id, new java.util.HashMap<>()); }
+    /**
+     * Messages in one conversation, newest first. {@code folders} receives each message's folder (the codes
+     * {@link #folderOf} returns) from the same pass, so callers don't need four more scans per row.
+     */
+    public List<AntmailMessage> conversation(UUID id, java.util.Map<UUID, Integer> folders) {
+        java.util.Map<UUID, AntmailMessage> rows = new java.util.LinkedHashMap<>();
+        List<List<AntmailMessage>> lists = List.of(inbox, sent, archived, trash);
+        int[] codes = {0, 1, 3, 4};
+        for (int index = 0; index < lists.size(); index++) {
+            for (AntmailMessage message : lists.get(index)) {
+                if (!id.equals(message.conversationId())) continue;
+                rows.put(message.id(), message);
+                folders.putIfAbsent(message.id(), codes[index]);
+            }
+        }
+        return rows.values().stream().sorted(java.util.Comparator.comparingLong(AntmailMessage::createdAt).reversed()).toList();
+    }
+    /**
+     * One representative message per conversation in this mailbox: the newest copy that carries a conversation name,
+     * else the first copy found. Used to label received history.
+     */
+    public java.util.Map<UUID, AntmailMessage> conversationHeads() {
+        java.util.Map<UUID, AntmailMessage> heads = new java.util.LinkedHashMap<>();
+        for (List<AntmailMessage> folder : List.of(inbox, sent, archived, trash)) {
+            for (AntmailMessage message : folder) {
+                if (message.conversationId() == null) continue;
+                AntmailMessage known = heads.get(message.conversationId());
+                if (known == null || message.conversationName() != null
+                        && (known.conversationName() == null || message.createdAt() > known.createdAt())) heads.put(message.conversationId(), message);
+            }
+        }
+        return heads;
+    }
+    public int folderOf(UUID id) {
+        if (findInbox(id) != null) return 0;
+        if (findSent(id) != null) return 1;
+        if (findArchived(id) != null) return 3;
+        if (findTrash(id) != null) return 4;
+        return -1;
+    }
+    public boolean hasReceived(UUID id) { return findInbox(id) != null || findArchived(id) != null || findTrash(id) != null; }
     private int reportedUnreadCount = -1;
 
     public AntmailMailbox(AntmailAddress address) {
@@ -50,10 +116,10 @@ public final class AntmailMailbox {
     }
 
     public boolean removeDraft(UUID id) { return drafts.removeIf(draft -> draft.id().equals(id)); }
-    public boolean removeInbox(UUID id) { return inbox.removeIf(message -> message.id().equals(id)); }
-    public boolean removeSent(UUID id) { return sent.removeIf(message -> message.id().equals(id)); }
-    public boolean removeArchived(UUID id) { return archived.removeIf(message -> message.id().equals(id)); }
-    public boolean removeTrash(UUID id) { return trash.removeIf(message -> message.id().equals(id)); }
+    public boolean removeInbox(UUID id) { return removeMessage(inbox, id); }
+    public boolean removeSent(UUID id) { return removeMessage(sent, id); }
+    public boolean removeArchived(UUID id) { return removeMessage(archived, id); }
+    public boolean removeTrash(UUID id) { return removeMessage(trash, id); }
     public AntmailMessage findSent(UUID id) { return sent.stream().filter(message -> message.id().equals(id)).findFirst().orElse(null); }
     public AntmailMessage findInbox(UUID id) { return inbox.stream().filter(message -> message.id().equals(id)).findFirst().orElse(null); }
     public AntmailMessage findArchived(UUID id) { return archived.stream().filter(message -> message.id().equals(id)).findFirst().orElse(null); }
@@ -118,6 +184,9 @@ public final class AntmailMailbox {
 
     public CompoundTag toTag(boolean includeMessageAttachments) {
         CompoundTag tag = new CompoundTag();
+        ListTag journal = new ListTag();
+        for (AntmailMessage message : batches.values()) journal.add((message.batch().failedCount() == 0 ? receipt(message, message.batch().cancelled()) : message).toTag());
+        tag.put("Batches", journal);
         tag.putString("Address", address.fullAddress());
         tag.put("Inbox", messagesToTag(inbox, includeMessageAttachments));
         tag.put("Sent", messagesToTag(sent, includeMessageAttachments));
@@ -142,7 +211,7 @@ public final class AntmailMailbox {
         CompoundTag tag = new CompoundTag();
         tag.putString("Address", address.fullAddress());
         tag.putInt("Folder", folder);
-        tag.putInt("Page", 0);
+        tag.putInt("Page", Math.max(0, page));
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(java.util.Locale.ROOT);
         tag.putString("Query", normalizedQuery);
         tag.putBoolean("UnreadOnly", unreadOnly);
@@ -162,7 +231,12 @@ public final class AntmailMailbox {
         }
         java.util.Collections.reverse(filtered);
         filtered.sort(java.util.Comparator.comparingLong(AntmailMessage::createdAt).reversed());
-        List<AntmailMessage> rows = filtered.size() > maxRows ? filtered.subList(0, Math.max(0, maxRows)) : filtered;
+        int offset = Math.max(0, Math.min(page, filtered.size()));
+        int limit = Math.max(0, Math.min(20, maxRows));
+        List<AntmailMessage> rows = filtered.subList(offset, Math.min(filtered.size(), offset + limit));
+        tag.putInt("Page", offset);
+        tag.putInt("NextPage", offset + rows.size());
+        tag.putBoolean("More", offset + rows.size() < filtered.size());
         int unread = 0;
         for (AntmailMessage message : inbox) if (!message.read()) unread++;
         tag.putInt("PageSize", rows.size());
@@ -188,6 +262,13 @@ public final class AntmailMailbox {
 
     public static AntmailMailbox fromTag(CompoundTag tag) {
         AntmailMailbox mailbox = new AntmailMailbox(AntmailAddress.parse(tag.getStringOr("Address", "")));
+        ListTag batchTags = tag.getListOrEmpty("Batches");
+        for (int i = 0; i < batchTags.size() && mailbox.batches.size() < 4096; i++) {
+            try {
+                AntmailMessage batch = AntmailMessage.fromTag(batchTags.getCompoundOrEmpty(i));
+                if (batch.batch() != null && batch.sender().equals(mailbox.address)) mailbox.batches.put(batch.id(), batch.batch().failedCount() == 0 ? mailbox.receipt(batch, batch.batch().cancelled()) : batch);
+            } catch (RuntimeException ignored) { }
+        }
         if (tag.contains("UnreadCount")) mailbox.reportedUnreadCount = Math.max(0, tag.getIntOr("UnreadCount", 0));
         readMessages(tag.getListOrEmpty("Inbox"), mailbox.inbox);
         readMessages(tag.getListOrEmpty("Sent"), mailbox.sent);
@@ -196,6 +277,23 @@ public final class AntmailMailbox {
         ListTag draftTags = tag.getListOrEmpty("Drafts");
         for (int index = 0; index < draftTags.size() && mailbox.drafts.size() < AntmailValidation.MAX_DRAFTS; index++) {
             try { mailbox.drafts.add(AntmailDraft.fromTag(draftTags.getCompoundOrEmpty(index))); } catch (RuntimeException ignored) { }
+        }
+        for (List<AntmailMessage> folder : List.of(mailbox.inbox, mailbox.sent, mailbox.archived, mailbox.trash)) {
+            for (int i = 0; i < folder.size(); i++) {
+                AntmailMessage message = folder.get(i);
+                AntmailMessage batch = mailbox.batches.get(message.id());
+                if (message.batch() != null && batch != null && message.sender().equals(mailbox.address)) {
+                    if (!batch.batch().deliveries().isEmpty()) message.setBatch(batch.batch());
+                    else if (batch.batch().failedCount() == 0 && !batch.batch().cancelled()) {
+                        for (var delivery : message.batch().deliveries()) message.batch().outcome(delivery.account(), "DELIVERED");
+                    }
+                    message.setDeliveryStatus(batch.deliveryStatus());
+                    mailbox.batches.put(message.id(), message);
+                }
+            }
+        }
+        for (AntmailMessage message : new ArrayList<>(mailbox.batches.values())) {
+            if (mailbox.folderOf(message.id()) < 0 && message.batch().failedCount() > 0) mailbox.batches.put(message.id(), mailbox.receipt(message, true));
         }
         return mailbox;
     }
@@ -241,12 +339,13 @@ public final class AntmailMailbox {
         for (AntmailMessage message : messages) {
             if (message.sender() != null) addresses.add(message.sender());
             if (message.recipient() != null) addresses.add(message.recipient());
+            if (message.batch() != null) for (var delivery : message.batch().deliveries()) addresses.add(AntmailAddress.parse(delivery.address()));
         }
     }
 
     private static boolean involves(List<AntmailMessage> messages, AntmailAddress other) {
         for (AntmailMessage message : messages) {
-            if (other.equals(message.sender()) || other.equals(message.recipient())) return true;
+            if (other.equals(message.sender()) || other.equals(message.recipient()) || message.batch() != null && message.batch().deliveries().stream().anyMatch(row -> row.address().equals(other.fullAddress()))) return true;
         }
         return false;
     }

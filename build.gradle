@@ -39,6 +39,9 @@ tasks.named('jar') { enabled = false }
         description = "Runs '${taskName}' with the Forge 1.20.1 wrapper"
         workingDir = file('forge-1.20.1')
         environment 'GRADLE_USER_HOME', gradle.gradleUserHomeDir.absolutePath
+        // The nested wrapper needs its own Java; hand it a provisioned JDK 17 so no system JAVA_HOME is required.
+        def forgeJdk = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+        doFirst { environment 'JAVA_HOME', forgeJdk.get().metadata.installationPath.asFile.absolutePath }
         commandLine file("forge-1.20.1/${providers.systemProperty('os.name').get().toLowerCase().contains('win') ? 'gradlew.bat' : 'gradlew'}").absolutePath, taskName
     }
 }
@@ -98,6 +101,11 @@ def uiColorCheck = tasks.register('checkUiColors') {
 
 subprojects {
     tasks.matching { it.name == 'compileJava' }.configureEach { dependsOn(uiColorCheck) }
+    // Dev-only Antmail smoke harness (docs/antmail-smoke-test.md): compiled so runClient can use it, never packaged.
+    // The hooks that start it load these classes reflectively and only when ANTOS_SMOKE is set.
+    tasks.withType(Jar).configureEach {
+        exclude 'com/craisinlord/antos/content/antmail/AntmailSmoke*', 'com/craisinlord/antos/content/client/screen/AntmailSmokeDriver*'
+    }
 }
 
 configure(subprojects.findAll { it.name.startsWith('common-') }) {

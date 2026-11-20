@@ -19,6 +19,8 @@ public record AntmailAnternetPayload(int action, String first, String second, St
     public static final int UPDATE_PROFILE = 13;
     public static final int JUNK_BLOCK = 14;
     public static final int JUNK_BLOCK_ALL = 15;
+    public static final int DIRECTORY = 16;
+    public static final int CONVERSATION = 17;
     public static final int MAX_FIELD_CHARS = 65536;
 
 

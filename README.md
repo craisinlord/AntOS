@@ -6,6 +6,8 @@ This README is the reference for modpack developers. The fastest way to start is
 
 The development workspace also contains forward-port targets for Minecraft 26.1, 26.2, and 26.3 on Fabric and NeoForge. Those ports are still in progress and not ready for release. See [`docs/PORTING_26.md`](docs/PORTING_26.md) for the project layout and Gradle tasks.
 
+**Version parity.** The `hijacked` mail style, forced wallpapers, takeover screens, the `wallpaper` reward, `/antos takeover`, and `AntmailApi` exist only in the 1.21.1 builds for now. [`docs/desktop-hijack-parity.md`](docs/desktop-hijack-parity.md) lists what the 1.20.1 and 26.x trees still need.
+
 ## Contents
 
 - [Requirements and integrations](#requirements-and-integrations)
@@ -78,6 +80,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
   },
   "sendAntazonUnlockEmail": true,
   "passwordHintAfterFailures": 3,
+  "rewardsOncePerPlayer": true,
   "desktopApps": {
     "archive": true,
     "files": true,
@@ -114,6 +117,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
 | `gameRewards.<mode>` | Server | see above | AntCoins paid once per mode per profile per Minecraft day. `0` disables that reward. Nothing is paid or shown while Antazon is disabled. `blockle`: solving Blockle. `chessEasy` to `chessExpert`: winning Chess at that level. `minesweeperSmall`, `minesweeperLarge`: clearing that board. `flappyGhast15`, `flappyGhast40`: reaching 15 or 40 points. `ore2048Diamond`, `ore2048Beacon`: making a diamond block (512) or a beacon (2048). `pistonPush`: clearing a level for the first time. `pistonPushPar`: clearing a world 2+ level at par. Games from other mods add their own modes with full IDs, such as `"examplemod:snake_win": 20`; see [Native games](#native-games). A top-level `blockleDailyAntcoinReward` from older versions is moved to `gameRewards.blockle`. |
 | `sendAntazonUnlockEmail` | Server | `true` | Sends the Antazon Dispatch email when listings unlock. |
 | `passwordHintAfterFailures` | Server | `3` | Wrong passwords in a row before the sign-in screen shows the account's password hint. Counted per player and username until a successful sign-in. `0` never shows hints. |
+| `rewardsOncePerPlayer` | Server | `true` | Task and disk rewards can be claimed once per Minecraft player, not once per Anternet account, so making a new account doesn't pay out the same rewards again. Claims are always recorded, so turning this back on later still counts earlier claims. Set to `false` to let every account claim separately. |
 | `desktopApps.<app>` | Server (synced) | `true` | Set to `false` to hide an app. **Antazon, Merchant and Tasks default to `false`**; set `desktopApps.antazon`, `desktopApps.merchant` and `desktopApps.tasks` to `true` to enable them. |
 | `client.inventoryComputerButton` | Client | `false` | Adds a button to the inventory screen that opens AntOS. A top-level `inventoryComputerButton` from older versions is moved here. |
 | `client.defaultPreferences` | Client | `{}` | Starting preferences for players who don't have an `antos/client.json` yet. It takes any of the preference keys described below, for example `{"theme": "amber", "uiScalePercent": 115}`. Keys you leave out use the built-in defaults, and invalid values log a warning and use them too. Changing it later doesn't affect players who already have settings. |
@@ -173,7 +177,7 @@ In the Archive, the star button bookmarks the open article or lists your bookmar
 
 Text Editor and Paint save recovery drafts every couple of seconds. If the game closes with unsaved work, reopening the app offers **Restore draft** or **Discard draft**. Notification history, bookmarks, recent articles, and drafts are player data in `antos/client.json`, so don't ship that file in a modpack.
 
-**Reduce screen effects** turns off the flickering, scrambled text in corrupted Antmail messages.
+**Reduce screen effects** turns off the flickering, scrambled text in corrupted Antmail messages and on [takeover screens](#takeover-screens), which then show all their lines at once.
 
 **Settings → Apps → Tasks** controls the Tasks category sidebar. By default it's collapsed and opens on click; it can also open on hover or stay open. Pinning the sidebar is the same as choosing Always.
 
@@ -233,6 +237,7 @@ Every file's ID is `<namespace>:<path>`, where `<path>` is the file path under t
 | Task reward pool | `data/<ns>/computer/task/reward_pool/<path>.json` |
 | Antmail message | `data/<ns>/antmail/message/<path>.json` |
 | Antmail pool | `data/<ns>/antmail/pool/<path>.json` |
+| Takeover screen | `data/<ns>/computer/takeover/<path>.json` |
 | Antazon product | `data/<ns>/antazon/product/<path>.json` |
 | Antazon sell rule | `data/<ns>/antazon/sell/<path>.json` |
 | Antazon deal campaign | `data/<ns>/antazon/deal/<path>.json` |
@@ -272,10 +277,11 @@ Tasks, disks, programs, terminal commands, and Antmail all share one reward form
 | `effect` | `effect`, `duration_ticks` (default `1200`, max `72000`), `amplifier` (default `0`) | ✓ | ✓ |
 | `archive` | `entry` | ✓ | ✗ (use the disk's `entries`) |
 | `mail` | `message` (an [Antmail message](#antmail) ID), or inline `sender`, `subject`, `body` | ✓ | ✓ |
+| `wallpaper` | `id`, `force`, `unlock`, `restore`; see [forced wallpapers](#forced-wallpapers) | ✓ | ✓ |
 
 - Rejected types are skipped with a log warning.
 - A reward list allows up to 27 rows and 108 directly configured items.
-- `antcoins` go to the profile's Antazon wallet. `mail` goes to the profile's Antmail address.
+- `antcoins` go to the profile's Antazon wallet. `mail` goes to the profile's Antmail address. `wallpaper` changes the profile's desktop and isn't listed in the reward notice.
 - A `mail` reward that names a `message` delivers it immediately, skipping its trigger, conditions, and schedule, but still respecting its `once` setting. Give such messages a `manual` trigger if they should only arrive as rewards.
 
 ```json
@@ -844,13 +850,64 @@ Every profile automatically gets `<username>@antmail.com`. Data-driven messages 
 | --- | --- |
 | `sender_display` | Display name. |
 | `sender_avatar_item` / `sender_avatar_entity` | Item (block items work) or living entity portrait. Reuse the same one for a sender's messages. Without one, initials are shown. |
-| `style` | `corrupted` for an animated corrupted look. The body can use `[glitch]...[/glitch]` and `[redact]...[/redact]`. |
+| `style` | `corrupted` for an animated corrupted look, or `hijacked` for a crimson one: a red message view, a red band behind the sender line, and red inbox rows, in every look and theme. `hijacked` keeps the sender and subject readable and doesn't scramble plain text. Both styles let the body use `[glitch]...[/glitch]` and `[redact]...[/redact]`. |
 | `notification` | Chime by default; `silent`, or a sound event ID. |
 | `delete_after_read` | Removes the message after it's read. |
 
 Bodies can embed Archive-style previews with `@item:<id>`, `@entity:<id>`, `@enchantment:<id>`, `@potion:<id>`, or `@recipe:<id>`. The marker is removed from the text and the preview is attached below. This works in data-driven mail, `mail` rewards, and player-written mail. IDs without `@` stay plain text.
 
 `@display:<id>` embeds a custom display, interactive the same way it is in the Archive and Tasks. `@archive:<entry id>` adds a card that opens that Archive page. When a data-driven message is read, every `@archive:` page in it is unlocked for the reader's workspace (and merged into their team). Player-written mail can link pages but never unlocks them; a reader without the page sees a locked card.
+
+### Desktop effects
+
+A message can change the recipient profile's desktop when it's delivered. Both fields work with every trigger, with `mail` rewards that name the message, and with `/antos mail send`.
+
+```json
+{
+  "sender": "unknown",
+  "subject": "hello",
+  "body": "[glitch]I can see your desktop now.[/glitch]",
+  "style": "hijacked",
+  "trigger": { "type": "manual" },
+  "wallpaper": { "id": "examplemod:red_static", "force": true },
+  "takeover": "examplemod:hello_again"
+}
+```
+
+| Field | Notes |
+| --- | --- |
+| `wallpaper` | A [wallpaper change](#forced-wallpapers). `{ "id": "<wallpaper>", "force": true }` forces it; `{ "restore": true }` puts the earlier wallpaper back. |
+| `takeover` | A [takeover screen](#takeover-screens) ID. It shows once, full screen, the next time the player opens AntOS. |
+
+The profile is the one that owns the recipient address, so effects apply even while the player is offline. If the player has AntOS open when a wallpaper changes, the desktop updates right away.
+
+### Takeover screens
+
+`data/<namespace>/computer/takeover/<path>.json`
+
+```json
+{
+  "title": "HELLO, {username}",
+  "lines": [
+    "Your files are very tidy.",
+    "[glitch]I read all of them.[/glitch]",
+    "Your password was [redact]antfarm1[/redact]."
+  ],
+  "style": "hijacked",
+  "button": "OKAY"
+}
+```
+
+| Field | Notes |
+| --- | --- |
+| `title` | Large heading. Literal text or a translation key. |
+| `lines` | Up to 32 lines of 512 characters, each literal text or a translation key. Lines appear one at a time. Supports `[glitch]` and `[redact]` markup. |
+| `style` | `hijacked` (default, crimson) or `corrupted` (the corrupted mail look with scrambled text). |
+| `button` | Dismiss button label. Defaults to `CLOSE`. |
+
+A file needs a `title` or at least one line. `{username}` (Anternet name) and `{player}` (Minecraft name) work in every field.
+
+A queued takeover covers the whole desktop the next time the player opens AntOS. The button appears after the last line; Enter or Space also dismisses it, and Escape closes AntOS without dismissing it. Dismissing clears it from the profile, so it never shows again unless queued again. Each profile holds one queued takeover; queuing another replaces it. Queue one with a message's `takeover` field, `/antos takeover`, or `AntmailApi.queueTakeover`.
 
 ### Look Up in Archive
 
@@ -1176,6 +1233,7 @@ Custom Terminal commands are matched on the server, and their definitions never 
 **Effects.**
 
 - Once requirements are met, a command can grant `entries`, `tasks`, `wallpaper`, `files`, `programs`, `subscribe`, and `rewards`, with the same formats and limits as [disks](#floppy-disks).
+- `wallpaper` can also be a [wallpaper change](#forced-wallpapers) object, such as `{ "id": "examplemod:red_static", "force": true }` or `{ "restore": true }`. A string still just unlocks the wallpaper.
 - Files without a folder go under `Terminal/<command>/`. Programs from a command stay in Games permanently, with no disk needed. Rewards use the disk reward types.
 - `once` (default `true`) grants effects on each profile's first run; with `"once": false`, rewards pay on every run.
 - `open` opens a file in Text or Paint after the output finishes.
@@ -1200,6 +1258,24 @@ In the template, the hidden `vault` command is behind the decrypted `lab_secret`
 ```
 
 The image goes in `assets/<namespace>/textures/computer/wallpaper/meadow.png`; texture IDs leave out `textures/` and `.png`. `fit` is `cover` (default) or `stretch`. Images must be in the mod or a resource pack on the client; missing images use the default background.
+
+#### Forced wallpapers
+
+Antmail messages (`wallpaper` field), terminal commands (`wallpaper` as an object), and `wallpaper` rewards share one wallpaper change object:
+
+| Field | Notes |
+| --- | --- |
+| `id` | Wallpaper ID. Required unless `restore` is set. |
+| `force` | `true` makes it the profile's current wallpaper, even if it isn't unlocked. Forcing doesn't add it to the player's wallpaper list. |
+| `unlock` | `true` also unlocks it permanently. Can be used without `force`. |
+| `restore` | `true` puts back the wallpaper the profile had before it was first forced, or the default if that one is gone. Does nothing when no wallpaper was forced. |
+
+```json
+{ "id": "examplemod:red_static", "force": true }
+{ "restore": true }
+```
+
+The profile remembers its wallpaper from before the first forced change, so forcing several in a row and then restoring returns to the player's own choice. If the player picks a wallpaper themselves, that choice wins and there's nothing left to restore. When `restore` and `id` are both set, the restore runs first.
 
 ### Disk categories
 
@@ -1304,6 +1380,20 @@ A game's `includedByDefault()` decides whether it's installed without its disk, 
 
 AntOS ships Blockle, Chess (four AI levels), Minesweeper (two board sizes), Cake Stack and Nether Breakout. Chess and Minesweeper are adapted from Create: Cybernetics by Perigrine3 under the MIT License; see `licenses/createcybernetics-MIT.txt`.
 
+### Antmail
+
+`AntmailApi` (`com.craisinlord.antos.api.antmail`) lets server code send mail and change the desktop without touching AntOS internals. Call it on the server thread.
+
+| Method | Effect |
+| --- | --- |
+| `send(player, messageId)` | Sends a data-driven message now, bypassing its trigger and conditions but respecting `once`, like `/antos mail send`. Returns `true` when delivered or queued. |
+| `trigger(player, type, value)` | Fires a trigger event, such as `("advancement", "<id>")` or a custom type your messages listen for. Returns how many messages matched. |
+| `isLoaded(messageId)` | Whether the message definition exists. |
+| `queueTakeover(player, takeoverId)` | Queues a [takeover screen](#takeover-screens) for the player's profile. |
+| `forceWallpaper(player, wallpaperId, unlock)` / `restoreWallpaper(player)` | Same as a [wallpaper change](#forced-wallpapers) with `force` or `restore`. |
+
+The player's profile is their signed-in Anternet account, or else the account their mail goes to.
+
 ### Custom objectives
 
 Register objective types with `TaskObjectiveRegistry` and report progress from server code with `TaskObjectiveApi.record(player, computer, type, target, amount)`, so objectives update without polling.
@@ -1322,6 +1412,7 @@ All commands need operator permission (level 2).
 | `/antos tasks rewardpool <player> <pool>` | Gives one roll of a reward pool. |
 | `/antos mail send <player> <message>` | Sends a data-driven message now, bypassing its requirements. |
 | `/antos mail trigger <player> <type> <value>` | Fires a trigger event (such as `advancement <id>`) and reports how many messages matched. |
+| `/antos takeover <player> <id>` | Queues a [takeover screen](#takeover-screens) for the player's profile. It shows the next time they open AntOS. |
 | `/antos antazon deals` | Orders, units, revenue, and average discount per campaign and product, split into deal and regular sales. |
 | `/antos antazon deals preview [periods]` | Each campaign's picks for this period and the next ones (default 3), before unlock filtering. |
 | `/antcoin give <player> <amount>` | Adds AntCoins to the player's signed-in profile. |

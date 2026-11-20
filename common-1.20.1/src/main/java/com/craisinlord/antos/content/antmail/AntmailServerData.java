@@ -17,6 +17,8 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class AntmailServerData extends SavedData {
+    private AntmailDirectory directory = new AntmailDirectory();
+    public AntmailDirectory directory() { return directory; }
     private static final String ID = "antos_antmail";
     private final Map<AntmailAddress, MailboxIndex> mailboxIndex = new LinkedHashMap<>();
     private final Map<AntmailAddress, AntmailMailboxShard> shards = new java.util.HashMap<>();
@@ -57,6 +59,11 @@ public final class AntmailServerData extends SavedData {
     public static AntmailServerData load(CompoundTag tag, HolderLookup.Provider registries) {
         AntmailServerData data = new AntmailServerData();
         AntmailServerData loaded = data;
+        StringBuilder directoryJson = new StringBuilder();
+        ListTag directoryChunks = tag.getList("DirectoryChunks", 8);
+        for (int i = 0; i < directoryChunks.size(); i++) directoryJson.append(directoryChunks.getString(i));
+        data.directory = AntmailDirectory.load(directoryChunks.isEmpty() ? tag.getString("Directory") : directoryJson.toString());
+
         ListTag indexTags = tag.getList("MailboxIndex", 10);
         for (int i = 0; i < indexTags.size(); i++) {
             try {
@@ -235,6 +242,10 @@ public final class AntmailServerData extends SavedData {
             row.put("Correspondents", correspondentTags);
             indexTags.add(row);
         }
+        String directoryJson = directory.save();
+        ListTag directoryChunks = new ListTag();
+        for (int i = 0; i < directoryJson.length(); i += 8000) directoryChunks.add(net.minecraft.nbt.StringTag.valueOf(directoryJson.substring(i, Math.min(directoryJson.length(), i + 8000))));
+        tag.put("DirectoryChunks", directoryChunks);
         tag.put("MailboxIndex", indexTags);
         ListTag triggeredTags = new ListTag();
         for (Map.Entry<AntmailAddress, java.util.Set<ResourceLocation>> entry : triggered.entrySet()) {
@@ -764,6 +775,7 @@ public final class AntmailServerData extends SavedData {
         Set<AntmailAddress> addresses = new LinkedHashSet<>();
         if (ownAddress != null) addresses.add(ownAddress);
         collectProfileAddress(snapshot, addresses);
+        collectProfileAddresses(snapshot.getList("Messages", 10), addresses);
         collectProfileAddresses(snapshot.getList("Inbox", 10), addresses);
         collectProfileAddresses(snapshot.getList("Sent", 10), addresses);
         collectProfileAddresses(snapshot.getList("Archive", 10), addresses);
@@ -787,6 +799,7 @@ public final class AntmailServerData extends SavedData {
             try {
                 if (message.contains("From")) addresses.add(AntmailAddress.parse(message.getString("From")));
                 if (message.contains("To")) addresses.add(AntmailAddress.parse(message.getString("To")));
+            if (message.contains("Batch")) for (var row : AntmailBatch.load(message.getString("Batch")).deliveries()) addresses.add(AntmailAddress.parse(row.address()));
             } catch (RuntimeException ignored) {
             }
         }
@@ -833,6 +846,7 @@ public final class AntmailServerData extends SavedData {
     public synchronized AntmailDeliveryResult retry(MinecraftServer server, AntmailAddress sender, UUID messageId) {
         AntmailMessage message = loadOrCreate(sender).findSent(messageId);
         if (message == null) return null;
+        if (message.deliveryStatus().equals("DELIVERED") || message.attachments().stream().anyMatch(AntmailAttachment.Antcoins.class::isInstance)) return AntmailDeliveryResult.delivered(message);
         return deliver(server, message);
     }
 

@@ -327,7 +327,7 @@ final class DisksApp extends ComputerApp {
     }
 
     private int detailLink(GuiGraphics g, int x, int y, int w, String label, String app, int clipTop, int clipBottom, Runnable action) {
-        boolean enabled = !app.isBlank() && AntOSSettings.appEnabled(app);
+        boolean enabled = !app.isBlank() && AppAvailability.enabled(app);
         if (y + 19 > clipTop && y < clipBottom) {
             int hitTop = Math.max(y, clipTop);
             int hitH = Math.min(y + 19, clipBottom) - hitTop;

@@ -17,6 +17,19 @@ import net.minecraft.server.level.ServerPlayer;
 public final class AntmailDebugCommands {
     private AntmailDebugCommands() { }
 
+    /**
+     * Dev-only smoke commands. AntmailSmoke is excluded from release jars, so it is loaded reflectively and only
+     * when ANTOS_SMOKE is set; release builds never touch the class.
+     */
+    private static void registerSmokeCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+        if (System.getenv("ANTOS_SMOKE") == null) return;
+        try {
+            Class.forName("com.craisinlord.antos.content.antmail.AntmailSmoke").getMethod("register", CommandDispatcher.class).invoke(null, dispatcher);
+        } catch (ReflectiveOperationException | LinkageError exception) {
+            com.craisinlord.antos.AntOS.LOGGER.warn("ANTOS_SMOKE is set but the smoke harness is not on the classpath", exception);
+        }
+    }
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("antos").requires(source -> source.permissions().hasPermission(net.minecraft.server.permissions.Permissions.COMMANDS_GAMEMASTER))
                 .then(Commands.literal("mail")
@@ -31,6 +44,7 @@ public final class AntmailDebugCommands {
                                                 SharedSuggestionProvider.suggest(AntmailEventData.definitionIds().stream()
                                                         .map(Identifier::toString), builder))
                                                 .executes(AntmailDebugCommands::send))))));
+        registerSmokeCommands(dispatcher);
     }
 
     private static int trigger(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {

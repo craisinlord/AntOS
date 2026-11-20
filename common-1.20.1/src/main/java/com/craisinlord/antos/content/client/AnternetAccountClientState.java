@@ -60,6 +60,7 @@ public final class AnternetAccountClientState {
             clear();
             return;
         }
+        if (result.result() == AnternetAccountResultPayload.SUCCESS && (latest == null || !java.util.Objects.equals(latest.accountId(), result.accountId()))) AntmailClientState.bindAccount(result.username());
         latest = result;
     }
 

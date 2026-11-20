@@ -49,7 +49,14 @@ public final class AntmailNetworking {
     }
 
     public static boolean send(String recipient, String subject, String body, List<AntmailAttachment> attachments, UUID draftId) {
-        return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), draftId == null ? "" : draftId.toString(), 0L, 0L));
+        return sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.SEND, recipient, subject, body, AntmailWire.encodeAttachments(attachments), draftId == null ? UUID.randomUUID().toString() : draftId.toString(), 0L, 0L));
+    }
+
+    public static void directory(String operation, String id, String value, String mode, String query, long revision, int page) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.DIRECTORY, operation, id, value, mode, query, page, revision));
+    }
+    public static void conversation(UUID id, int page) {
+        sendPayload(new AntmailAnternetPayload(AntmailAnternetPayload.CONVERSATION, id.toString(), "", "", "", "", page, 0L));
     }
 
     public static void markRead(UUID messageId) {

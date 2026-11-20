@@ -22,7 +22,7 @@ public final class AntmailServerHandler {
     private static final int MAX_RESULT_DATA_CHARS = AntmailAnternetResultPayload.MAX_DATA_CHARS;
     private static BiConsumer<ServerPlayer, AntmailAnternetResultPayload> resultSender = (player, payload) -> { };
     private static volatile boolean resultSenderConfigured;
-    private static final double BUCKET_CAPACITY = 20.0D;
+    private static final double BUCKET_CAPACITY = 80.0D;
     private static final double BUCKET_REFILL_PER_NANO = 10.0D / 1_000_000_000L;
     private static final java.util.Map<UUID, Limiter> LIMITERS = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -59,6 +59,8 @@ public final class AntmailServerHandler {
                 handleState(player, new AntmailStateRequestPayload(folder, page, payload.version()), payload.first(),
                         Boolean.parseBoolean(payload.second()), Boolean.parseBoolean(payload.third()));
             }
+            case AntmailAnternetPayload.DIRECTORY -> handleDirectory(player, payload);
+            case AntmailAnternetPayload.CONVERSATION -> handleConversation(player, payload);
             case AntmailAnternetPayload.MESSAGE -> handle(player, new AntmailMessageRequestPayload(payload.first()));
             case AntmailAnternetPayload.SEND -> handleSend(player, new AntmailSendPayload(payload.first(), payload.second(), payload.third(), payload.fourth()), payload.fifth());
             case AntmailAnternetPayload.READ -> handle(player, new AntmailReadPayload(payload.first(), Boolean.parseBoolean(payload.second())));
@@ -77,6 +79,141 @@ public final class AntmailServerHandler {
             case AntmailAnternetPayload.JUNK_BLOCK -> handleJunkBlock(player, payload.first(), Boolean.parseBoolean(payload.second()));
             case AntmailAnternetPayload.JUNK_BLOCK_ALL -> handleJunkBlockAll(player, Boolean.parseBoolean(payload.first()));
             default -> result(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", "", "invalid_action", "");
+        }
+    }
+
+    private static final com.google.gson.Gson DIRECTORY_JSON = new com.google.gson.Gson();
+    /** Received-history heads per mailbox, reused until that mailbox's version changes. Bounded LRU. */
+    private static final java.util.Map<AntmailAddress, HistoryHeads> HISTORY_HEADS = new java.util.LinkedHashMap<>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<AntmailAddress, HistoryHeads> eldest) { return size() > 128; }
+    };
+    private record HistoryHeads(AntmailServerData owner, long version, java.util.Map<UUID, AntmailMessage> heads) { }
+
+    private static java.util.Map<UUID, AntmailMessage> historyHeads(AntmailServerData data, AntmailAddress address) {
+        long version = data.mailboxVersion(address);
+        synchronized (HISTORY_HEADS) {
+            HistoryHeads cached = HISTORY_HEADS.get(address);
+            if (cached != null && cached.owner() == data && cached.version() == version) return cached.heads();
+            var heads = data.mailboxOrCreate(address).conversationHeads();
+            HISTORY_HEADS.put(address, new HistoryHeads(data, version, heads));
+            return heads;
+        }
+    }
+
+    private static void handleDirectory(ServerPlayer player, AntmailAnternetPayload payload) {
+        if (authorizedComputer(player) == null) return;
+        var account = AnternetAccountHandler.session(player);
+        var data = AntmailServerData.access(player.server);
+        var directory = data.directory();
+        var accounts = com.craisinlord.antos.content.antmail.AntmailDispatch.accounts(player.server);
+        var teams = com.craisinlord.antos.content.antmail.AntmailDispatch.teams(player.server);
+        var address = data.addressFor(player);
+        try {
+            if (payload.first().length() > 32 || payload.second().length() > 80 || payload.third().length() > 128 || payload.fourth().length() > 32 || payload.fifth().length() > 64) throw new IllegalArgumentException("request_limit");
+            var json = new com.google.gson.JsonObject();
+            com.craisinlord.antos.content.antmail.AntmailDirectory.View selectedView = null;
+            if (payload.first().equals("contact") || payload.first().equals("uncontact")) {
+                directory.contact(account.accountId(), accounts.resolve(payload.second()), payload.third(), payload.first().equals("uncontact"), accounts);
+            } else if (payload.first().equals("create")) {
+                selectedView = directory.create(account.accountId(), UUID.fromString(payload.second()), payload.fourth(), payload.third());
+            } else if (payload.first().equals("view")) {
+                selectedView = directory.view(account.accountId(), UUID.fromString(payload.second()));
+            } else if (!payload.first().equals("page")) {
+                var view = directory.change(account.accountId(), UUID.fromString(payload.second()), payload.version(), payload.first(), payload.third(), accounts);
+                if (!payload.first().equals("delete") && !payload.first().equals("leave")) selectedView = view;
+            }
+            if (selectedView != null) json.add("selected", DIRECTORY_JSON.toJsonTree(selectedView));
+            if (!payload.first().equals("page") && !payload.first().equals("view")) data.setDirty();
+            int requestedPage = (int) Math.max(0, Math.min(1024, payload.number()));
+            json.add("page", DIRECTORY_JSON.toJsonTree(directory.page(account.accountId(), payload.fourth(), payload.fifth(), requestedPage, accounts)));
+            var history = new com.google.gson.JsonArray();
+            if (payload.fourth().equals("conversation")) {
+                // One row per conversation this mailbox has copies of but the account no longer belongs to.
+                var heads = historyHeads(data, address);
+                var historyIds = heads.keySet().stream().filter(id -> !directory.currentConversation(account.accountId(), id, teams)).toList();
+                long start = (long) requestedPage * com.craisinlord.antos.content.antmail.AntmailDirectory.PAGE_SIZE;
+                historyIds.stream().skip(start).limit(com.craisinlord.antos.content.antmail.AntmailDirectory.PAGE_SIZE).forEach(id -> {
+                    var row = new com.google.gson.JsonObject();
+                    var message = heads.get(id);
+                    row.addProperty("id", id.toString());
+                    row.addProperty("kind", message.conversationKind());
+                    row.addProperty("name", message.conversationName() == null ? "" : message.conversationName());
+                    history.add(row);
+                });
+                json.addProperty("historyMore", start + com.craisinlord.antos.content.antmail.AntmailDirectory.PAGE_SIZE < historyIds.size());
+            }
+            json.add("history", history);
+            if (payload.fourth().equals("conversation") || payload.fourth().equals("picker")) {
+                UUID teamId = teams.teamOf(account.accountId());
+                var team = teamId == null ? null : teams.team(teamId);
+                if (team != null && team.member(account.accountId())) {
+                    var row = new com.google.gson.JsonObject();
+                    row.addProperty("id", team.id().toString());
+                    row.addProperty("ownerName", team.ownerName());
+                    row.addProperty("owner", team.owner() != null ? team.owner().toString() : "");
+                    var teamMembers = new com.google.gson.JsonArray();
+                    for (UUID member : team.epochs().keySet()) {
+                        String memberAddress = accounts.address(member);
+                        if (memberAddress == null) continue;
+                        var person = new com.google.gson.JsonObject();
+                        person.addProperty("id", member.toString());
+                        person.addProperty("address", memberAddress);
+                        teamMembers.add(person);
+                    }
+                    row.add("members", teamMembers);
+                    json.add("team", row);
+                }
+            }
+            json.addProperty("account", account.accountId().toString());
+            var members = new com.google.gson.JsonArray();
+            if (selectedView != null) {
+                for (UUID id : selectedView.members()) {
+                    var row = new com.google.gson.JsonObject();
+                    row.addProperty("id", id.toString());
+                    row.addProperty("address", accounts.address(id));
+                    members.add(row);
+                }
+            }
+            var profileRows = new com.google.gson.JsonObject();
+            var pageRows = json.getAsJsonObject("page").getAsJsonArray("people");
+            for (var element : pageRows) {
+                String recipient = element.getAsJsonObject().get("address").getAsString();
+                profileRows.add(recipient, DIRECTORY_JSON.toJsonTree(data.profile(AntmailAddress.parse(recipient))));
+            }
+            json.add("profiles", profileRows);
+            json.add("members", members);
+            json.addProperty("operation", payload.first());
+            json.addProperty("target", payload.second());
+            result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), "", "directory", json.toString());
+        } catch (RuntimeException exception) {
+            result(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), address.fullAddress(), "", "directory_error:" + exception.getMessage(), "");
+        }
+    }
+
+    private static void handleConversation(ServerPlayer player, AntmailAnternetPayload payload) {
+        if (authorizedComputer(player) == null) return;
+        var data = AntmailServerData.access(player.server);
+        var address = data.addressFor(player);
+        try {
+            UUID id = UUID.fromString(payload.first());
+            java.util.Map<UUID, Integer> folders = new java.util.HashMap<>();
+            var messages = data.mailboxOrCreate(address).conversation(id, folders);
+            int page = (int) Math.max(0, Math.min(1024, payload.number()));
+            var tag = new net.minecraft.nbt.CompoundTag();
+            tag.putString("Conversation", id.toString());
+            tag.putInt("Page", page);
+            var rows = new net.minecraft.nbt.ListTag();
+            messages.stream().skip((long) page * 12).limit(12).forEach(message -> {
+                var row = message.toListTag();
+                row.putInt("SourceFolder", folders.getOrDefault(message.id(), -1));
+                rows.add(row);
+            });
+            tag.put("Messages", rows);
+            tag.putBoolean("More", ((long) page + 1) * 12 < messages.size());
+            data.appendProfiles(tag, address);
+            result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), "", "conversation", AntmailWire.encodeTag(tag));
+        } catch (RuntimeException exception) {
+            result(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), address.fullAddress(), "", "conversation_error", "");
         }
     }
 
@@ -144,9 +281,9 @@ public final class AntmailServerHandler {
         }
         int folder = payload.folder() < AntmailStateRequestPayload.INBOX || payload.folder() > AntmailStateRequestPayload.TRASH
                 ? AntmailStateRequestPayload.INBOX : payload.folder();
-        int page = 0;
+        int page = Math.max(0, Math.min(AntmailValidation.MAX_MAILBOX_MESSAGES, payload.page()));
         try {
-            String encoded = encodeSnapshot(data, mailbox, address, folder, page, query, unreadOnly, attachmentsOnly);
+            String encoded = encodeSnapshot(player.server, data, mailbox, address, folder, page, query, unreadOnly, attachmentsOnly);
             result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), "", "", encoded);
         } catch (RuntimeException exception) {
             AntmailDebug.error("Failed to encode state for " + address.fullAddress(), exception);
@@ -178,6 +315,7 @@ public final class AntmailServerHandler {
                 return;
             }
             var detail = message.toTag();
+            detail.putInt("SourceFolder", mailbox.folderOf(message.id()));
             data.appendProfiles(detail, address);
             result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), address.fullAddress(), payload.messageId(), "message_detail", AntmailWire.encodeTag(detail));
         } catch (IllegalArgumentException exception) {
@@ -201,41 +339,17 @@ public final class AntmailServerHandler {
             sendResult(player, AntmailDeliveryResult.Status.FAILED.ordinal(), "", UUID.randomUUID().toString(), "unconfigured", "");
             return;
         }
-        long antcoins = 0L;
-        UUID senderAccount = computer.workspaceOwner() == null ? player.getUUID() : computer.workspaceOwner();
-        boolean debited = false;
         try {
-            UUID draftId = draftIdInput.isBlank() ? null : UUID.fromString(draftIdInput);
-            AntmailAddress recipient = AntmailAddress.parse(payload.recipient());
-            List<AntmailAttachment> attachments = AntmailWire.decodeAttachments(payload.attachments());
-            if (!com.craisinlord.antos.config.AntOSSettings.appEnabled("ANTAZON")
-                    && attachments.stream().anyMatch(AntmailAttachment.Antcoins.class::isInstance)) {
-                throw new IllegalArgumentException("antcoin attachments are disabled");
-            }
-            long transfer = attachments.stream().filter(AntmailAttachment.Antcoins.class::isInstance).mapToLong(value -> ((AntmailAttachment.Antcoins) value).amount()).sum();
-            if (attachments.stream().filter(AntmailAttachment.Antcoins.class::isInstance).count() > 1) throw new IllegalArgumentException("only one antcoin transfer is allowed");
-            UUID recipientAccount = antcoinAccount(player.server, recipient);
-            if (transfer > 0 && recipientAccount == null) throw new IllegalArgumentException("recipient has no AntOS account");
-            AntmailMessage message = AntmailMessage.create(sender, recipient, payload.subject(), payload.body(), player.serverLevel().getGameTime(), attachments);
-            message.markFromPlayer();
-            antcoins = transfer;
-            if (antcoins > 0 && !AntazonServerData.access(player.server).debit(senderAccount, antcoins)) throw new IllegalArgumentException("insufficient antcoins");
-            debited = antcoins > 0;
-            AntmailDeliveryResult delivery = data.deliver(player.server, message);
-            if (antcoins > 0 && delivery.status() != AntmailDeliveryResult.Status.DELIVERED && delivery.status() != AntmailDeliveryResult.Status.QUEUED) {
-                AntazonServerData.access(player.server).credit(senderAccount, antcoins);
-                debited = false;
-            } else if (antcoins > 0) {
-                AntazonServerData.access(player.server).credit(recipientAccount, antcoins);
-            }
-            if (draftId != null && (delivery.status() == AntmailDeliveryResult.Status.DELIVERED
-                    || delivery.status() == AntmailDeliveryResult.Status.QUEUED)) {
-                if (data.mailboxOrCreate(sender).removeDraft(draftId)) data.touchMailbox(sender);
-            }
-            sendResult(player, delivery.status().ordinal(), sender.fullAddress(), message.id().toString(), delivery.detail(), "");
+            UUID requestId = draftIdInput.isBlank() ? UUID.randomUUID() : UUID.fromString(draftIdInput);
+            var actor = AnternetAccountHandler.session(player).accountId();
+            var message = com.craisinlord.antos.content.antmail.AntmailDispatch.send(player.server, data, actor, sender, requestId,
+                    payload.recipient(), payload.subject(), payload.body(), AntmailWire.decodeAttachments(payload.attachments()),
+                    count -> limiter(player).tryAcquire(Math.max(0, count - 1)));
+            sendResult(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), sender.fullAddress(), message.id().toString(),
+                    message.batch().failedCount() == 0 ? "" : "partial_delivery", "");
         } catch (RuntimeException exception) {
-            if (debited) AntazonServerData.access(player.server).credit(senderAccount, antcoins);
-            sendResult(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), "", UUID.randomUUID().toString(), "invalid_message", "");
+            sendResult(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), sender.fullAddress(), draftIdInput,
+                    exception.getMessage() == null ? "invalid_message" : exception.getMessage(), "");
         }
     }
 
@@ -425,7 +539,8 @@ public final class AntmailServerHandler {
         try {
             if (payload.action() == AntmailDraftPayload.SAVE) {
                 AntmailDraft draft = AntmailDraft.fromTag(AntmailWire.decodeTag(payload.data()));
-                AntmailDraft stored = new AntmailDraft(draft.id(), address, draft.recipient(), draft.subject(), draft.body(), draft.attachments());
+                AntmailDraft stored = new AntmailDraft(draft.id(), address, draft.recipient(), draft.subject(), draft.body(), draft.attachments(), draft.recipients());
+                if (mailbox.batch(draft.id()) != null) throw new IllegalArgumentException("already_sent");
                 if (!mailbox.saveDraft(stored)) throw new IllegalArgumentException("draft_limit");
             } else if (payload.action() == AntmailDraftPayload.DELETE) {
                 if (!mailbox.removeDraft(UUID.fromString(payload.data()))) throw new IllegalArgumentException("not_found");
@@ -452,10 +567,27 @@ public final class AntmailServerHandler {
             return;
         }
         try {
-            AntmailDeliveryResult delivery = data.retry(player.server, sender, UUID.fromString(payload.messageId()));
+            UUID id = UUID.fromString(payload.messageId());
+            if (data.mailboxOrCreate(sender).batch(id) != null) {
+                var message = com.craisinlord.antos.content.antmail.AntmailDispatch.retry(player.server, data,
+                        AnternetAccountHandler.session(player).accountId(), sender, id,
+                        count -> limiter(player).tryAcquire(Math.max(0, count - 1)));
+                result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), sender.fullAddress(), payload.messageId(),
+                        message.batch().failedCount() == 0 ? "" : "partial_delivery", "");
+                return;
+            }
+            var legacy = data.mailboxOrCreate(sender).findSent(id);
+            if (legacy != null && !legacy.deliveryStatus().equals("DELIVERED") && legacy.attachments().stream().anyMatch(AntmailAttachment.Antcoins.class::isInstance)) {
+                var migrated = com.craisinlord.antos.content.antmail.AntmailDispatch.send(player.server, data,
+                        AnternetAccountHandler.session(player).accountId(), sender, id, legacy.recipient().fullAddress(),
+                        legacy.subject(), legacy.body(), legacy.attachments(), count -> limiter(player).tryAcquire(count));
+                result(player, AntmailDeliveryResult.Status.DELIVERED.ordinal(), sender.fullAddress(), payload.messageId(), migrated.batch().failedCount() == 0 ? "" : "partial_delivery", "");
+                return;
+            }
+            AntmailDeliveryResult delivery = data.retry(player.server, sender, id);
             result(player, delivery == null ? AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal() : delivery.status().ordinal(), sender.fullAddress(), payload.messageId(), delivery == null ? "not_found" : delivery.detail(), "");
         } catch (IllegalArgumentException exception) {
-            result(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), sender.fullAddress(), payload.messageId(), "invalid_id", "");
+            result(player, AntmailDeliveryResult.Status.MESSAGE_INVALID.ordinal(), sender.fullAddress(), payload.messageId(), java.util.Set.of("membership_changed", "not_found", "rate_limited", "send_deleted").contains(exception.getMessage()) ? exception.getMessage() : "invalid_id", "");
         }
     }
 
@@ -549,12 +681,30 @@ public final class AntmailServerHandler {
         }
     }
 
-    private static String encodeSnapshot(AntmailServerData data, AntmailMailbox mailbox, AntmailAddress address, int folder, int page,
+    private static String encodeSnapshot(net.minecraft.server.MinecraftServer server, AntmailServerData data, AntmailMailbox mailbox, AntmailAddress address, int folder, int page,
                                          String query, boolean unreadOnly, boolean attachmentsOnly) {
         boolean draftAttachments = true;
         int maxRows = Integer.MAX_VALUE;
+        // Draft recipient labels don't depend on how the page gets trimmed below, so resolve them once.
+        var labels = new net.minecraft.nbt.ListTag();
+        var actor = data.accountIdForAddress(server, address);
+        var accounts = com.craisinlord.antos.content.antmail.AntmailDispatch.accounts(server);
+        var teams = com.craisinlord.antos.content.antmail.AntmailDispatch.teams(server);
+        java.util.Set<String> references = new java.util.LinkedHashSet<>();
+        for (var draft : mailbox.drafts()) {
+            try {
+                for (var selection : com.craisinlord.antos.content.antmail.AntmailRecipients.parse(draft.recipients())) {
+                    if (labels.size() >= 256 || !references.add(selection.token())) continue;
+                    String label = data.directory().label(actor, selection, accounts, teams);
+                    if (label.isBlank()) continue;
+                    var row = new net.minecraft.nbt.CompoundTag();
+                    row.putString("Reference", selection.token()); row.putString("Label", label); labels.add(row);
+                }
+            } catch (IllegalArgumentException ignored) { }
+        }
         while (true) {
             var snapshot = mailbox.toPageTag(folder, page, query, unreadOnly, attachmentsOnly, draftAttachments, maxRows);
+            snapshot.put("RecipientLabels", labels);
             data.appendProfiles(snapshot, address);
             appendJunkSettings(data, snapshot, address);
             String encoded = encodeOrNull(snapshot);

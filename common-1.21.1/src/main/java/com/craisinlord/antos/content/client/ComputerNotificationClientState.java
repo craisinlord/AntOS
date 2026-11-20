@@ -28,7 +28,7 @@ public final class ComputerNotificationClientState {
             history = NotificationHistory.decode(AntOSSettings.notificationHistory(current));
             if (!current.equals("workspace:unbound") && !UNBOUND.isEmpty()) {
                 for (NotificationHistory.Entry entry : UNBOUND) {
-                    history.add(entry.kind(), entry.title(), entry.message(), entry.receivedAt(), entry.source(), entry.iconItem(), entry.iconEntity());
+                    history.add(entry.kind(), entry.title(), entry.message(), entry.receivedAt(), entry.source(), entry.iconItem(), entry.iconEntity(), entry.target());
                 }
                 UNBOUND.clear();
                 saveHistory();
@@ -44,16 +44,16 @@ public final class ComputerNotificationClientState {
     }
 
     public static void record(String kind, Component title, Component message) {
-        record(kind, title, message, "", "", "");
+        record(kind, title, message, "", "", "", "");
     }
 
-    public static void record(String kind, Component title, Component message, String source, String iconItem, String iconEntity) {
+    public static void record(String kind, Component title, Component message, String source, String iconItem, String iconEntity, String target) {
         if (ComputerWorkspaceClientKey.of().equals("workspace:unbound")) {
-            UNBOUND.add(new NotificationHistory.Entry("", kind, title.getString(), message.getString(), System.currentTimeMillis(), false, source, iconItem, iconEntity));
+            UNBOUND.add(new NotificationHistory.Entry("", kind, title.getString(), message.getString(), System.currentTimeMillis(), false, source, iconItem, iconEntity, target));
             while (UNBOUND.size() > NotificationHistory.LIMIT) UNBOUND.remove(0);
             return;
         }
-        history().add(kind, title.getString(), message.getString(), System.currentTimeMillis(), source, iconItem, iconEntity);
+        history().add(kind, title.getString(), message.getString(), System.currentTimeMillis(), source, iconItem, iconEntity, target);
         saveHistory();
     }
 
@@ -82,31 +82,44 @@ public final class ComputerNotificationClientState {
         if (!result.data().startsWith(ComputerAccessPayload.NOTIFICATION + "\0")) return;
         String[] fields = result.data().split("\u0000", -1);
         if (fields.length < 2) return;
-        if (fields[1].equals("mail") && fields.length >= 5) mail(fields[2], Boolean.parseBoolean(fields[3]), fields[4], field(fields, 5), field(fields, 6));
-        else if (fields[1].equals("task") && fields.length >= 5) task(fields[2], fields[3], fields[4], field(fields, 5), field(fields, 6));
+        if (fields[1].equals("mail") && fields.length >= 5) {
+            if (fields[3].equals("hijacked")) hijackedMail(fields[2], fields[4], field(fields, 5), field(fields, 6), field(fields, 7));
+            else mail(fields[2], Boolean.parseBoolean(fields[3]), fields[4], field(fields, 5), field(fields, 6), field(fields, 7));
+        }
+        else if (fields[1].equals("task") && fields.length >= 5) task(fields[2], fields[3], fields[4], field(fields, 5), field(fields, 6), field(fields, 7));
     }
 
     private static String field(String[] fields, int index) {
         return index < fields.length ? fields[index] : "";
     }
 
-    public static void mail(String sender, boolean corrupted, String sound, String avatarItem, String avatarEntity) {
+    public static void mail(String sender, boolean corrupted, String sound, String avatarItem, String avatarEntity, String messageId) {
         var preferences = AntOSSettings.preferences();
         Component name = corrupted
                 ? Component.literal("????????").withStyle(ChatFormatting.OBFUSCATED, ChatFormatting.DARK_RED)
                 : Component.literal(sender);
         Component title = Component.translatable("computer.antos.notify.mail_title");
         Component message = Component.translatable("antmail.antos.notification", name);
-        record("mail", title, message, corrupted ? "" : sender, corrupted ? "" : avatarItem, corrupted ? "" : avatarEntity);
+        record("mail", title, message, corrupted ? "" : sender, corrupted ? "" : avatarItem, corrupted ? "" : avatarEntity, messageId);
         show(preferences.mailAlerts, title, message);
         if (!preferences.quietNotifications && preferences.mailSound && !preferences.mailAlerts.equals("off")) play(sound, corrupted ? 0.5F : 1.4F);
     }
 
-    public static void task(String titleKey, String descriptionKey, String sound, String iconItem, String iconEntity) {
+    public static void hijackedMail(String sender, String sound, String avatarItem, String avatarEntity, String messageId) {
+        var preferences = AntOSSettings.preferences();
+        Component name = Component.literal(sender).withStyle(ChatFormatting.RED);
+        Component title = Component.translatable("computer.antos.notify.mail_title");
+        Component message = Component.translatable("antmail.antos.notification", name);
+        record("mail", title, message, sender, avatarItem, avatarEntity, messageId);
+        show(preferences.mailAlerts, title, message);
+        if (!preferences.quietNotifications && preferences.mailSound && !preferences.mailAlerts.equals("off")) play(sound, 0.7F);
+    }
+
+    public static void task(String titleKey, String descriptionKey, String sound, String iconItem, String iconEntity, String taskId) {
         var preferences = AntOSSettings.preferences();
         Component title = Component.translatable("computer.antos.notify.task_title");
         Component message = Component.translatable("antos.tasks.objective_complete", plain(titleKey), plain(descriptionKey));
-        record("task", title, message, "", iconItem, iconEntity);
+        record("task", title, message, "", iconItem, iconEntity, taskId);
         show(preferences.taskAlerts, title, message);
         if (!preferences.quietNotifications && preferences.taskSound && !preferences.taskAlerts.equals("off")) play(sound, 1.4F);
     }
