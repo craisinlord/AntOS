@@ -39,7 +39,7 @@ public final class DisplayRecipes {
         if (server == current && revision == next) return;
         server = current; revision = next;
         install(current.getRecipeManager().getRecipes(), current.registryAccess());
-        CustomDisplays.recompile();
+        CustomDisplays.recompile(current.getResourceManager());
     }
 
     public static synchronized void install(Collection<RecipeHolder<?>> source, RegistryAccess access) {
