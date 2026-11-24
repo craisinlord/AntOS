@@ -34,6 +34,9 @@ public final class AntOSFabricClientNetworking {
                 com.craisinlord.antos.content.client.DisplaySyncClientState.update(payload)));
         ClientPlayNetworking.registerGlobalReceiver(ArchiveRecipeResultPayload.TYPE, (payload, context) -> context.client().execute(() ->
                 com.craisinlord.antos.content.client.ArchiveRecipeClientState.update(payload)));
+        ClientPlayNetworking.registerGlobalReceiver(AuthoringResultPayload.TYPE, (payload, context) -> context.client().execute(() ->
+                com.craisinlord.antos.content.client.AuthoringClientState.receive(payload)));
+        com.craisinlord.antos.content.client.AuthoringClientState.setSender(ClientPlayNetworking::send);
         ComputerNetworking.setSender(payload -> ClientPlayNetworking.send(payload));
         PhoneDiskInsertPayload.setSender(ClientPlayNetworking::send);
         PhoneDiskInsertPayload.setCreativeInventoryCheck(() -> net.minecraft.client.Minecraft.getInstance().gui.screen()

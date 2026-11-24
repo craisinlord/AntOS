@@ -12,6 +12,7 @@ public final class ComputerAccessClientState {
     }
 
     public static void clearAll() {
+        AuthoringClientState.clear();
         RESULTS.clear();
         ComputerDesktopClientState.clearAll();
         DiskRewardsClientState.clearAll();

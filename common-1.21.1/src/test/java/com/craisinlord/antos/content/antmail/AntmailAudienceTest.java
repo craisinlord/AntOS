@@ -370,7 +370,7 @@ public final class AntmailAudienceTest {
         teamPersistence();
         System.out.println("AntmailAudienceTest passed: " + assertions + " assertions");
     }
-    /** Team membership epochs and the team size cap, exercised on the real world data with in-memory account shards. */
+     
     private static void teamPersistence() throws Exception {
         var data = new com.craisinlord.antos.content.computer.ComputerWorkspaceData();
         UUID captain = worldAccount(data, "captain"), first = worldAccount(data, "first"), second = worldAccount(data, "second");
@@ -384,7 +384,7 @@ public final class AntmailAudienceTest {
         var restored = reloadWorld(saveWorld(data));
         check(restored.teamMailAudience(teamId).epochs().equals(before.epochs()), "membership epochs survive save and load");
         CompoundTag legacy = saveWorld(data);
-        // Version-neutral NBT access: ListTag is a List<Tag> in every supported Minecraft version.
+        
         for (var row : (net.minecraft.nbt.ListTag) legacy.get("Teams")) ((CompoundTag) row).remove("MemberEpochs");
         var migrated = reloadWorld(legacy).teamMailAudience(teamId);
         check(migrated.epochs().keySet().equals(before.epochs().keySet()) && migrated.epochs().values().stream().allMatch(java.util.Objects::nonNull), "teams saved before epochs get one per member");
@@ -415,7 +415,7 @@ public final class AntmailAudienceTest {
         var invite = data.inviteToTeam(owner, name, 0);
         if (invite == null || !data.acceptTeamInvite(member, invite.id())) throw new AssertionError(name + " could not join the team");
     }
-    /** Calls the version's save method, whatever its extra parameters are. */
+     
     private static CompoundTag saveWorld(com.craisinlord.antos.content.computer.ComputerWorkspaceData data) throws Exception {
         for (var method : data.getClass().getMethods()) {
             if (!method.getName().equals("save") || method.getParameterCount() == 0 || method.getParameterTypes()[0] != CompoundTag.class || method.getReturnType() != CompoundTag.class) continue;
@@ -425,7 +425,7 @@ public final class AntmailAudienceTest {
         }
         throw new AssertionError("no save(CompoundTag, ...) method");
     }
-    /** Calls the version's private static load method with the fewest parameters. */
+     
     private static com.craisinlord.antos.content.computer.ComputerWorkspaceData reloadWorld(CompoundTag tag) throws Exception {
         java.lang.reflect.Method best = null;
         for (var method : com.craisinlord.antos.content.computer.ComputerWorkspaceData.class.getDeclaredMethods()) {
@@ -479,7 +479,7 @@ public final class AntmailAudienceTest {
         AntmailMessage send(UUID actor, String selections) { return send(actor, selections, List.of()); }
         AntmailMessage send(UUID actor, String selections, List<AntmailAttachment> attachments) { return AntmailDispatch.send(this, actor, address(actor), UUID.randomUUID(), selections, "Title", "Body", attachments, count -> true); }
         void retry(UUID actor, UUID id) { AntmailDispatch.retry(this, actor, address(actor), id, count -> true); }
-        /** In-memory stand-in for AntOS teams: team ID to (member to membership epoch). */
+         
         final Map<UUID, Map<UUID, UUID>> teamEpochs = new LinkedHashMap<>();
         final Map<UUID, UUID> teamOwners = new LinkedHashMap<>();
         UUID team(UUID owner, UUID... members) {

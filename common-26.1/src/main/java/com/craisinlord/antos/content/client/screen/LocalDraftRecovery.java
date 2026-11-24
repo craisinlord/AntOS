@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import com.craisinlord.antos.content.client.ThemedGraphics;
 import net.minecraft.network.chat.Component;
-import com.mojang.blaze3d.platform.InputConstants;
+import org.lwjgl.glfw.GLFW;
 
 final class LocalDraftRecovery {
     private final ComputerApp app;
@@ -50,8 +50,8 @@ final class LocalDraftRecovery {
 
     boolean key(int key) {
         if (!active()) return false;
-        if (key == InputConstants.KEY_ESCAPE) { app.screen.onClose(); return true; }
-        return key != InputConstants.KEY_TAB && key != InputConstants.KEY_RETURN && key != InputConstants.KEY_NUMPADENTER && key != InputConstants.KEY_SPACE;
+        if (key == GLFW.GLFW_KEY_ESCAPE) { app.screen.onClose(); return true; }
+        return key != GLFW.GLFW_KEY_TAB && key != GLFW.GLFW_KEY_ENTER && key != GLFW.GLFW_KEY_KP_ENTER && key != GLFW.GLFW_KEY_SPACE;
     }
 
     void render(ThemedGraphics g, int x, int y, int w, int h, Consumer<JsonObject> recover) {

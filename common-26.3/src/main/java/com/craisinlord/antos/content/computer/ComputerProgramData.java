@@ -109,6 +109,8 @@ public final class ComputerProgramData {
         return text;
     }
 
+    public static void validateAuthoring(Identifier id, JsonObject object) { parse(id, object); }
+
     public record Program(Identifier id, String type, String title, int questionsPerRun, List<Question> questions,
                           String rewardOn, List<ComputerGuideData.TaskReward> rewards, String start, Map<String, Node> nodes, boolean rewardOnce) { }
     public record Question(String text, List<String> answers, int correct, String item, String entity, boolean greenTint, String explanation) { }

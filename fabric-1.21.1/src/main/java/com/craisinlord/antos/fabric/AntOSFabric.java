@@ -40,10 +40,11 @@ public final class AntOSFabric implements ModInitializer {
         }
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> com.craisinlord.antos.content.network.ComputerAccessHandler.sendLookup(handler.player));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
-                com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));
+                { com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player); com.craisinlord.antos.content.editor.AuthoringService.disconnect(handler.player.getUUID()); });
         AntmailEventData.registerListeners();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             TaskDebugCommands.register(dispatcher);
+            com.craisinlord.antos.content.editor.AuthoringService.register(dispatcher);
             com.craisinlord.antos.content.guide.DisplayCommands.register(dispatcher);
             com.craisinlord.antos.content.antmail.AntmailDebugCommands.register(dispatcher);
             com.craisinlord.antos.content.antazon.AntazonCommands.register(dispatcher);
@@ -68,6 +69,7 @@ public final class AntOSFabric implements ModInitializer {
         });
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
+            com.craisinlord.antos.content.editor.AuthoringService.stopped();
             FieldGuideCompat.shutdown();
             com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
         });

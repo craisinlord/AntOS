@@ -75,6 +75,10 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         return definitions.keySet().stream().sorted(Comparator.comparing(ResourceLocation::toString)).toList();
     }
 
+    public static List<ResourceLocation> poolIds() {
+        return pools.keySet().stream().sorted(Comparator.comparing(ResourceLocation::toString)).toList();
+    }
+
     public static int triggerEvent(ServerPlayer player, String type, String value) {
         if (player == null || type == null || value == null) return 0;
         AntmailServerData data = AntmailServerData.access(player.server);
@@ -530,6 +534,26 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         String path = file.getPath();
         return ResourceLocation.fromNamespaceAndPath(file.getNamespace(), path.substring(prefix.length(), path.length() - 5));
     }
+
+    public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        Definition definition = parse(id, object);
+        if (definition.sender().contains("@")) AntmailAddress.parse(definition.sender());
+        else AntmailAddress.ofUsername(definition.sender());
+        if (definition.trigger().type().isBlank() || definition.trigger().type().length() > 128)
+            throw new IllegalArgumentException("Antmail needs a trigger type");
+        if (definition.trigger().type().equals("random") && definition.trigger().pool() == null) {
+            double chance;
+            try { chance = Double.parseDouble(definition.trigger().value()); }
+            catch (NumberFormatException exception) { throw new IllegalArgumentException("Random mail without a pool needs a numeric chance in trigger.value"); }
+            if (!Double.isFinite(chance) || chance < 0 || chance > 1) throw new IllegalArgumentException("Random mail chance must be between 0 and 1");
+        }
+        if (object.has("takeover") && !object.get("takeover").getAsString().isBlank() && definition.takeover() == null)
+            throw new IllegalArgumentException("Invalid desktop takeover ID");
+        if (object.has("wallpaper") && definition.wallpaper() == null)
+            throw new IllegalArgumentException("Wallpaper delivery needs an ID and force or unlock, or restore");
+    }
+
+    public static void validateAuthoringTakeover(ResourceLocation id, JsonObject object) { AntmailTakeover.parse(id, object); }
 
     private static Definition parse(ResourceLocation id, JsonObject object) {
         JsonObject triggerObject = object.getAsJsonObject("trigger");

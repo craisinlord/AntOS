@@ -78,6 +78,16 @@ public final class TerminalCommandData {
     public static Map<Identifier, Definition> definitions() { return definitions; }
     public static List<Definition> named(String name) { return name == null ? List.of() : byName.getOrDefault(name.toLowerCase(Locale.ROOT), List.of()); }
 
+    public static void validateAuthoring(Identifier id, JsonObject object) {
+        Definition candidate = parse(id, object, ComputerGuideData.taskRewardPools());
+        if (candidate == null) throw new IllegalArgumentException("Terminal command definition is invalid or has no effect");
+        for (Definition existing : definitions.values()) {
+            if (existing.id().equals(id)) continue;
+            for (String name : candidate.names()) if (existing.names().contains(name) && existing.arguments().equals(candidate.arguments()))
+                throw new IllegalArgumentException("Command name and argument signature already belong to " + existing.id());
+        }
+    }
+
     private static String signature(String name, List<String> arguments) {
         return name + "\u0000" + String.join("\u0000", arguments.stream().map(argument -> argument.toLowerCase(Locale.ROOT)).toList());
     }

@@ -277,6 +277,10 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Identi
         return object;
     }
 
+    public static void validateAuthoring(Identifier id, JsonObject object) {
+        if (parse(id, object) == null) throw new IllegalArgumentException("Antazon rejected this product definition");
+    }
+
     private static Product parse(Identifier id, JsonElement element) {
         if (!element.isJsonObject()) {
             AntOS.LOGGER.warn("Ignoring Antazon product {} because the root is not an object", id);

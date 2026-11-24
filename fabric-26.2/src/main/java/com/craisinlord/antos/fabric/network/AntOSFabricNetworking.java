@@ -46,11 +46,13 @@ public final class AntOSFabricNetworking {
         PayloadTypeRegistry.clientboundPlay().register(JeiSyncPayload.TYPE, JeiSyncPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(ArchiveRecipeResultPayload.TYPE, ArchiveRecipeResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(com.craisinlord.antos.content.network.DisplaySyncPayload.TYPE, com.craisinlord.antos.content.network.DisplaySyncPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(AuthoringResultPayload.TYPE, AuthoringResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(AnternetComputerPayload.TYPE, AnternetComputerPayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(AnternetAccountPayload.TYPE, AnternetAccountPayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(AntmailAnternetPayload.TYPE, AntmailAnternetPayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(PhoneDiskInsertPayload.TYPE, PhoneDiskInsertPayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ArchiveRecipeRequestPayload.TYPE, ArchiveRecipeRequestPayload.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(AuthoringRequestPayload.TYPE, AuthoringRequestPayload.STREAM_CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(PhoneDiskInsertPayload.TYPE, (payload, context) ->
                 context.server().execute(() -> PhoneDiskInsertPayload.handle(context.player(), payload)));
@@ -62,6 +64,8 @@ public final class AntOSFabricNetworking {
                 context.server().execute(() -> AntmailServerHandler.handle(context.player(), payload)));
         ServerPlayNetworking.registerGlobalReceiver(ArchiveRecipeRequestPayload.TYPE, (payload, context) ->
                 context.server().execute(() -> ArchiveRecipeNetworking.handle(context.player(), payload)));
+        ServerPlayNetworking.registerGlobalReceiver(AuthoringRequestPayload.TYPE, (payload, context) ->
+                context.server().execute(() -> com.craisinlord.antos.content.editor.AuthoringService.handle(context.player(), payload)));
 
         ComputerAccessHandler.setAnternetResultSender(ServerPlayNetworking::send);
         AnternetAccountHandler.setResultSender(ServerPlayNetworking::send);
@@ -70,6 +74,7 @@ public final class AntOSFabricNetworking {
         JeiSync.setSender(ServerPlayNetworking::send);
         ArchiveRecipeNetworking.setResultSender(ServerPlayNetworking::send);
         com.craisinlord.antos.content.network.DisplaySync.setSender(ServerPlayNetworking::send);
+        com.craisinlord.antos.content.editor.AuthoringService.setSender(ServerPlayNetworking::send);
     }
 
     private record ProtocolTask(UUID player) implements ConfigurationTask {

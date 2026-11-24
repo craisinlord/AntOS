@@ -15,13 +15,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Development smoke test for Antmail teams, groups and lists. It seeds throwaway AntOS accounts and mail into the
- * current world and checks the result against the real saved data.
- *
- * Disabled unless the {@code ANTOS_SMOKE} environment variable is set, so it never exists in normal play.
- * Use a copy of a world: seeding creates accounts, a team and mail that persist in that save.
- */
+
+
+
+
+
+
+ 
 public final class AntmailSmoke {
     public static final String PASSWORD = "SmokeTest2026!";
     public static final String LEAD = "smoke_lead", SCOUT = "smoke_scout", MEDIC = "smoke_medic", OUTSIDER = "smoke_out";
@@ -33,7 +33,7 @@ public final class AntmailSmoke {
 
     public static boolean enabled() { return System.getenv("ANTOS_SMOKE") != null; }
 
-    /** {@code /antos smoke seed} and {@code /antos smoke check <stage>}; registered only when enabled. */
+     
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         if (!enabled()) return;
         dispatcher.register(Commands.literal("antos").requires(source -> source.permissions().hasPermission(net.minecraft.server.permissions.Permissions.COMMANDS_GAMEMASTER))
@@ -52,7 +52,7 @@ public final class AntmailSmoke {
         for (String line : lines) source.sendSuccess(() -> Component.literal(PREFIX + line), false);
     }
 
-    /** What the seed produced, for the client driver. */
+     
     public record Seed(List<String> lines, BlockPos computer, UUID team) { }
 
     private static UUID stableId(String key) { return UUID.nameUUIDFromBytes(("antos-smoke/" + key).getBytes(StandardCharsets.UTF_8)); }
@@ -75,10 +75,10 @@ public final class AntmailSmoke {
                 recipients, subject, body, List.of(), count -> true);
     }
 
-    /**
-     * Seeds accounts, a team (lead, scout, medic), groups, an announcement list and mail, then places a computer two
-     * blocks east of {@code playerId} and turns the player to face it. Safe to run more than once.
-     */
+    
+
+
+ 
     public static Seed seed(MinecraftServer server, UUID playerId) {
         List<String> lines = new ArrayList<>();
         var data = ComputerWorkspaceData.access(server);
@@ -139,10 +139,10 @@ public final class AntmailSmoke {
         return new Seed(lines, computer, team);
     }
 
-    /**
-     * Checks the saved data. Stages: {@code seed} after seeding, {@code reply} after the lead replies to the team
-     * thread from the UI, {@code mailteam} after the lead mails the team from Tasks.
-     */
+    
+
+
+ 
     public static List<String> check(MinecraftServer server, String stage) {
         List<String> results = new ArrayList<>();
         var data = ComputerWorkspaceData.access(server);

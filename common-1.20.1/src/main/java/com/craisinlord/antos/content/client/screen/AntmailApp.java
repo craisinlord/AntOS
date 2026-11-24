@@ -856,23 +856,23 @@ final class AntmailApp extends ComputerApp {
         }, () -> state.mode = previous);
     }
 
-    /** True for selections that must be the only recipient (groups and teams). */
+     
     static boolean exclusiveRecipient(String token) {
         String value = token == null ? "" : token.trim();
         return value.startsWith("conversation:") || value.startsWith("team:");
     }
 
-    /**
-     * Adds a picked recipient to the compose line. Groups and teams can't be combined with anything else,
-     * so picking one replaces the line, and picking anything while one is present replaces it too.
-     */
+    
+
+
+ 
     static String addRecipient(String current, String token) {
         if (current == null || current.isBlank() || exclusiveRecipient(token)) return token;
         for (String part : current.split("[,;]")) if (exclusiveRecipient(part)) return token;
         return current + ", " + token;
     }
 
-    /** Subject for a reply: "Re: original" (never doubled), trimmed to the subject limit; empty without an original. */
+     
     private String replySubject(String original) {
         if (original == null || original.isBlank()) return "";
         String subject = localizedMailText(original);
@@ -886,7 +886,7 @@ final class AntmailApp extends ComputerApp {
         composeConversation(conversationPanel.replyToken(), replySubject(conversationPanel.latestSubject()));
     }
 
-    /** Starts a fresh message to a group or team, e.g. from the Tasks team menu. */
+     
     void composeTo(String token) {
         if (state.mode.equals("compose")) saveDraft();
         composeConversation(token, "");

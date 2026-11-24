@@ -83,7 +83,7 @@ public final class AntmailServerHandler {
     }
 
     private static final com.google.gson.Gson DIRECTORY_JSON = new com.google.gson.Gson();
-    /** Received-history heads per mailbox, reused until that mailbox's version changes. Bounded LRU. */
+     
     private static final java.util.Map<AntmailAddress, HistoryHeads> HISTORY_HEADS = new java.util.LinkedHashMap<>(16, 0.75f, true) {
         @Override protected boolean removeEldestEntry(java.util.Map.Entry<AntmailAddress, HistoryHeads> eldest) { return size() > 128; }
     };
@@ -128,7 +128,7 @@ public final class AntmailServerHandler {
             json.add("page", DIRECTORY_JSON.toJsonTree(directory.page(account.accountId(), payload.fourth(), payload.fifth(), requestedPage, accounts)));
             var history = new com.google.gson.JsonArray();
             if (payload.fourth().equals("conversation")) {
-                // One row per conversation this mailbox has copies of but the account no longer belongs to.
+                
                 var heads = historyHeads(data, address);
                 var historyIds = heads.keySet().stream().filter(id -> !directory.currentConversation(account.accountId(), id, teams)).toList();
                 long start = (long) requestedPage * com.craisinlord.antos.content.antmail.AntmailDirectory.PAGE_SIZE;
@@ -685,7 +685,7 @@ public final class AntmailServerHandler {
                                          String query, boolean unreadOnly, boolean attachmentsOnly) {
         boolean draftAttachments = true;
         int maxRows = Integer.MAX_VALUE;
-        // Draft recipient labels don't depend on how the page gets trimmed below, so resolve them once.
+        
         var labels = new net.minecraft.nbt.ListTag();
         var actor = data.accountIdForAddress(server, address);
         var accounts = com.craisinlord.antos.content.antmail.AntmailDispatch.accounts(server);

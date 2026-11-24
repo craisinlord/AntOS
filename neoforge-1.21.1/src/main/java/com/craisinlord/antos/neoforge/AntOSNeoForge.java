@@ -47,6 +47,7 @@ public final class AntOSNeoForge {
 
     private void registerCommands(RegisterCommandsEvent event) {
         TaskDebugCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.editor.AuthoringService.register(event.getDispatcher());
         com.craisinlord.antos.content.guide.DisplayCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antmail.AntmailDebugCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntazonCommands.register(event.getDispatcher());
@@ -82,6 +83,7 @@ public final class AntOSNeoForge {
 
     private void onServerStopped(ServerStoppedEvent event) {
         com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
+        com.craisinlord.antos.content.editor.AuthoringService.stopped();
         FieldGuideCompat.shutdown();
         com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
     }
@@ -95,6 +97,7 @@ public final class AntOSNeoForge {
     private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(player);
+            com.craisinlord.antos.content.editor.AuthoringService.disconnect(player.getUUID());
         }
     }
 }

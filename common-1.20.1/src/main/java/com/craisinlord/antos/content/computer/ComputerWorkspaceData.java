@@ -32,7 +32,7 @@ public final class ComputerWorkspaceData extends SavedData {
     private static final String FACE_ID_LINKS_TAG = "FaceIdLinks";
     private static final String TEAMS_TAG = "Teams";
     private static final String TEAM_INVITES_TAG = "TeamInvites";
-    /** Teams are capped so a whole team always fits in one Antmail send. */
+     
     public static final int MAX_TEAM_MEMBERS = 64;
     private static final String CLAIMED_REWARDS_TAG = "ClaimedTaskRewards";
     private static final String PLAYER_TASK_CLAIMS_TAG = "PlayerTaskRewardClaims";
@@ -545,7 +545,7 @@ public final class ComputerWorkspaceData extends SavedData {
                         .map(account -> new TeamMember(account.accountId(), account.displayUsername(), account.accountId().equals(team.ownerId))).toList());
     }
 
-    /** The team with this ID as an Antmail audience, or null if it no longer exists. */
+     
     public synchronized TeamMailAudience teamMailAudience(UUID teamId) {
         Team team = teamId == null ? null : teams.get(teamId);
         if (team == null) return null;
@@ -1122,7 +1122,7 @@ public final class ComputerWorkspaceData extends SavedData {
         private final UUID id;
         private final UUID ownerId;
         private final Set<UUID> members = new LinkedHashSet<>();
-        /** Per-membership identifiers. A member who leaves and rejoins gets a new one, so Antmail can tell the stints apart. */
+         
         private final Map<UUID, UUID> epochs = new LinkedHashMap<>();
         private final ComputerTaskProgress progress = new ComputerTaskProgress();
         private Team(UUID id, UUID ownerId) { this.id = id; this.ownerId = ownerId; }
@@ -1133,7 +1133,7 @@ public final class ComputerWorkspaceData extends SavedData {
         }
     }
 
-    /** Team membership as Antmail needs it: the live roster with each member's current membership epoch. */
+     
     public record TeamMailAudience(UUID id, UUID ownerId, String ownerName, Map<UUID, UUID> epochs) { }
 
     private record TeamInvite(UUID id, UUID teamId, UUID recipientId, UUID inviterId, long createdAt) { }

@@ -28,6 +28,8 @@ public final class AntOSNeoForgeNetworking {
                 (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> PhoneDiskInsertPayload.handle(player, payload))));
         registrar.playToServer(ArchiveRecipeRequestPayload.TYPE, ArchiveRecipeRequestPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> ArchiveRecipeNetworking.handle(player, payload))));
+        registrar.playToServer(AuthoringRequestPayload.TYPE, AuthoringRequestPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> com.craisinlord.antos.content.editor.AuthoringService.handle(player, payload))));
         registrar.playToClient(AnternetComputerResultPayload.TYPE, AnternetComputerResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.ComputerAccessClientState.updateAnternet(payload)));
         registrar.playToClient(AnternetAccountResultPayload.TYPE, AnternetAccountResultPayload.STREAM_CODEC,
@@ -42,6 +44,8 @@ public final class AntOSNeoForgeNetworking {
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.DisplaySyncClientState.update(payload)));
         registrar.playToClient(ArchiveRecipeResultPayload.TYPE, ArchiveRecipeResultPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.ArchiveRecipeClientState.update(payload)));
+        registrar.playToClient(AuthoringResultPayload.TYPE, AuthoringResultPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.AuthoringClientState.receive(payload)));
 
         ComputerAccessHandler.setAnternetResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         AnternetAccountHandler.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
@@ -50,6 +54,7 @@ public final class AntOSNeoForgeNetworking {
         JeiSync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         ArchiveRecipeNetworking.setResultSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         com.craisinlord.antos.content.network.DisplaySync.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
+        com.craisinlord.antos.content.editor.AuthoringService.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
     }
 
     private static void withPlayer(net.neoforged.neoforge.network.handling.IPayloadContext context,

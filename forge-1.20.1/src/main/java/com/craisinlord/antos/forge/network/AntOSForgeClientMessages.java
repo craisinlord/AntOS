@@ -22,5 +22,7 @@ public final class AntOSForgeClientMessages {
             com.craisinlord.antos.content.client.JeiClientState.update(payload);
         else if (message instanceof com.craisinlord.antos.content.network.DisplaySyncPayload payload)
             com.craisinlord.antos.content.client.DisplaySyncClientState.update(payload);
+        else if (message instanceof com.craisinlord.antos.content.network.AuthoringResultPayload payload)
+            com.craisinlord.antos.content.client.AuthoringClientState.receive(payload);
     }
 }

@@ -43,7 +43,7 @@ public final class AntOSFabric implements ModInitializer {
             dev.ftb.mods.ftbteams.api.fabric.FTBTeamsEvents.PLAYER_CHANGED_TEAM.register(com.craisinlord.antos.compat.ftbquests.FTBQuestsCompat::onPlayerChangedTeam);
         }
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
-                com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player));
+                { com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(handler.player); com.craisinlord.antos.content.editor.AuthoringService.disconnect(handler.player.getUUID()); });
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> com.craisinlord.antos.content.network.ComputerAccessHandler.sendLookup(handler.player));
         AntmailEventData.registerListeners();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
@@ -53,6 +53,7 @@ public final class AntOSFabric implements ModInitializer {
             com.craisinlord.antos.content.antazon.AntcoinCommands.register(dispatcher);
             com.craisinlord.antos.content.computer.AccountCommands.register(dispatcher);
             com.craisinlord.antos.content.guide.DisplayCommands.register(dispatcher);
+            com.craisinlord.antos.content.editor.AuthoringService.register(dispatcher);
         });
         registerReloadListener("computer_data", ComputerGuideData.instance());
         registerReloadListener("blockle_answers", BlockleAnswers.instance());
@@ -74,6 +75,7 @@ public final class AntOSFabric implements ModInitializer {
             com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
             FieldGuideCompat.shutdown();
             com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
+            com.craisinlord.antos.content.editor.AuthoringService.stopped();
         });
         AntOS.LOGGER.info("AntOS initialized");
     }

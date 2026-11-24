@@ -18,6 +18,7 @@ public final class DisplayRecipes {
     private static volatile Map<String, RecipeHolder<?>> recipes = Map.of();
     private static RegistryAccess registries;
     private static Object server;
+    private static Object resources;
     private static long revision = -1;
 
     static {
@@ -29,7 +30,7 @@ public final class DisplayRecipes {
 
     private DisplayRecipes() { }
     public static boolean ready() { return registries != null; }
-    public static synchronized void serverStopped() { server = null; revision = -1; recipes = Map.of(); registries = null; }
+    public static synchronized void serverStopped() { server = null; resources = null; revision = -1; recipes = Map.of(); registries = null; }
 
     public static synchronized void register(Identifier id, Adapter adapter) {
         if (ADAPTERS.putIfAbsent(id.toString(), Objects.requireNonNull(adapter)) != null) throw new IllegalArgumentException("Duplicate recipe adapter " + id);
@@ -38,10 +39,11 @@ public final class DisplayRecipes {
 
     public static synchronized void refresh(MinecraftServer current) {
         long next = ComputerGuideData.datapackRevision();
-        if (server == current && revision == next) return;
-        server = current; revision = next;
+        var currentResources = current.getResourceManager();
+        if (server == current && revision == next && resources == currentResources) return;
+        server = current; revision = next; resources = currentResources;
         install(current.getRecipeManager().getRecipes(), current.registryAccess());
-        CustomDisplays.recompile();
+        CustomDisplays.recompile(currentResources);
     }
 
     public static synchronized void install(Collection<RecipeHolder<?>> source, RegistryAccess access) {

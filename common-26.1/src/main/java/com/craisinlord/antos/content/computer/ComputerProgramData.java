@@ -78,6 +78,8 @@ public final class ComputerProgramData {
         return new Program(id, type, title, 0, List.of(), "", List.of(), start, Map.copyOf(nodes), false);
     }
 
+    public static void validateAuthoring(Identifier id, JsonObject object) { parse(id, object); }
+
     private static List<String> flags(JsonObject object, String key) {
         List<String> values = strings(object, key, 64, 64);
         if (values.stream().anyMatch(flag -> !identifier(flag))) throw new IllegalArgumentException("Invalid program flag");

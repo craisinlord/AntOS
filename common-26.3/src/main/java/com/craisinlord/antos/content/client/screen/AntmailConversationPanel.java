@@ -27,11 +27,11 @@ final class AntmailConversationPanel {
     private final List<AntmailMessage> messages = new ArrayList<>();
     private final List<Hit> hits = new ArrayList<>();
     private record Hit(int x, int y, int w, int h, Runnable action) { }
-    /** Recipient token that replies to this thread: "conversation:&lt;id&gt;" for groups, "team:&lt;id&gt;" for teams. */
+     
     private String token;
     UUID id() { return id; }
     String replyToken() { return token != null ? token : "conversation:" + id; }
-    /** Subject of the newest loaded message, used to keep Reply All on topic; null when nothing is loaded. */
+     
     String latestSubject() {
         sync();
         if (!loaded()) return null;
@@ -65,7 +65,7 @@ final class AntmailConversationPanel {
         selection = Math.max(0, Math.min(selection, messages.size() - 1));
         title = null;
     }
-    /** Thread title from the name stamped on its messages, resolved once per loaded page. */
+     
     private String title;
     private String title() {
         if (title != null) return title;

@@ -5,17 +5,17 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-final class ComputerRequestLimiter {
+public final class ComputerRequestLimiter {
     private final double capacity;
     private final double refillPerSecond;
     private final Map<UUID, Bucket> buckets = new HashMap<>();
 
-    ComputerRequestLimiter(double capacity, double refillPerSecond) {
+    public ComputerRequestLimiter(double capacity, double refillPerSecond) {
         this.capacity = capacity;
         this.refillPerSecond = refillPerSecond;
     }
 
-    synchronized boolean tryAcquire(UUID player, int cost) {
+    public synchronized boolean tryAcquire(UUID player, int cost) {
         if (cost <= 0) return true;
         Bucket bucket = refill(player);
         if (bucket.tokens < cost) return false;
@@ -40,13 +40,15 @@ final class ComputerRequestLimiter {
         return bucket;
     }
 
-    synchronized void forget(UUID player) {
+    public synchronized void forget(UUID player) {
         buckets.remove(player);
     }
 
-    synchronized void retain(Collection<UUID> online) {
+    public synchronized void retain(Collection<UUID> online) {
         buckets.keySet().retainAll(online);
     }
+
+    public synchronized void clear() { buckets.clear(); }
 
     private static final class Bucket {
         private double tokens;

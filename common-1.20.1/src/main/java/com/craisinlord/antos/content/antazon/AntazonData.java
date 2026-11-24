@@ -1,6 +1,7 @@
 package com.craisinlord.antos.content.antazon;
 
 import com.craisinlord.antos.AntOS;
+import com.craisinlord.antos.content.editor.AuthoringValidation;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -614,5 +615,40 @@ public final class AntazonData extends SimplePreparableReloadListener<Map<Resour
         public boolean restocks() {
             return restockMinecraftDays > 0L || restockRealHours > 0L;
         }
+    }
+
+
+public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        JsonArray payments = object.getAsJsonArray("payments");
+        if (payments == null || payments.isEmpty()) throw new IllegalArgumentException("A product needs at least one payment");
+        for (JsonElement element : payments) {
+            if (!element.isJsonObject()) throw new IllegalArgumentException("Each payment must be an object");
+            JsonObject payment = element.getAsJsonObject();
+            String type = string(payment, "type", "").trim();
+            String resource = string(payment, "resource", "").trim();
+            if (!type.equals("antcoins") && !type.equals("item")) throw new IllegalArgumentException("Payment type must be antcoins or item");
+            if (type.equals("item") && AntazonTags.matcher(resource) == null) throw new IllegalArgumentException("Payment item or tag is unknown: " + resource);
+        }
+        if (object.has("item_pool") && object.has("variants")) throw new IllegalArgumentException("A product cannot use both an item pool and variants");
+        String delivery = string(object, "delivery", "falling_chest");
+        if (delivery.equals("falling_chest_location")) {
+            JsonObject location = object.has("delivery_location") && object.get("delivery_location").isJsonObject()
+                    ? object.getAsJsonObject("delivery_location") : null;
+            if (location == null || !location.has("x") || !location.has("y") || !location.has("z"))
+                throw new IllegalArgumentException("Location delivery needs x, y and z coordinates");
+        }
+        if (object.has("rewards") && object.get("rewards").isJsonArray()) {
+            int total = 0;
+            for (JsonElement element : object.getAsJsonArray("rewards")) {
+                if (!element.isJsonObject()) throw new IllegalArgumentException("Each product reward must be an object");
+                JsonObject reward = element.getAsJsonObject();
+                ResourceLocation item = ResourceLocation.parse(AuthoringValidation.required(reward, "item", 240));
+                if (BuiltInRegistries.ITEM.get(item) == net.minecraft.world.item.Items.AIR) throw new IllegalArgumentException("Unknown product reward item " + item);
+                int count = reward.has("count") ? reward.get("count").getAsInt() : 1;
+                if (count < 1 || count > 108 || total + count > 108) throw new IllegalArgumentException("Product rewards must total no more than 108 items");
+                total += count;
+            }
+        }
+        if (parse(id, object) == null) throw new IllegalArgumentException("Antazon rejected this product definition; check its payments, rewards, availability and item pool settings");
     }
 }

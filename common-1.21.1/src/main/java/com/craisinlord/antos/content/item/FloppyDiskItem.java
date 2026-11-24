@@ -79,7 +79,7 @@ public class FloppyDiskItem extends Item {
     }
 
     private static Component displayText(String key) {
-        Component text = Component.translatable(key);
+        Component text = com.craisinlord.antos.content.guide.ComputerGuideData.displayText(key);
         return AntOSClientHooks.isClient() ? Component.literal(titleCase(text.getString())) : text;
     }
 

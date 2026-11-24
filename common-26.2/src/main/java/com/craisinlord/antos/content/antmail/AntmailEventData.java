@@ -66,6 +66,16 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         return definitions.keySet().stream().sorted(Comparator.comparing(Identifier::toString)).toList();
     }
 
+    public static List<Identifier> poolIds() { return pools.keySet().stream().sorted(Comparator.comparing(Identifier::toString)).toList(); }
+
+    public static void validateAuthoring(Identifier id, JsonObject object) {
+        Definition definition = parse(id, object);
+        if (definition.sender().contains("@")) AntmailAddress.parse(definition.sender());
+        else AntmailAddress.ofUsername(definition.sender());
+    }
+
+
+
     public static int triggerEvent(ServerPlayer player, String type, String value) {
         if (player == null || type == null || value == null) return 0;
         AntmailServerData data = AntmailServerData.access(player.level().getServer());

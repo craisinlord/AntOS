@@ -23,8 +23,6 @@ public final class CustomDisplays {
     private static volatile Map<Identifier, JsonObject> definitions = Map.of();
     private static volatile long revision;
     private static volatile Map<String, List<DisplayFeatures.Diagnostic>> diagnostics = Map.of();
-    private static ResourceManager serverResources;
-    private static int serverBudget;
     private static boolean recompiling;
     private static final Set<String> TYPES = Set.of("slot", "fluid", "text", "image", "rect", "circle", "polygon", "line", "arrow", "bar", "recipe", "scene", "item", "entity", "group", "materials", "requirements", "conditions", "recipe_list");
 
@@ -33,15 +31,14 @@ public final class CustomDisplays {
     public static long revision() { return revision; }
     public static Set<Identifier> ids() { return Set.copyOf(definitions.keySet()); }
     public static Set<String> sourceIds() { return Set.copyOf(diagnostics.keySet()); }
-    public static void serverStopped() { serverResources = null; serverBudget = 0; }
     public static Map<String, List<DisplayFeatures.Diagnostic>> diagnostics() { return diagnostics; }
     public static boolean pending(Identifier id) { return diagnostics.getOrDefault(id.toString(), List.of()).stream().anyMatch(value -> value.severity().equals("info") && value.path().equals("recipe_binding")); }
 
-    public static synchronized void recompile() {
-        if (serverResources == null || recompiling) return;
+    public static synchronized void recompile(ResourceManager resources) {
+        if (recompiling) return;
         recompiling = true;
         try {
-            Map<Identifier, JsonObject> replacement = load(serverResources, serverBudget);
+            Map<Identifier, JsonObject> replacement = load(resources);
             if (!replacement.equals(definitions)) apply(replacement);
         } finally { recompiling = false; }
     }
@@ -85,7 +82,6 @@ public final class CustomDisplays {
     }
 
     public static Map<Identifier, JsonObject> load(ResourceManager resources, int budget) {
-        serverResources = resources; serverBudget = budget;
         Map<String, List<DisplayFeatures.Diagnostic>> report = new LinkedHashMap<>();
         Map<Identifier, JsonObject> raw = new LinkedHashMap<>();
         resources.listResources("computer/display", path -> path.getPath().endsWith(".json")).entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {

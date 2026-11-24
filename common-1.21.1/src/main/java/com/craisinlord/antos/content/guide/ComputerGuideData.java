@@ -8,6 +8,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -69,6 +70,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return entry != null ? entry : fieldGuideEntries.get(id);
     }
 
+    public static List<ResourceLocation> archiveEntryIds() {
+        return allEntries().keySet().stream().sorted().toList();
+    }
+
     public static boolean replaceFieldGuideEntries(Map<ResourceLocation, Entry> definitions) {
         Map<ResourceLocation, Entry> filtered = new LinkedHashMap<>();
         java.util.Set<ResourceLocation> conflicts = new java.util.LinkedHashSet<>();
@@ -93,7 +98,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
     }
 
     public static Component archiveTitle(Entry entry) {
-        String key = entry.titleKey();
+        return displayText(entry.titleKey());
+    }
+
+    public static Component displayText(String key) {
         return key.startsWith("literal:") ? Component.literal(key.substring("literal:".length())) : Component.translatable(key);
     }
 
@@ -161,6 +169,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
 
     public static DiskCategory category(ResourceLocation id) {
         return categories.get(id);
+    }
+
+    public static List<DiskCategory> diskCategories() {
+        return categories.values().stream().sorted(Comparator.comparing(value -> value.id().toString())).toList();
     }
 
     public static ResourceLocation diskTexture(ResourceLocation diskId) {
@@ -1042,6 +1054,74 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 recipeTypeIds(object.get("lookup_recipes"))));
     }
 
+    public static void validateAuthoringArchiveEntry(ResourceLocation id, JsonObject object) {
+        String title = string(object, "title", "").trim();
+        if (title.isBlank()) throw new IllegalArgumentException("Archive entry title is required");
+        if (object.has("content")) CustomDisplays.content(object.get("content"));
+        String folderValue = string(object, "folder", "").trim();
+        ResourceLocation folder = folderValue.isEmpty() ? null : ResourceLocation.tryParse(folderValue);
+        if (!folderValue.isEmpty() && (folder == null || !archiveFolders.containsKey(folder)))
+            throw new IllegalArgumentException("Archive folder does not exist; save and reload it first");
+        if (object.has("gallery") && gallery(object.get("gallery")).size() != object.getAsJsonArray("gallery").size())
+            throw new IllegalArgumentException("Every gallery item must have a valid item, entity or identifier");
+        Map<ResourceLocation, Entry> parsed = new HashMap<>();
+        parseEntry(id, object, parsed);
+        Entry entry = parsed.get(id);
+        if (entry == null) throw new IllegalArgumentException("Archive entry could not be parsed");
+        for (String item : List.of(entry.itemId(), entry.coverItemId())) if (!item.isBlank()) {
+            ResourceLocation itemId = ResourceLocation.tryParse(item);
+            if (itemId == null || !BuiltInRegistries.ITEM.containsKey(itemId)) throw new IllegalArgumentException("Unknown Archive item " + item);
+        }
+        for (String entity : List.of(entry.entityId(), entry.coverEntityId())) if (!entity.isBlank()) {
+            ResourceLocation entityId = ResourceLocation.tryParse(entity);
+            if (entityId == null || !BuiltInRegistries.ENTITY_TYPE.containsKey(entityId)) throw new IllegalArgumentException("Unknown Archive entity " + entity);
+        }
+    }
+
+    public static void validateAuthoringArchiveFolder(ResourceLocation id, JsonObject object) {
+        String title = string(object, "title", "").trim();
+        if (title.isBlank()) throw new IllegalArgumentException("Archive folder title is required");
+        String icon = string(object, "icon_item", "minecraft:book").trim();
+        ResourceLocation iconId = ResourceLocation.tryParse(icon);
+        if (iconId == null || !BuiltInRegistries.ITEM.containsKey(iconId)) throw new IllegalArgumentException("Unknown Archive folder icon " + icon);
+        String parentValue = string(object, "parent", "").trim();
+        if (!parentValue.isEmpty()) {
+            ResourceLocation parentId = ResourceLocation.tryParse(parentValue);
+            ArchiveFolder parent = parentId == null ? null : archiveFolders.get(parentId);
+            if (parent == null || parent.parent() != null) throw new IllegalArgumentException("Archive folders may have one level of subfolders; choose an existing root folder");
+            if (id.equals(parentId)) throw new IllegalArgumentException("An Archive folder cannot contain itself");
+        }
+    }
+
+    public static void validateAuthoringDisk(ResourceLocation id, JsonObject object) {
+        String title = object.has("title") ? object.get("title").getAsString().trim() : "";
+        if (title.isBlank() || title.length() > 512) throw new IllegalArgumentException("Disk title is required and must be at most 512 characters");
+        for (String key : List.of("entries", "tasks")) if (object.has(key)) {
+            JsonArray values = object.getAsJsonArray(key);
+            if (values.size() > 256) throw new IllegalArgumentException("Too many disk " + key);
+            for (JsonElement value : values) ResourceLocation.parse(value.getAsString());
+        }
+        if (object.has("wallpaper") && !object.get("wallpaper").getAsString().isBlank()) ResourceLocation.parse(object.get("wallpaper").getAsString());
+        DiskFeatures.parse(object);
+        parseRewards(id, object.get("rewards"), false);
+        Map<ResourceLocation, Disk> parsed = new HashMap<>();
+        parseDisk(id, object, parsed);
+        if (!parsed.containsKey(id)) throw new IllegalArgumentException("Disk definition could not be parsed");
+    }
+
+    public static void validateAuthoringDiskCategory(ResourceLocation id, JsonObject object) {
+        String title = object.has("title") ? object.get("title").getAsString().trim() : "";
+        if (title.isBlank() || title.length() > 512) throw new IllegalArgumentException("Disk category title is required and must be at most 512 characters");
+        ResourceLocation.parse(object.has("texture") ? object.get("texture").getAsString() : "antos:item/floppy_disk/floppy_disk");
+        if (object.has("color")) {
+            String color = object.get("color").getAsString().replaceFirst("^#", "");
+            if (!color.matches("[0-9a-fA-F]{6}")) throw new IllegalArgumentException("Disk category color must be a six-digit hex color");
+        }
+        Map<ResourceLocation, DiskCategory> parsed = new HashMap<>();
+        parseCategory(id, object, parsed);
+        if (!parsed.containsKey(id)) throw new IllegalArgumentException("Disk category could not be parsed");
+    }
+
     private static List<String> recipeTypeIds(JsonElement element) {
         List<String> result = new ArrayList<>();
         for (String value : strings(element)) {
@@ -1295,6 +1375,46 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 object.has("invisible_until_completed") && object.get("invisible_until_completed").getAsBoolean(), greenTint,
                 string(object, "icon", ""), string(object, "icon_entity", ""), renderMobFromSpawnEgg, TaskAppearance.parse(object), resourceIds(object.get("connects")),
                 object.has("content") ? CustomDisplays.content(object.get("content")) : List.copyOf(strings(object.get("showcase"))), resourceIds(object.get("requires_any"))));
+    }
+
+    public static void validateAuthoringTask(ResourceLocation id, JsonObject object) {
+        if (isTaskLink(object)) {
+            Map<ResourceLocation, TaskLink> result = new HashMap<>();
+            parseTaskLink(id, object, result);
+            if (!result.containsKey(id)) throw new IllegalArgumentException("Task link needs a category or group target");
+            return;
+        }
+        Map<ResourceLocation, Task> result = new HashMap<>();
+        parseTask(id, object, result);
+        Task task = result.get(id);
+        if (task == null) throw new IllegalArgumentException("Task could not be loaded");
+        if (object.has("objectives") && task.objectives().size() != object.getAsJsonArray("objectives").size())
+            throw new IllegalArgumentException("An objective has an unsupported type, invalid target, duplicate ID or invalid consume setting");
+        if (object.has("rewards") && task.rewards().size() != object.getAsJsonArray("rewards").size())
+            throw new IllegalArgumentException("A reward is invalid or exceeds its runtime limit");
+        if (object.has("rewards")) for (int index = 0; index < task.rewards().size(); index++) {
+            JsonObject reward = object.getAsJsonArray("rewards").get(index).getAsJsonObject();
+            if (task.rewards().get(index).type().equals("choice")
+                    && task.rewards().get(index).options().size() != reward.getAsJsonArray("options").size())
+                throw new IllegalArgumentException("A choice option is invalid; every option needs a unique ID, a title and valid rewards");
+        }
+    }
+
+    public static void validateAuthoringCatalog(String kind, ResourceLocation id, JsonObject object) {
+        if (kind.equals("reward_pool")) {
+            Map<ResourceLocation, RewardPool> result = new HashMap<>();
+            parseRewardPool(id, object, result);
+            if (!result.containsKey(id) || result.get(id).entries().size() != object.getAsJsonArray("entries").size())
+                throw new IllegalArgumentException("A reward-pool entry is invalid; choose exactly one item or pool per entry");
+        } else if (kind.equals("category")) {
+            Map<ResourceLocation, TaskCategory> result = new HashMap<>();
+            parseTaskCategory(id, object, result);
+            if (!result.containsKey(id)) throw new IllegalArgumentException("Invalid task category");
+        } else if (kind.equals("group")) {
+            Map<ResourceLocation, TaskGroup> result = new HashMap<>();
+            parseTaskGroup(id, object, result);
+            if (!result.containsKey(id)) throw new IllegalArgumentException("Invalid task group");
+        }
     }
 
     private static boolean isTaskLink(JsonElement element) {

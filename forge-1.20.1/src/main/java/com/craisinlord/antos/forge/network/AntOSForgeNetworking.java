@@ -38,6 +38,10 @@ public final class AntOSForgeNetworking {
             buffer.writeVarInt(message.slot()); buffer.writeUtf(message.diskId(), 256); buffer.writeBoolean(message.redeemed());
         }, buffer -> new PhoneDiskInsertPayload(buffer.readVarInt(), buffer.readUtf(256), buffer.readBoolean()),
                 (message, context) -> withPlayer(context, player -> PhoneDiskInsertPayload.handle(player, message)));
+        registerServer(id++, AuthoringRequestPayload.class, (message, buffer) -> {
+            buffer.writeUtf(message.id(), 36); buffer.writeVarInt(message.index()); buffer.writeVarInt(message.total()); buffer.writeUtf(message.data(), com.craisinlord.antos.content.editor.AuthoringWire.CHUNK_CHARS);
+        }, buffer -> new AuthoringRequestPayload(buffer.readUtf(36), buffer.readVarInt(), buffer.readVarInt(), buffer.readUtf(com.craisinlord.antos.content.editor.AuthoringWire.CHUNK_CHARS)),
+                (message, context) -> withPlayer(context, player -> com.craisinlord.antos.content.editor.AuthoringService.handle(player, message)));
         registerClient(id++, AnternetComputerResultPayload.class, (message, buffer) -> {
             buffer.writeVarInt(message.result()); buffer.writeBoolean(message.hasPassword()); buffer.writeBoolean(message.authenticated()); buffer.writeUtf(message.data(), 65536);
         }, buffer -> new AnternetComputerResultPayload(buffer.readVarInt(), buffer.readBoolean(), buffer.readBoolean(), buffer.readUtf(65536)));
@@ -59,12 +63,16 @@ public final class AntOSForgeNetworking {
         registerClient(id++, DisplaySyncPayload.class, (message, buffer) -> {
             buffer.writeVarLong(message.version()); buffer.writeVarInt(message.part()); buffer.writeVarInt(message.parts()); buffer.writeByteArray(message.data());
         }, buffer -> new DisplaySyncPayload(buffer.readVarLong(), buffer.readVarInt(), buffer.readVarInt(), buffer.readByteArray(DisplaySyncPayload.MAX_CHUNK)));
+        registerClient(id++, AuthoringResultPayload.class, (message, buffer) -> {
+            buffer.writeUtf(message.id(), 36); buffer.writeVarInt(message.index()); buffer.writeVarInt(message.total()); buffer.writeUtf(message.data(), com.craisinlord.antos.content.editor.AuthoringWire.CHUNK_CHARS);
+        }, buffer -> new AuthoringResultPayload(buffer.readUtf(36), buffer.readVarInt(), buffer.readVarInt(), buffer.readUtf(com.craisinlord.antos.content.editor.AuthoringWire.CHUNK_CHARS)));
         ComputerAccessHandler.setAnternetResultSender((player, payload) -> send(player, payload));
         AnternetAccountHandler.setResultSender((player, payload) -> send(player, payload));
         AntmailServerHandler.setResultSender((player, payload) -> send(player, payload));
         FloppyTextureSync.setSender((player, payload) -> send(player, payload));
         JeiSync.setSender((player, payload) -> send(player, payload));
         DisplaySync.setSender((player, payload) -> send(player, payload));
+        com.craisinlord.antos.content.editor.AuthoringService.setSender((player, payload) -> send(player, payload));
     }
 
     private static <T> void registerServer(int id, Class<T> type, java.util.function.BiConsumer<T, net.minecraft.network.FriendlyByteBuf> encoder,

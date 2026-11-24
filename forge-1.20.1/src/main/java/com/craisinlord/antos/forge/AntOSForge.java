@@ -56,6 +56,7 @@ public final class AntOSForge {
         com.craisinlord.antos.content.antazon.AntazonCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.antazon.AntcoinCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.computer.AccountCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.editor.AuthoringService.register(event.getDispatcher());
     }
 
     private void registerReloadListeners(AddReloadListenerEvent event) {
@@ -87,6 +88,7 @@ public final class AntOSForge {
     }
 
     private void onServerStopped(ServerStoppedEvent event) {
+        com.craisinlord.antos.content.editor.AuthoringService.stopped();
         com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
         FieldGuideCompat.shutdown();
         com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
@@ -100,6 +102,7 @@ public final class AntOSForge {
 
     private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            com.craisinlord.antos.content.editor.AuthoringService.disconnect(player.getUUID());
             com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(player);
         }
     }

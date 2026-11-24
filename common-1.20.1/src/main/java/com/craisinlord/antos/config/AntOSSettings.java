@@ -38,11 +38,13 @@ public final class AntOSSettings {
     private static volatile SharedSettings synced;
     private static ClientState state = new ClientState().withDefaults();
     private static Path statePath;
+    private static Path configPath;
     private static boolean stateWritable;
 
     private AntOSSettings() {}
 
     public static synchronized void loadConfig(Path configFile) {
+        configPath = configFile;
         try {
             Path parent = configFile.getParent();
             if (parent != null) Files.createDirectories(parent);
@@ -65,6 +67,38 @@ public final class AntOSSettings {
             AntOS.LOGGER.error("Could not load AntOS configuration from {}; using defaults for this session and leaving the file untouched",
                     configFile, exception);
             pack = new PackConfig().withDefaults();
+        }
+    }
+
+    public static synchronized boolean contentEditingEnabled() { return pack.contentEditingEnabled; }
+
+    public static synchronized boolean setContentEditingEnabled(boolean enabled) {
+        if (!saveEditingConfig(root -> root.addProperty("contentEditingEnabled", enabled))) return false;
+        pack.contentEditingEnabled = enabled;
+        return true;
+    }
+
+    public static boolean contentEditingControls() { return pack.client.contentEditing; }
+
+    public static synchronized boolean setContentEditingControls(boolean enabled) {
+        boolean saved = saveEditingConfig(root -> {
+            if (!root.has("client")) root.add("client", new JsonObject());
+            root.getAsJsonObject("client").addProperty("contentEditing", enabled);
+        });
+        if (saved) pack.client.contentEditing = enabled;
+        return saved;
+    }
+
+    private static boolean saveEditingConfig(java.util.function.Consumer<JsonObject> change) {
+        if (configPath == null) return false;
+        try {
+            JsonObject root = readJson(configPath);
+            change.accept(root);
+            write(configPath, root);
+            return true;
+        } catch (Exception exception) {
+            AntOS.LOGGER.error("Could not save authoring configuration", exception);
+            return false;
         }
     }
 
@@ -676,6 +710,7 @@ public final class AntOSSettings {
         private boolean unlockAllArchiveEntries;
         private boolean unlockAllGameEntries;
         private boolean showIntroductionEntry = true;
+        private boolean contentEditingEnabled = true;
         private boolean archiveLookupRequiresPhone = true;
         private boolean sendAntazonUnlockEmail = true;
         private int passwordHintAfterFailures = 3;
@@ -717,6 +752,7 @@ public final class AntOSSettings {
 
     private static final class PackClient {
         private boolean inventoryComputerButton;
+        private boolean contentEditing;
         private JsonObject defaultPreferences = new JsonObject();
 
         private Preferences defaultPreferences() {

@@ -13,6 +13,7 @@ The development workspace also contains forward-port targets for Minecraft 26.1,
 - [Requirements and integrations](#requirements-and-integrations)
 - [Configuration](#configuration)
 - [Quick start](#quick-start)
+- [In-game content editing](docs/in-game-content-editor-plan.md)
 - [Shared concepts](#shared-concepts): IDs, translations, previews, rewards, unlock requirements, time
 - Content types: [Archive entries](#archive-entries) · [Floppy disks](#floppy-disks) · [Programs](#programs-quizzes-and-adventures) · [Tasks](#tasks) · [Antmail](#antmail) · [Antazon](#antazon) · [MERCHANT](#merchant) · [Terminal commands](#terminal-commands)
 - [Appearance](#appearance): wallpapers, disk categories, icons, renaming apps and currency
@@ -49,6 +50,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
 ```json
 {
   "configVersion": 2,
+  "contentEditingEnabled": true,
   "unlockAllArchiveEntries": false,
   "unlockAllGameEntries": false,
   "showIntroductionEntry": true,
@@ -97,6 +99,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
   },
   "client": {
     "inventoryComputerButton": false,
+    "contentEditing": false,
     "defaultPreferences": {}
   },
   "jei": {
@@ -109,6 +112,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
 
 | Key | Side | Default | Effect |
 | --- | --- | --- | --- |
+| `contentEditingEnabled` | Server | `true` | Whether operators may use [in-game content editing](docs/in-game-content-editor-plan.md) on this server. It doesn't show the controls by itself; each operator turns them on with `client.contentEditing`. `/antos editing off` and `/antos editing on` change it without a restart. |
 | `unlockAllArchiveEntries` | Server | `false` | Unlocks every loaded Archive entry without its disk. |
 | `unlockAllGameEntries` | Server | `false` | Unlocks every registered game without its disk. |
 | `showIntroductionEntry` | Server (synced) | `true` | Shows the built-in "SYSTEM INITIALIZED" Introduction page in every Archive. |
@@ -120,6 +124,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
 | `rewardsOncePerPlayer` | Server | `true` | Task and disk rewards can be claimed once per Minecraft player, not once per Anternet account, so making a new account doesn't pay out the same rewards again. Claims are always recorded, so turning this back on later still counts earlier claims. Set to `false` to let every account claim separately. |
 | `desktopApps.<app>` | Server (synced) | `true` | Set to `false` to hide an app. **Antazon, Merchant and Tasks default to `false`**; set `desktopApps.antazon`, `desktopApps.merchant` and `desktopApps.tasks` to `true` to enable them. |
 | `client.inventoryComputerButton` | Client | `false` | Adds a button to the inventory screen that opens AntOS. A top-level `inventoryComputerButton` from older versions is moved here. |
+| `client.contentEditing` | Client | `false` | Shows the in-game content editing controls. Also in **Settings > Apps > Content editing**, which writes this value. Only operators see the controls. Leave it `false` in a pack you publish. |
 | `client.defaultPreferences` | Client | `{}` | Starting preferences for players who don't have an `antos/client.json` yet. It takes any of the preference keys described below, for example `{"theme": "amber", "uiScalePercent": 115}`. Keys you leave out use the built-in defaults, and invalid values log a warning and use them too. Changing it later doesn't affect players who already have settings. |
 | `jei.antazonPrices` | Server | `true` | With JEI installed, shows the Antazon Listings category. Hidden while Antazon is disabled. |
 | `jei.sellValues` | Server | `true` | With JEI installed, shows the Antazon Selling category. Hidden while Antazon is disabled. |
@@ -662,7 +667,7 @@ Every objective needs `id`, `type`, and `description`, and usually `target`.
 | Type | `target` | Notes |
 | --- | --- | --- |
 | `item` | Item ID | Checks the viewing player's inventory. |
-| `item_tag` | Item tag, no `#` | `tag_mode`: `any` (default) needs `count` items total across the tag; `all` needs `count` of each tag member. Tags are limited to 128 members. |
+| `item_tag` | Item tag, no `#` | `tag_mode`: `any` (default) needs `count` items total across the tag; `all` needs `count` of each tag member. |
 | `advancement` | Advancement ID | |
 | `stat` | Stat target | Add `stat_type` such as `item_crafted`, `block_mined`, or `entity_killed`. Lifetime player totals. |
 | `mail_read` | Antmail message ID | |

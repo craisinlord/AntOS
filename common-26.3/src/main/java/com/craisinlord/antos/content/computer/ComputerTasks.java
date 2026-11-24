@@ -28,9 +28,9 @@ import java.util.Map;
 
 public final class ComputerTasks {
     private static final java.util.Set<String> OVERSIZED_TASK_STATES = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private static final java.util.Set<Identifier> OVERSIZED_ITEM_TAGS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final java.util.Set<Identifier> MISSING_ITEM_TAGS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final Map<Identifier, TagItems> TAG_ITEMS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<Identifier, Boolean> TAG_PRESENCE = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicLong TAG_EPOCH = new java.util.concurrent.atomic.AtomicLong();
     private static final java.util.concurrent.atomic.AtomicLong EVALUATION_EPOCH = new java.util.concurrent.atomic.AtomicLong();
     private static final Map<java.util.UUID, MergedProgress> MERGED_PROGRESS = new java.util.HashMap<>();
@@ -46,6 +46,7 @@ public final class ComputerTasks {
         synchronized (ENCODED_STATES) { ENCODED_STATES.clear(); }
         synchronized (SENT_DEFINITIONS) { SENT_DEFINITIONS.clear(); }
         TAG_ITEMS.clear();
+        TAG_PRESENCE.clear();
         ComputerLocationObjectives.serverStopped();
     }
     public static boolean giveRewardPool(ServerPlayer player, Identifier poolId) {
@@ -1150,10 +1151,7 @@ public final class ComputerTasks {
                 return counts.count(item);
             }
             if (objective.type().equals("item_tag")) {
-                List<Item> items = itemTagItems(player, target);
-                int total = 0;
-                for (Item item : items) total += counts.count(item);
-                return total;
+                return counts.count(TagKey.create(Registries.ITEM, target));
             }
             if (objective.type().equals("advancement")) {
                 var advancement = player.level().getServer().getAdvancements().get(target);
@@ -1191,7 +1189,7 @@ public final class ComputerTasks {
         int progressValue = progress.objectiveCount(task.id(), objective.id());
         int goal = objectiveProgressGoal(player, objective);
         if (objective.type().equals("item_tag") && objective.tagMode().equals("any")
-                && itemTagItems(player, Identifier.tryParse(objective.target())).isEmpty()) {
+                && !hasTagItems(player, Identifier.tryParse(objective.target()))) {
             return new ObjectiveView(progressValue, objective.count(), complete, complete, false);
         }
         if (objective.type().equals("item_tag") && objective.tagMode().equals("all")) {
@@ -1220,7 +1218,7 @@ public final class ComputerTasks {
                                                     java.util.Map<ComputerGuideData.Objective, Integer> liveProgress,
                                                     boolean sharedTeamProgress, ItemCounts counts) {
         if (objective.type().equals("item_tag") && objective.tagMode().equals("any")
-                && itemTagItems(player, Identifier.tryParse(objective.target())).isEmpty()) {
+                && !hasTagItems(player, Identifier.tryParse(objective.target()))) {
             return new ObjectiveView(progress.objectiveCount(task.id(), objective.id()), objective.count(), false, false, false);
         }
         if (objective.type().equals("item_tag") && objective.tagMode().equals("all")) {
@@ -1288,6 +1286,16 @@ public final class ComputerTasks {
         return objective.count();
     }
 
+    private static boolean hasTagItems(ServerPlayer player, Identifier tagId) {
+        if (player == null || tagId == null) return false;
+        var tag = player.registryAccess().lookupOrThrow(Registries.ITEM).get(TagKey.create(Registries.ITEM, tagId));
+        if (tag.isEmpty() && MISSING_ITEM_TAGS.add(tagId)) AntOS.LOGGER.warn("AntOS task references missing item tag {}", tagId);
+        boolean present = tag.isPresent() && tag.get().size() > 0;
+        Boolean previous = TAG_PRESENCE.put(tagId, present);
+        if (previous == null || previous != present) TAG_EPOCH.incrementAndGet();
+        return present;
+    }
+
     private static List<Item> itemTagItems(ServerPlayer player, Identifier tagId) {
         if (player == null || tagId == null) return List.of();
         var registry = player.registryAccess().lookupOrThrow(Registries.ITEM);
@@ -1303,16 +1311,13 @@ public final class ComputerTasks {
         List<Item> items = tag.stream()
                 .flatMap(holderSet -> holderSet.stream().map(holder -> holder.value()))
                 .distinct().sorted(java.util.Comparator.comparing(item -> BuiltInRegistries.ITEM.getKey(item).toString())).toList();
-        if (items.size() > 128) {
-            if (OVERSIZED_ITEM_TAGS.add(tagId)) AntOS.LOGGER.warn("AntOS task item tag {} contains {} items; objectives using tags are limited to 128 members", tagId, items.size());
-            items = List.of();
-        }
         TAG_ITEMS.put(tagId, TagItems.of(holders, items));
         TAG_EPOCH.incrementAndGet();
         return items;
     }
 
     private static void validateTagCache(ServerPlayer player) {
+        for (Identifier tagId : TAG_PRESENCE.keySet()) hasTagItems(player, tagId);
         if (TAG_ITEMS.isEmpty()) return;
         var registry = player.registryAccess().lookupOrThrow(Registries.ITEM);
         for (Map.Entry<Identifier, TagItems> entry : TAG_ITEMS.entrySet()) {
@@ -1343,6 +1348,7 @@ public final class ComputerTasks {
     private static final class ItemCounts {
         private final ServerPlayer player;
         private Map<Item, Integer> counts;
+        private Map<TagKey<Item>, Integer> tagCounts;
 
         private ItemCounts(ServerPlayer player) {
             this.player = player;
@@ -1352,8 +1358,22 @@ public final class ComputerTasks {
             return counts().getOrDefault(item, 0);
         }
 
+        int count(TagKey<Item> tag) {
+            if (tagCounts == null) tagCounts = new java.util.HashMap<>();
+            Integer cached = tagCounts.get(tag);
+            if (cached != null) return cached;
+            int total = TaskItemTags.count(counts(), tag);
+            tagCounts.put(tag, total);
+            return total;
+        }
+
+        Map<Item, Integer> select(TagKey<Item> tag, int required) {
+            return TaskItemTags.select(counts(), tag, required);
+        }
+
         void invalidate() {
             counts = null;
+            tagCounts = null;
         }
 
         Map<Item, Integer> snapshot(List<Item> items) {
@@ -1401,30 +1421,20 @@ public final class ComputerTasks {
     }
 
     private static boolean consumeObjectiveItems(ServerPlayer player, ComputerGuideData.Objective objective, ItemCounts counts) {
-        boolean consumed = consumeObjectiveItems(player, objective);
         counts.invalidate();
-        return consumed;
-    }
-
-    private static boolean consumeObjectiveItems(ServerPlayer player, ComputerGuideData.Objective objective) {
         java.util.Map<Item, Integer> required = new java.util.LinkedHashMap<>();
         if (objective.type().equals("item")) {
             Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(objective.target()));
             required.put(item, objective.count());
         } else if (objective.type().equals("item_tag")) {
             if (objective.tagMode().equals("all")) return false;
-            List<Item> items = itemTagItems(player, Identifier.tryParse(objective.target()));
-            if (items.isEmpty()) return false;
-            int remaining = objective.count();
-            for (Item item : items) {
-                int amount = Math.min(remaining, player.getInventory().countItem(item));
-                if (amount > 0) required.put(item, amount);
-                remaining -= amount;
-                if (remaining == 0) break;
-            }
-            if (remaining > 0) return false;
+            Identifier tagId = Identifier.tryParse(objective.target());
+            if (tagId == null) return false;
+            required = counts.select(TagKey.create(Registries.ITEM, tagId), objective.count());
         } else return false;
-        return removeItems(player, required);
+        boolean consumed = removeItems(player, required);
+        counts.invalidate();
+        return consumed;
     }
 
     private static boolean consumeItem(ServerPlayer player, Item item, int count) {

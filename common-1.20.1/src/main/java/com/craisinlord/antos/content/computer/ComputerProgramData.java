@@ -115,4 +115,9 @@ public final class ComputerProgramData {
     public record Choice(String text, String destination, String requiresFlag, String requiresNoFlag) { }
     public record Node(String text, List<Choice> choices, List<String> setFlags, List<String> clearFlags, String ending,
                        List<ComputerGuideData.TaskReward> rewards, String password) { }
+
+
+public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        parse(id, object);
+    }
 }

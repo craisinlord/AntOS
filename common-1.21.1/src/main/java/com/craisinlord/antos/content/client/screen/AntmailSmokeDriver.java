@@ -23,14 +23,14 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
 
-/**
- * Development smoke driver for Antmail teams. With {@code ANTOS_SMOKE} set, it waits for a singleplayer world, seeds
- * throwaway accounts and mail, then walks the real computer UI (log in, Groups, team, thread, Reply All, picker, Tasks
- * MAIL TEAM), saving screenshots to {@code screenshots/antos-smoke/} and a {@code summary.txt}, and closes the game.
- *
- * Input goes through ComputerScreen's own key and mouse handlers. Controls without a click target (Send, MAIL TEAM)
- * are invoked directly and noted in the summary.
- */
+
+
+
+
+
+
+
+ 
 public final class AntmailSmokeDriver {
     private static final String PREFIX = "[AntOS smoke] ";
     private record Step(String name, int timeout, BooleanSupplier run) { }
@@ -48,7 +48,7 @@ public final class AntmailSmokeDriver {
 
     private AntmailSmokeDriver() { }
 
-    /** Called every client tick; a no-op unless {@code ANTOS_SMOKE} is set. */
+     
     public static void tick() {
         if (finished || !AntmailSmoke.enabled()) return;
         Minecraft mc = Minecraft.getInstance();
@@ -67,7 +67,7 @@ public final class AntmailSmokeDriver {
     private static void record(String line) { REPORT.add(line); log(line); }
     private static void log(String line) { AntOS.LOGGER.info(PREFIX + line); }
 
-    // ---- helpers -------------------------------------------------------------------------------------------------
+    
 
     private static Minecraft mc() { return Minecraft.getInstance(); }
     private static ComputerScreen screen() { return mc().screen instanceof ComputerScreen screen ? screen : null; }
@@ -97,10 +97,10 @@ public final class AntmailSmokeDriver {
 
     private static boolean press(int key) { var screen = screen(); return screen != null && screen.keyPressed(key, 0, 0); }
     private static void type(String text) { var screen = screen(); for (char c : text.toCharArray()) screen.charTyped(c, 0); }
-    /**
-     * Clicks a labelled directory control through ComputerScreen's mouse handlers. Controls report desktop-local
-     * coordinates; the screen maps window coordinates with {@code (mouse - center) / uiScale}, so invert that here.
-     */
+    
+
+
+ 
     private static boolean click(String label) { return clickLocal(directory().hitCenter(label)); }
     private static boolean clickLocal(int[] center) {
         if (center == null) return false;
@@ -114,7 +114,7 @@ public final class AntmailSmokeDriver {
     }
     private static boolean visible(String label) { return antmail() != null && directory().hitCenter(label) != null; }
 
-    /** Runs {@code work} on the integrated server once, then waits for it. */
+     
     private static boolean onServer(java.util.function.Supplier<Object> work, java.util.function.Consumer<Object> done) {
         var server = mc().getSingleplayerServer();
         if (!pendingStarted) { pendingStarted = true; pending = server.submit(work::get); }
@@ -125,7 +125,7 @@ public final class AntmailSmokeDriver {
 
     @SuppressWarnings("unchecked")
     private static void serverCheck(String stage, int timeout) {
-        // Delivery is synchronous, but give the client's send packet time to arrive: retry until every check passes.
+        
         STEPS.add(new Step("server check: " + stage, timeout, () -> {
             if (stepTicks % 20 != 0) return false;
             var server = mc().getSingleplayerServer();
@@ -139,7 +139,7 @@ public final class AntmailSmokeDriver {
     private static void action(String name, int timeout, BooleanSupplier run) { STEPS.add(new Step(name, timeout, run)); }
     private static void waitFor(String name, int timeout, BooleanSupplier condition) { STEPS.add(new Step(name, timeout, condition)); }
 
-    /** Waits a few frames for the UI to settle, then saves a numbered screenshot. */
+     
     private static void shot(String name) {
         STEPS.add(new Step("screenshot " + name, 40, () -> {
             if (stepTicks < 6) return false;
@@ -152,11 +152,11 @@ public final class AntmailSmokeDriver {
         }));
     }
 
-    // ---- the scenario --------------------------------------------------------------------------------------------
+    
 
     private static void build() {
         STEPS.clear();
-        // Packs can switch the Tasks app off; turn it on in memory for this run only (the config file is not saved).
+        
         action("enable the Tasks app for this run", 5, () -> {
             try {
                 var shared = com.craisinlord.antos.config.AntOSSettings.class.getDeclaredMethod("shared");

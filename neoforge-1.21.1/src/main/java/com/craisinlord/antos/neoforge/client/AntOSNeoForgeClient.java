@@ -48,6 +48,7 @@ public final class AntOSNeoForgeClient {
             AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
             AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
             FloppyDiskModelProperties.register(AntOSNeoForgeContent.FLOPPY_DISK.get());
+            com.craisinlord.antos.content.client.AuthoringClientState.setSender(net.neoforged.neoforge.network.PacketDistributor::sendToServer);
             ComputerNetworking.setSender(PacketDistributor::sendToServer);
             com.craisinlord.antos.content.network.PhoneDiskInsertPayload.setSender(PacketDistributor::sendToServer);
             com.craisinlord.antos.content.network.PhoneDiskInsertPayload.setCreativeInventoryCheck(
@@ -69,6 +70,7 @@ public final class AntOSNeoForgeClient {
 
     private static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
         ArchiveLookup.tick();
+        com.craisinlord.antos.content.client.AuthoringClientState.tick();
         com.craisinlord.antos.content.client.TaskTrackerHud.tick();
     }
 

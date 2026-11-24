@@ -56,12 +56,12 @@ public final class AntmailMessage {
     public UUID logicalSend() { return logicalSend == null ? id : logicalSend; }
     public void setLogicalSend(UUID value) { logicalSend = value; }
     public AntmailBatch batch() { return batch; }
-    /** "group" for directory conversations, "team" for team mail; null for messages from before teams could be mailed. */
+     
     private String conversationKind;
-    /** Group name or team owner name captured at send time; null when unknown (older mail). */
+     
     private String conversationName;
     public static final int MAX_CONVERSATION_NAME = 64;
-    /** Normalizes a stored conversation name: blank, oversized, or control-character names are dropped. */
+     
     public static String conversationNameOrNull(String value) {
         if (value == null) return null;
         String trimmed = value.trim();
@@ -70,7 +70,7 @@ public final class AntmailMessage {
     public String conversationName() { return conversationId == null ? null : conversationName; }
     public UUID conversationId() { return conversationId; }
     public String conversationKind() { return conversationId == null ? null : conversationKind == null ? AntmailDirectory.CONVERSATION_GROUP : conversationKind; }
-    /** The recipient token that reaches everyone in this message's conversation, or null for ordinary mail. */
+     
     public String replyAllToken() {
         if (conversationId == null) return null;
         return (AntmailDirectory.CONVERSATION_TEAM.equals(conversationKind()) ? "team:" : "conversation:") + conversationId;

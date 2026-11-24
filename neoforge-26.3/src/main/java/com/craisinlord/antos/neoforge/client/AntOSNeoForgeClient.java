@@ -84,6 +84,7 @@ public final class AntOSNeoForgeClient {
     private static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
         com.craisinlord.antos.content.client.ArchiveLookup.tick();
         com.craisinlord.antos.content.client.TaskTrackerHud.tick();
+        com.craisinlord.antos.content.client.AuthoringClientState.tick();
     }
 
     private static void registerGuiLayers(net.neoforged.neoforge.client.event.RegisterGuiLayersEvent event) {

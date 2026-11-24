@@ -63,6 +63,7 @@ public final class AntOSNeoForge {
         com.craisinlord.antos.content.antazon.AntcoinCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.computer.AccountCommands.register(event.getDispatcher());
         com.craisinlord.antos.content.guide.DisplayCommands.register(event.getDispatcher());
+        com.craisinlord.antos.content.editor.AuthoringService.register(event.getDispatcher());
     }
     private void registerReloadListeners(AddServerReloadListenersEvent event) {
         event.addListener(net.minecraft.resources.Identifier.fromNamespaceAndPath(AntOS.MODID, "computer_guide"), ComputerGuideData.instance());
@@ -95,11 +96,13 @@ public final class AntOSNeoForge {
         com.craisinlord.antos.content.guide.DisplayCommands.serverStopped();
         FieldGuideCompat.shutdown();
         com.craisinlord.antos.content.network.AnternetAccountHandler.serverStopped();
+        com.craisinlord.antos.content.editor.AuthoringService.stopped();
     }
 
     private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             com.craisinlord.antos.content.network.AnternetAccountHandler.disconnect(player);
+            com.craisinlord.antos.content.editor.AuthoringService.disconnect(player.getUUID());
         }
     }
 

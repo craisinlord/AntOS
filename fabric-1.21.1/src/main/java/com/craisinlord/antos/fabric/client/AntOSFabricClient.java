@@ -42,6 +42,7 @@ public final class AntOSFabricClient implements ClientModInitializer {
         net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(com.craisinlord.antos.content.client.ArchiveLookup.create(org.lwjgl.glfw.GLFW.GLFW_KEY_Z));
         net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback.EVENT.register((stack, context, type, lines) -> com.craisinlord.antos.content.client.ArchiveLookup.tooltip(stack, lines));
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.ArchiveLookup.tick());
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.AuthoringClientState.tick());
         net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(com.craisinlord.antos.content.client.TaskTrackerHud.createKey());
         net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper.registerKeyBinding(com.craisinlord.antos.content.client.screen.OpenAntOSKey.createKey());
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> com.craisinlord.antos.content.client.TaskTrackerHud.tick());
@@ -58,7 +59,7 @@ public final class AntOSFabricClient implements ClientModInitializer {
         EntityRendererRegistry.register(AntOSFabricContent.REWARD_DROP_ENTITY, RewardDropRenderer::new);
     }
 
-    /** Dev-only Antmail smoke driver; excluded from release jars, so loaded reflectively when ANTOS_SMOKE is set. */
+     
     private static void registerSmokeDriver() {
         if (System.getenv("ANTOS_SMOKE") == null) return;
         try {

@@ -17,10 +17,10 @@ import net.minecraft.server.level.ServerPlayer;
 public final class AntmailDebugCommands {
     private AntmailDebugCommands() { }
 
-    /**
-     * Dev-only smoke commands. AntmailSmoke is excluded from release jars, so it is loaded reflectively and only
-     * when ANTOS_SMOKE is set; release builds never touch the class.
-     */
+    
+
+
+ 
     private static void registerSmokeCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
         if (System.getenv("ANTOS_SMOKE") == null) return;
         try {

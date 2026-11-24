@@ -160,6 +160,17 @@ public final class TerminalCommandData {
                 action, variadic, wallpaperChange);
     }
 
+    public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        Definition candidate = parse(id, object, ComputerGuideData.taskRewardPools());
+        if (candidate == null) throw new IllegalArgumentException("Terminal command definition is invalid or has no effect");
+        for (Definition existing : definitions.values()) {
+            if (existing.id().equals(id)) continue;
+            for (String name : candidate.names()) if (existing.names().contains(name)
+                    && signature(name, candidate.arguments()).equals(signature(name, existing.arguments())))
+                throw new IllegalArgumentException("Command name and arguments already belong to " + existing.id());
+        }
+    }
+
     private static List<Line> lines(ResourceLocation id, JsonElement element, String style, boolean typing, int speed) {
         if (element == null || element.isJsonNull()) return List.of();
         List<JsonElement> rows = new ArrayList<>();

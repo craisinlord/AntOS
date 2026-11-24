@@ -46,6 +46,14 @@ dependencies {
 
 def accountTestClasses = layout.buildDirectory.dir('classes/java/accountTest')
 
+tasks.register('authoringTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies authoring transfers, document preservation, validation and safe datapack writes.'
+    dependsOn tasks.named('compileAccountTests')
+    classpath = files(accountTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.editor.AuthoringCoreTest'
+}
+
 tasks.register('displayFeaturesTest', JavaExec) {
     group = 'verification'
     description = 'Verifies display materials, steps, layouts, variants, indexing, presets, and adapter registration.'

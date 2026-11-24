@@ -637,4 +637,22 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
             return from <= to ? timeOfDay >= from && timeOfDay <= to : timeOfDay >= from || timeOfDay <= to;
         }
     }
+
+
+public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        Definition definition = parse(id, object);
+        if (definition.sender().contains("@")) AntmailAddress.parse(definition.sender());
+        else AntmailAddress.ofUsername(definition.sender());
+        if (definition.trigger().type().isBlank() || definition.trigger().type().length() > 128)
+            throw new IllegalArgumentException("Antmail needs a trigger type");
+        if (definition.trigger().type().equals("random") && definition.trigger().pool() == null) {
+            double chance;
+            try { chance = Double.parseDouble(definition.trigger().value()); }
+            catch (NumberFormatException exception) { throw new IllegalArgumentException("Random mail without a pool needs a numeric chance in trigger.value"); }
+            if (!Double.isFinite(chance) || chance < 0 || chance > 1) throw new IllegalArgumentException("Random mail chance must be between 0 and 1");
+        }
+        if (definition.subject().isBlank()) throw new IllegalArgumentException("Antmail subject is required");
+    }
+
+    public static List<ResourceLocation> poolIds() { return pools.keySet().stream().sorted().toList(); }
 }

@@ -52,6 +52,7 @@ public final class AntOSForgeClient {
             PhoneDiskInsertPayload.setCreativeInventoryCheck(() -> net.minecraft.client.Minecraft.getInstance().screen instanceof CreativeModeInventoryScreen);
             AnternetAccountNetworking.setSender(AntOSForgeNetworking::sendToServer);
             AntmailNetworking.setSender(AntOSForgeNetworking::sendToServer);
+            com.craisinlord.antos.content.client.AuthoringClientState.setSender(AntOSForgeNetworking::sendToServer);
         });
     }
 
@@ -87,6 +88,7 @@ public final class AntOSForgeClient {
         if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
         com.craisinlord.antos.content.client.ArchiveLookup.tick();
         com.craisinlord.antos.content.client.TaskTrackerHud.tick();
+        com.craisinlord.antos.content.client.AuthoringClientState.tick();
     }
 
     @SubscribeEvent

@@ -124,7 +124,7 @@ final class TasksApp extends ComputerApp {
     private String teamInviteUsername = "";
     private boolean teamDisbandConfirm;
     private boolean teamMenuOpen;
-    /** Where the TEAM chip and MAIL TEAM button were last drawn (desktop-local centres), for the dev smoke driver. */
+     
     int[] teamChipCenter;
     int[] mailTeamButtonCenter;
     private boolean searchFocused;
@@ -987,7 +987,7 @@ final class TasksApp extends ComputerApp {
                 || !noTeam && AntOSSettings.appEnabled("ANTMAIL") ? 58 : 38;
     }
 
-    /** Opens Antmail with a new message addressed to the whole team. */
+     
     private void mailTeam(com.craisinlord.antos.content.client.ComputerTasksClientState.TeamInfo team) {
         teamMenuOpen = false;
         teamInviteFocused = false;

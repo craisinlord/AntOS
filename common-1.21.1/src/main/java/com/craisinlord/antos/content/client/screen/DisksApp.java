@@ -225,7 +225,7 @@ final class DisksApp extends ComputerApp {
         clipBottom = bodyY + bodyH;
         int line = bodyY - detailScroll;
         if (titleLines.size() > 2) line = wrapClipped(g, title(disk), x + 2, line, w - 12, Ui.ACCENT) + 9;
-        if (!disk.descriptionKey().isBlank()) line = wrapClipped(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, line, w - 12, Ui.TEXT) + 9;
+        if (!disk.descriptionKey().isBlank()) line = wrapClipped(g, ComputerGuideData.displayText(disk.descriptionKey()).getString(), x + 2, line, w - 12, Ui.TEXT) + 9;
         line = section(g, x, line, w - 8, "contents", bodyY, bodyY + bodyH);
         int contentCount = 0;
         List<ResourceLocation> workspaceDiskIds = disk.entries().isEmpty() ? List.of() : screen.workspaceDiskIds();
@@ -252,7 +252,7 @@ final class DisksApp extends ComputerApp {
             ResourceLocation id = ResourceLocation.tryParse(disk.wallpaper());
             ComputerGuideData.Wallpaper wallpaper = id == null ? null : ComputerGuideData.wallpaper(id);
             if (wallpaper != null) {
-                line = detailLink(g, x, line, w - 8, tr("wallpaper") + " / " + Component.translatable(wallpaper.titleKey()).getString(), "SETTINGS", bodyY, bodyY + bodyH, () -> screen.open("WALLPAPERS"));
+                line = detailLink(g, x, line, w - 8, tr("wallpaper") + " / " + ComputerGuideData.displayText(wallpaper.titleKey()).getString(), "SETTINGS", bodyY, bodyY + bodyH, () -> screen.open("WALLPAPERS"));
                 contentCount++;
             }
         }
@@ -431,7 +431,7 @@ final class DisksApp extends ComputerApp {
         Map<ResourceLocation, String> titles = new HashMap<>();
         Map<ResourceLocation, String> categoryNames = new HashMap<>();
         for (ComputerGuideData.Disk disk : definitions) {
-            titles.putIfAbsent(disk.id(), Component.translatable(disk.titleKey()).getString());
+            titles.putIfAbsent(disk.id(), ComputerGuideData.displayText(disk.titleKey()).getString());
             categoryNames.computeIfAbsent(disk.category(), this::translateCategoryName);
         }
         List<ComputerGuideData.Disk> disks = definitions.stream()
@@ -507,7 +507,7 @@ final class DisksApp extends ComputerApp {
         DiskCollection data = collection;
         String cached = data == null ? null : data.titles().get(disk.id());
         if (cached != null && data.byId().get(disk.id()) == disk) return cached;
-        return Component.translatable(disk.titleKey()).getString();
+        return ComputerGuideData.displayText(disk.titleKey()).getString();
     }
 
     private String categoryName(ResourceLocation id) {
@@ -518,7 +518,7 @@ final class DisksApp extends ComputerApp {
 
     private String translateCategoryName(ResourceLocation id) {
         var definition = ComputerGuideData.category(id);
-        return definition == null ? Component.translatable("guide.antos.category.general").getString() : Component.translatable(definition.titleKey()).getString();
+        return definition == null ? Component.translatable("guide.antos.category.general").getString() : ComputerGuideData.displayText(definition.titleKey()).getString();
     }
 
     private String tr(String key) {

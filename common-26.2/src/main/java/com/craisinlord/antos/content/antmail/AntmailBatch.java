@@ -27,9 +27,9 @@ public final class AntmailBatch {
     private UUID sender;
     private UUID senderEpoch;
     private UUID conversation;
-    /** "group" or "team"; absent in batches saved before team mail, which are always groups. */
+     
     private String conversationKind;
-    /** Group name or team owner name at send time, so history stays readable after leaving. */
+     
     private String conversationName;
     private String selections;
     private List<Delivery> deliveries = new ArrayList<>();

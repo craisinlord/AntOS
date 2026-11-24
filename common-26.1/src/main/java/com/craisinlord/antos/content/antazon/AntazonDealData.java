@@ -68,6 +68,10 @@ public final class AntazonDealData extends SimplePreparableReloadListener<List<A
         AntOS.LOGGER.info("Loaded {} Antazon deal campaigns", prepared.size());
     }
 
+    public static void validateAuthoring(Identifier id, JsonObject object) {
+        if (parse(id, object) == null) throw new IllegalArgumentException("Antazon rejected this deal campaign; check discount, cadence and candidate settings");
+    }
+
     private static Campaign parse(Identifier id, JsonElement element) {
         if (!element.isJsonObject()) {
             AntOS.LOGGER.warn("Ignoring Antazon deal campaign {} because the root is not an object", id);

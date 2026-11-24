@@ -10,7 +10,7 @@ import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
 
-/** The pinned task tracker on the inventory screen, where a click opens that task in AntOS. */
+ 
 public final class TrackedTasksButton extends AbstractButton {
     private static final int WIDEST_INVENTORY = 195;
     private String hoveredTask;

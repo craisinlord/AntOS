@@ -980,7 +980,7 @@ final class TasksApp extends ComputerApp {
                 || !noTeam && AntOSSettings.appEnabled("ANTMAIL") ? 58 : 38;
     }
 
-    /** Opens Antmail with a new message addressed to the whole team. */
+     
     private void mailTeam(com.craisinlord.antos.content.client.ComputerTasksClientState.TeamInfo team) {
         teamMenuOpen = false;
         teamInviteFocused = false;

@@ -190,4 +190,9 @@ public final class AntazonDealData extends SimplePreparableReloadListener<List<A
             return products.isEmpty() && categories.isEmpty() && tags.isEmpty();
         }
     }
+
+
+public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        if (parse(id, object) == null) throw new IllegalArgumentException("Antazon rejected this deal campaign; check discount, cadence and candidate settings");
+    }
 }

@@ -1,0 +1,2 @@
+[10:11:14] [main/WARN]: Not all defined tags for registry ResourceKey[minecraft:root / minecraft:item] are present in data pack: test:large
+[10:11:14] [main/INFO]: [STDOUT]: TaskPinsAndClaimsTest passed

@@ -131,6 +131,7 @@ public final class ComputerScreen extends Screen {
     boolean faceIdExpectedLinked;
     final GamesApp games;
     final TasksApp tasks = new TasksApp();
+    ContentAuthoring authoring;
     final CustomDisplayViewer displays = new CustomDisplayViewer(this);
     final NotificationPanel notifications = new NotificationPanel();
     private int pointerX;
@@ -202,6 +203,7 @@ public final class ComputerScreen extends Screen {
         this.session = preview ? new Session() : SESSIONS.computeIfAbsent(sessionKey, ignored -> new Session());
         this.games = this.session.games;
         this.session.attach(this);
+        this.authoring = this.session.authoring;
         for (ComputerApp app : List.of(tasks, notifications)) app.attach(this);
         if (preview) { session.onboardingCompleted = true; return; }
         this.loggedIn = accountResult != null && accountResult.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS;
@@ -233,6 +235,15 @@ public final class ComputerScreen extends Screen {
                 if (!session.windows.get(index).minimized) activeWindow = session.windows.get(index);
             }
         }
+    }
+
+    ContentAuthoring authoring(Window window) {
+        if (window != null && window.type.equals("ANTMAIL")) return session.mailAuthoring;
+        if (window != null && window.type.equals("ANTAZON")) return session.antazonAuthoring;
+        if (window != null && window.type.equals("ARCHIVE")) return session.archiveAuthoring;
+        if (window != null && window.type.equals("DISKS")) return session.diskAuthoring;
+        if (window != null && window.type.equals("TERMINAL")) return session.terminalAuthoring;
+        return session.authoring;
     }
 
     public static void openComputer() {
@@ -287,6 +298,12 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public void tick() {
+        session.authoring.tick();
+        session.mailAuthoring.tick();
+        session.antazonAuthoring.tick();
+        session.archiveAuthoring.tick();
+        session.diskAuthoring.tick();
+        session.terminalAuthoring.tick();
         AntOSUiSounds.tick();
         if (session.bootTicks > 0) session.bootTicks--;
         if (loginMessageTicks > 0) loginMessageTicks--;
@@ -1207,7 +1224,8 @@ public final class ComputerScreen extends Screen {
             AntmailMailbox mailbox = session.antmail.mailbox(AntmailClientState.getMailbox());
             if (mailbox != null) title = mailbox.address().fullAddress();
         }
-        g.drawString(font, Component.literal(trimToWidth(title, Math.max(1, controlsLeft - x - 12))), x + 7, y + 6, Ui.TEXT_STRONG, false);
+        int titleRight = authoring(window).renderTitle(g, window, controlsLeft, y);
+        g.drawString(font, Component.literal(trimToWidth(title, Math.max(1, titleRight - x - 12))), x + 7, y + 6, Ui.TEXT_STRONG, false);
         g.fill(controlsLeft, y, x + w, y + TITLE_BAR_HEIGHT, Ui.TITLE_BAR);
         g.fill(controlsLeft, y, controlsLeft + 1, y + TITLE_BAR_HEIGHT, Ui.BORDER_STRONG);
         g.fill(controlsLeft + WINDOW_CONTROL_WIDTH, y, controlsLeft + WINDOW_CONTROL_WIDTH + 1, y + TITLE_BAR_HEIGHT, Ui.BORDER_STRONG);
@@ -1224,7 +1242,8 @@ public final class ComputerScreen extends Screen {
         int cy = y + 28;
         enableComputerScissor(g, x + 1, y + TITLE_BAR_HEIGHT, x + w - 1, y + h - 1);
         try {
-            if (window.type.equals("ARCHIVE")) session.archive.render(g, cx, cy, w - 16, h - 34, window.maximized);
+            if (authoring(window).render(g, window, cx, cy, w - 16, h - 34)) { }
+            else if (window.type.equals("ARCHIVE")) session.archive.render(g, cx, cy, w - 16, h - 34, window.maximized);
             else if (window.type.equals("TASKS")) tasks.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("DISKS")) session.disks.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("FILES")) session.files.render(g, cx, cy, w - 16, h - 34);
@@ -1981,7 +2000,9 @@ public final class ComputerScreen extends Screen {
             if (bounds.content(mouseX, mouseY, TITLE_BAR_HEIGHT)) {
                 pointerWindow = window;
                 pointerButton = button;
-                switch (window.type) {
+                net.minecraft.client.input.MouseButtonEvent localEvent = new net.minecraft.client.input.MouseButtonEvent(mouseX, mouseY, event.buttonInfo());
+                if (authoring(window).click(window, localEvent)) { }
+                else switch (window.type) {
                     case "TASKS" -> tasks.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "DISKS" -> session.disks.click(mouseX, mouseY, button);
                     case "ARCHIVE" -> session.archive.click(window, mouseX, mouseY, button, x, y, w, h);
@@ -1998,7 +2019,8 @@ public final class ComputerScreen extends Screen {
                 }
             } else if (button == InputConstants.MOUSE_BUTTON_LEFT && bounds.title(mouseX, mouseY, TITLE_BAR_HEIGHT)) {
                 int controlsLeft = x + w - WINDOW_CONTROL_WIDTH * WINDOW_CONTROL_COUNT;
-                if (inside(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) closeWindow(window);
+                if (authoring(window).titleClick(window, mouseX, mouseY, button)) { }
+                else if (inside(controlsLeft + WINDOW_CONTROL_WIDTH * 2, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) closeWindow(window);
                 else if (inside(controlsLeft + WINDOW_CONTROL_WIDTH, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) toggleMaximized(window);
                 else if (inside(controlsLeft, y, WINDOW_CONTROL_WIDTH, TITLE_BAR_HEIGHT, mouseX, mouseY)) minimizeWindow(window);
                 else {
@@ -2179,7 +2201,9 @@ public final class ComputerScreen extends Screen {
             dragging.y = Math.max(34, Math.min(desktopHeight - dragging.renderHeight - 12, (int) mouseY - t - this.dragY));
         }
         if (pointerWindow != null && pointerButton == button && session.windows.contains(pointerWindow) && !pointerWindow.minimized) {
-            switch (pointerWindow.type) {
+            net.minecraft.client.input.MouseButtonEvent localEvent = new net.minecraft.client.input.MouseButtonEvent(mouseX, mouseY, event.buttonInfo());
+            if (authoring(pointerWindow).drag(pointerWindow, localEvent, dragX, dragY)) { }
+            else switch (pointerWindow.type) {
                 case "TASKS" -> tasks.drag(mouseX, mouseY, button);
                 case "MERCHANT" -> session.merchant.drag(mouseY);
                 case "ARCHIVE" -> session.archive.drag(mouseY);
@@ -2211,7 +2235,7 @@ public final class ComputerScreen extends Screen {
         mouseY = (mouseY - centerY) / scale;
         if (button == InputConstants.MOUSE_BUTTON_LEFT) dragging = null;
         if (pointerWindow != null && pointerButton == button) {
-            switch (pointerWindow.type) {
+            if (!authoring(pointerWindow).release(pointerWindow)) switch (pointerWindow.type) {
                 case "TASKS" -> tasks.release();
                 case "MERCHANT" -> session.merchant.release();
                 case "ARCHIVE" -> session.archive.release();
@@ -2238,6 +2262,7 @@ public final class ComputerScreen extends Screen {
         if (!loggedIn || hoveredWindow == null) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         if (!session.onboardingCompleted || lookPickerOpen()) return true;
         if (!bounds(hoveredWindow).content((mouseX - centerX) / scale, (mouseY - centerY) / scale, TITLE_BAR_HEIGHT)) return true;
+        if (authoring(hoveredWindow).scroll(hoveredWindow, (mouseX - centerX) / scale, (mouseY - centerY) / scale, scrollY)) return true;
         switch (hoveredWindow.type) {
             case "FILES" -> session.files.scroll(hoveredWindow, mouseX, mouseY, scrollY);
             case "TASKS" -> tasks.scroll(hoveredWindow, mouseX, mouseY, scrollY);
@@ -2260,6 +2285,7 @@ public final class ComputerScreen extends Screen {
     @Override
     public boolean charTyped(net.minecraft.client.input.CharacterEvent event) {
         if (!Character.isValidCodePoint(event.codepoint())) return true;
+        if (activeWindow != null && authoring(activeWindow).type(activeWindow, event)) return true;
         for (char codePoint : Character.toChars(event.codepoint())) typeCharacter(codePoint);
         return true;
     }
@@ -2369,6 +2395,7 @@ public final class ComputerScreen extends Screen {
                 if (next != desktopFocusIndex) { desktopFocusIndex = Math.floorMod(next, count); return true; }
             }
         }
+        if (activeWindow != null && authoring(activeWindow).key(activeWindow, event)) return true;
         boolean handled = activeWindow != null && switch (activeWindow.type) {
             case "TASKS" -> tasks.key(activeWindow, keyCode, scanCode, modifiers);
             case "DISKS" -> session.disks.key(keyCode, modifiers);
@@ -2557,6 +2584,12 @@ public final class ComputerScreen extends Screen {
         final ArchiveApp archive = new ArchiveApp();
         final AntmailApp antmail = new AntmailApp();
         final GamesApp games = new GamesApp();
+        final ContentAuthoring authoring = new ContentAuthoring("TASKS");
+        final ContentAuthoring mailAuthoring = new ContentAuthoring("ANTMAIL");
+        final ContentAuthoring antazonAuthoring = new ContentAuthoring("ANTAZON");
+        final ContentAuthoring archiveAuthoring = new ContentAuthoring("ARCHIVE");
+        final ContentAuthoring diskAuthoring = new ContentAuthoring("DISKS");
+        final ContentAuthoring terminalAuthoring = new ContentAuthoring("TERMINAL");
         boolean desktopRequested;
         int bootTicks = -1;
         boolean onboardingCompleted;
@@ -2564,7 +2597,7 @@ public final class ComputerScreen extends Screen {
         boolean gamesGallery = true;
 
         void attach(ComputerScreen screen) {
-            for (ComputerApp app : List.of(merchant, antazon, terminal, wallpaperPicker, settings, disks, text, paint, files, archive, antmail, games)) app.attach(screen);
+            for (ComputerApp app : List.of(merchant, antazon, terminal, wallpaperPicker, settings, disks, text, paint, files, archive, antmail, games, authoring, mailAuthoring, antazonAuthoring, archiveAuthoring, diskAuthoring, terminalAuthoring)) app.attach(screen);
         }
     }
 

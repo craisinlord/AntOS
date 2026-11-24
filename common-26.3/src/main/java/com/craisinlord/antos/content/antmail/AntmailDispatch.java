@@ -35,7 +35,7 @@ public final class AntmailDispatch {
             public AntmailDirectory.Teams teams() { return AntmailDispatch.teams(server); }
         };
     }
-    /** Live view of AntOS progression teams for team mail. */
+     
     public static AntmailDirectory.Teams teams(MinecraftServer server) {
         var data = ComputerWorkspaceData.access(server);
         return new AntmailDirectory.Teams() {
@@ -97,7 +97,7 @@ public final class AntmailDispatch {
         message.markFromPlayer();
         message.setBatch(new AntmailBatch(requestId, actor, AntmailRecipients.format(selections), audience, accounts));
         if (AntmailWire.encodeTag(message.toTag()).length() > 64000) throw new IllegalArgumentException("message_too_large");
-        // Charge the rate budget only once the send is known to be valid, so a rejected send costs nothing per recipient.
+        
         if (!budget.test(audience.accounts().size())) throw new IllegalArgumentException("rate_limited");
         mailbox.recordBatch(message);
         mailbox.addSent(message);

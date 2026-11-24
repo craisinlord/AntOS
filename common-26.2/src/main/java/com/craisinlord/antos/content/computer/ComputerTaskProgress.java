@@ -15,7 +15,7 @@ public final class ComputerTaskProgress {
     private static final int MAX_TASKS = 1024;
     private static final int MAX_ARCHIVE_ENTRIES = 8192;
     private static final int MAX_OBJECTIVES_PER_TASK = 256;
-    private static final int MAX_TAG_ITEMS_PER_OBJECTIVE = 128;
+    private static final int MAX_TAG_ITEMS_PER_OBJECTIVE = 16384;
     private final Set<Identifier> granted = new LinkedHashSet<>();
     private final Set<Identifier> completed = new LinkedHashSet<>();
     private final Set<Identifier> unlockedArchiveEntries = new LinkedHashSet<>();

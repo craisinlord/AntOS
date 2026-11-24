@@ -273,4 +273,16 @@ public final class TerminalCommandData {
             return new Requirements(ids(object, "disks"), ids(object, "tasks"), ids(object, "commands"), mode, directory);
         }
     }
+
+
+public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        Definition candidate = parse(id, object, ComputerGuideData.taskRewardPools());
+        if (candidate == null) throw new IllegalArgumentException("Terminal command definition is invalid or has no effect");
+        for (Definition existing : definitions.values()) {
+            if (existing.id().equals(id)) continue;
+            for (String name : candidate.names()) if (existing.names().contains(name)
+                    && signature(name, candidate.arguments()).equals(signature(name, existing.arguments())))
+                throw new IllegalArgumentException("Command name and arguments already belong to " + existing.id());
+        }
+    }
 }

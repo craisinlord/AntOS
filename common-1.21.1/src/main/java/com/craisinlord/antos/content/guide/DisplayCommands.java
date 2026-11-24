@@ -85,5 +85,5 @@ public final class DisplayCommands {
         }
     }
 
-    public static void serverStopped() { previews.clear(); activeServer = null; datapackRevision = -1; DisplayRecipes.serverStopped(); CustomDisplays.serverStopped(); }
+    public static void serverStopped() { previews.clear(); activeServer = null; datapackRevision = -1; DisplayRecipes.serverStopped(); }
 }

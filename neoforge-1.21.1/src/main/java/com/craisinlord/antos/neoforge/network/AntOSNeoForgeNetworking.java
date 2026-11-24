@@ -16,6 +16,11 @@ public final class AntOSNeoForgeNetworking {
 
     private static void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
         var registrar = event.registrar(String.valueOf(com.craisinlord.antos.AntOS.NETWORK_PROTOCOL));
+        registrar.playToServer(AuthoringRequestPayload.TYPE, AuthoringRequestPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> withPlayer(context, player -> com.craisinlord.antos.content.editor.AuthoringService.handle(player, payload))));
+        registrar.playToClient(AuthoringResultPayload.TYPE, AuthoringResultPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> com.craisinlord.antos.content.client.AuthoringClientState.receive(payload)));
+        com.craisinlord.antos.content.editor.AuthoringService.setSender((player, payload) -> PacketDistributor.sendToPlayer(player, payload));
         registrar.playToServer(AnternetComputerPayload.TYPE, AnternetComputerPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
                     if (context.player() instanceof ServerPlayer player) ComputerAccessHandler.handleAnternet(player, payload);

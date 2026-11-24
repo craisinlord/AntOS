@@ -122,6 +122,10 @@ public final class AntazonDealData extends SimplePreparableReloadListener<List<A
                 boundedInt(object, "deal_limit", 0, 0, 1_000_000), boundedInt(object, "priority", 0, -1_000_000, 1_000_000));
     }
 
+    public static void validateAuthoring(ResourceLocation id, JsonObject object) {
+        if (parse(id, object) == null) throw new IllegalArgumentException("Antazon rejected this deal campaign; check discount, cadence and candidate settings");
+    }
+
     private static Set<ResourceLocation> ids(JsonElement element) {
         Set<ResourceLocation> result = new LinkedHashSet<>();
         for (String value : strings(element)) result.add(ResourceLocation.parse(value.trim()));

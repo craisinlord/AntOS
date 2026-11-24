@@ -25,8 +25,8 @@ final class AntmailRecipientPicker {
             return String.join(" ", labels) + (selections.size() > 2 ? " +" + (selections.size() - 2) : "");
         } catch (RuntimeException exception) { return input; }
     }
-    /** Last display() inputs and output: the compose header redraws every frame but rarely changes. */
-    // The measure is keyed by class: a method reference like font::width is a new object per call but one class per call site.
+     
+    
     private record DisplayKey(String input, int cursor, boolean editing, boolean caret, int width, int labels, Class<?> measure) { }
     private static DisplayKey lastKey;
     private static String lastDisplay = "";
@@ -43,7 +43,7 @@ final class AntmailRecipientPicker {
         lastKey = key; lastDisplay = result;
         return result;
     }
-    /** Longest prefix that fits with an ellipsis, found by binary search rather than trimming one character at a time. */
+     
     private static String fit(String text, int width, ToIntFunction<String> measure) {
         if (measure.applyAsInt(text) <= width) return text;
         if (measure.applyAsInt("…") > width) return "";

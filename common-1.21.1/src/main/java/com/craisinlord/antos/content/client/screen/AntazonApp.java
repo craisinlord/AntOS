@@ -1909,7 +1909,7 @@ final class AntazonApp extends ComputerApp {
     private String diskTitle(String value) {
         ResourceLocation id = ResourceLocation.tryParse(value);
         var disk = id == null ? null : com.craisinlord.antos.content.guide.ComputerGuideData.disk(id);
-        return disk == null ? Component.translatable("guide.antos.missing_disk_title").getString() : AntOSPlayerText.apply(Component.translatable(disk.titleKey()).getString());
+        return disk == null ? Component.translatable("guide.antos.missing_disk_title").getString() : AntOSPlayerText.apply(com.craisinlord.antos.content.guide.ComputerGuideData.displayText(disk.titleKey()).getString());
     }
 
     private boolean collectedDisk(String value) {

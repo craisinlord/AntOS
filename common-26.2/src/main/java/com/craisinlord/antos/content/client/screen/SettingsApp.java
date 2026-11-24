@@ -10,6 +10,7 @@ import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.config.AntOSSettings;
 import com.craisinlord.antos.content.client.AntazonClientState;
 import com.craisinlord.antos.content.client.AntmailClientState;
+import com.craisinlord.antos.content.client.AuthoringClientState;
 import com.craisinlord.antos.content.client.AnternetAccountClientState;
 import com.craisinlord.antos.content.client.ComputerArchiveUnlockClientState;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
@@ -300,6 +301,8 @@ final class SettingsApp extends ComputerApp {
             {"apps", "apps.files"},
             {"apps", "apps.files_places"},
             {"apps", "apps.files_sort"},
+            {"apps", "apps.editing"},
+            {"apps", "apps.editing_show"},
             {"notifications", "notifications.panel_hint"},
             {"notifications", "notifications.quiet"},
             {"notifications", "notifications.interface"},
@@ -343,6 +346,7 @@ final class SettingsApp extends ComputerApp {
         int shown = 0;
         for (String[] item : SEARCH_SETTINGS) {
             if (item[1].equals("accessibility.brightness") && !AntOSSettings.preferences().displayLook.equals("terminal")) continue;
+            if (item[1].startsWith("apps.editing") && !AuthoringClientState.operator()) continue;
             String category = tr("category." + item[0]);
             String title = tr(item[1]);
             String text = (category + " " + title).toLowerCase(Locale.ROOT);
@@ -833,6 +837,14 @@ final class SettingsApp extends ComputerApp {
             screen.session.files.state.sortBySize = size;
             screen.session.files.state.descending = false;
         });
+        if (AuthoringClientState.operator()) {
+            heading(g, "apps.editing");
+            toggleRow(g, tr("apps.editing_show"), AntOSSettings.contentEditingControls(), value -> {
+                if (!value && AuthoringClientState.saving()) notice(tr("apps.editing_saving"));
+                else if (!AuthoringClientState.setEnabled(value)) notice(tr("apps.editing_failed"));
+            });
+            label(g, tr(AuthoringClientState.blockedByServer() ? "apps.editing_blocked" : "apps.editing_hint"), Ui.TEXT_MUTED);
+        }
     }
 
     private void renderNotifications(ThemedGraphics g) {

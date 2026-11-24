@@ -40,7 +40,7 @@ public final class AntmailClientState {
     private static final Map<String, String> RECIPIENT_LABELS = java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>(64, 0.75F, true) {
         @Override protected boolean removeEldestEntry(Map.Entry<String, String> entry) { return size() > 512; }
     });
-    /** Bumped whenever a recipient label changes, so render-time caches know when to recompute. */
+     
     private static volatile int recipientLabelsVersion;
     public static int recipientLabelsVersion() { return recipientLabelsVersion; }
     public static String recipientLabel(String reference) { return RECIPIENT_LABELS.getOrDefault(reference, ""); }

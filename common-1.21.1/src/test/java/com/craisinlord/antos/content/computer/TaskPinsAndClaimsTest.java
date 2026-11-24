@@ -1,9 +1,14 @@
 package com.craisinlord.antos.content.computer;
 
 import net.minecraft.SharedConstants;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
@@ -12,7 +17,10 @@ import com.craisinlord.antos.content.network.ComputerAccessPayload;
 import com.craisinlord.antos.content.network.ComputerNetworking;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class TaskPinsAndClaimsTest {
@@ -21,9 +29,44 @@ public final class TaskPinsAndClaimsTest {
         Bootstrap.bootStrap();
         pins();
         parsedProgress();
+        largeItemTags();
         crates();
         requestsReachServer();
         System.out.println("TaskPinsAndClaimsTest passed");
+    }
+
+    private static void largeItemTags() {
+        TagKey<Item> tag = TagKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("test", "large"));
+        List<Holder<Item>> members = new ArrayList<>();
+        BuiltInRegistries.ITEM.holders().filter(holder -> holder.value() != Items.AIR && holder.value() != Items.DIAMOND)
+                .limit(400).forEach(members::add);
+        check(members.size() == 400, "enough items for an oversized tag");
+        BuiltInRegistries.ITEM.bindTags(Map.of(tag, members));
+        Item first = members.get(7).value();
+        Item last = members.get(399).value();
+        Map<Item, Integer> inventory = new HashMap<>();
+        inventory.put(Items.AIR, 0);
+        inventory.put(Items.DIAMOND, 64);
+        check(TaskItemTags.count(inventory, tag) == 0, "items outside the tag don't count");
+        check(TaskItemTags.select(inventory, tag, 1).isEmpty(), "items outside the tag aren't consumed");
+        inventory.put(last, 3);
+        check(TaskItemTags.count(inventory, tag) == 3, "any member of a 400 item tag counts");
+        inventory.put(first, 2);
+        check(TaskItemTags.count(inventory, tag) == 5, "members of a 400 item tag add up");
+        Map<Item, Integer> selected = TaskItemTags.select(inventory, tag, 4);
+        check(selected.values().stream().mapToInt(Integer::intValue).sum() == 4 && !selected.containsKey(Items.DIAMOND), "consuming takes exactly the required members");
+        check(TaskItemTags.select(inventory, tag, 6).isEmpty(), "consuming needs enough members");
+        BuiltInRegistries.ITEM.bindTags(Map.of());
+
+        ComputerTaskProgress progress = new ComputerTaskProgress();
+        for (int index = 0; index < 400; index++) {
+            ResourceLocation item = ResourceLocation.fromNamespaceAndPath("test", "item_" + index);
+            progress.setObjectiveItemCount(task("all"), "goal", item, 1);
+            progress.markObjectiveItemConsumed(task("all"), "goal", item);
+        }
+        ComputerTaskProgress loaded = new ComputerTaskProgress();
+        loaded.load(progress.save());
+        check(loaded.sameContent(progress), "progress on a 400 item tag survives saving");
     }
 
     private static void parsedProgress() {

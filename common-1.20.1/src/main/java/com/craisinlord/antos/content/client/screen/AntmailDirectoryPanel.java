@@ -15,10 +15,10 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-/**
- * Contacts, lists, groups and the viewer's team. Rows are built once per server response and only re-fitted when the
- * panel width changes, so a frame costs one pass over the visible rows.
- */
+
+
+
+ 
 final class AntmailDirectoryPanel {
     private static final Gson JSON = new Gson();
     private static final int CONTROL = 17;
@@ -50,13 +50,13 @@ final class AntmailDirectoryPanel {
     private long searchAt;
     private int keyboardHit = -1;
     private Consumer<String> choose;
-    /** Opens a conversation thread by recipient token ("conversation:&lt;id&gt;" or "team:&lt;id&gt;"). */
+     
     private Consumer<String> conversation;
     private Runnable close;
-    /** The viewer's team from the latest Groups/picker response, and whether its detail view is open. */
+     
     private JsonObject team;
     private boolean teamOpen;
-    /** Destructive operation waiting for a second click, and the one armed for the click being handled. */
+     
     private String confirm;
     private String armed;
     private Object seenResult;
@@ -64,7 +64,7 @@ final class AntmailDirectoryPanel {
 
     private record Hit(int x, int y, int w, int h, Runnable action) { }
     private enum Kind { HEADER, ITEM, PERSON }
-    /** One list line: label on the left, muted detail on the right. Fitted text is cached per width. */
+     
     private static final class Row {
         final Kind kind; final String label; final String detail; final String avatar; final Runnable action;
         private int fittedFor = -1; private String fittedLabel = ""; private String fittedDetail = ""; private int detailWidth;
@@ -101,7 +101,7 @@ final class AntmailDirectoryPanel {
     }
     void tick() { if (searchAt != 0 && System.nanoTime() >= searchAt) request("page", "", ""); }
     private void change(String operation) { request(operation, selected.id().toString(), operation.equals("rename") ? query : value); }
-    /** Runs a destructive operation only on its second consecutive activation. */
+     
     private void guarded(String operation, Runnable action) {
         if (!operation.equals(armed)) { confirm = operation; return; }
         action.run();
@@ -110,7 +110,7 @@ final class AntmailDirectoryPanel {
         armed = confirm; confirm = null; notice = "";
         try { action.run(); } finally { armed = null; }
     }
-    /** Shows directory errors as readable text and reloads the open list after a concurrent edit. */
+     
     private void observeErrors() {
         var result = AntmailClientState.get();
         if (result == null || result == seenResult) return;
@@ -175,10 +175,10 @@ final class AntmailDirectoryPanel {
     private static String kindName(String kind) { return tr("kind_" + kind); }
     private String teamToken() { return "team:" + team.get("id").getAsString(); }
     private int teamSize() { return team.has("members") ? team.getAsJsonArray("members").size() : 0; }
-    /** "Team · Owner" in the viewer's language. */
+     
     static String teamLabel(String ownerName) { return Component.translatable("computer.antos.mail.team_label", ownerName).getString(); }
 
-    /** List rows for the current response, rebuilt only when a new response arrives. */
+     
     private List<Row> rows() {
         if (rowsSource == response && rowsSource != null) return rows;
         List<Row> built = new ArrayList<>();
@@ -240,7 +240,7 @@ final class AntmailDirectoryPanel {
         g.drawString(Minecraft.getInstance().font, visible, x + 4, y + 5, placeholder ? Ui.TEXT_PLACEHOLDER : Ui.TEXT, false);
         hits.add(new Hit(x, y, w, CONTROL, () -> { field = target; keyboardHit = -1; cursor = text.length(); }));
     }
-    /** Draws rows [scroll, scroll + capacity) from top; returns how many rows fit. */
+     
     private int drawRows(AntmailApp app, GuiGraphics g, List<Row> source, int x, int top, int w, int bottom) {
         ComputerScreen screen = app.screen;
         var font = Minecraft.getInstance().font;
@@ -273,7 +273,7 @@ final class AntmailDirectoryPanel {
         return capacity;
     }
 
-    /** Member rows that fit in an owner's detail view of {@code height} with {@code actions} buttons. */
+     
     static int memberRows(int height, int actions) { return Math.max(0, (height - detailMembersTop(actions, true) - 12) / PITCH); }
     private static int actionsTop(boolean editable) { return editable ? 54 : 33; }
     private static int detailMembersTop(int actions, boolean editable) { return actionsTop(editable) + ((actions + 3) / 4) * 20 + 2; }
@@ -390,7 +390,7 @@ final class AntmailDirectoryPanel {
         drawNotice(screen, g, x, y + h - 10, w);
     }
 
-    /** Read-only team detail: the team is managed in Tasks, so this only opens the thread or starts a message. */
+     
     private void renderTeam(AntmailApp app, GuiGraphics g, int x, int y, int w, int h) {
         ComputerScreen screen = app.screen;
         title(screen, g, x, y, w, teamLabel(team.get("ownerName").getAsString()), countLabel(teamSize()) + " · " + tr("managed_in_tasks"));

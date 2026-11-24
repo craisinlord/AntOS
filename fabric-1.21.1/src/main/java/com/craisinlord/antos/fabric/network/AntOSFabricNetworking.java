@@ -40,6 +40,11 @@ public final class AntOSFabricNetworking {
                     && ServerPlayNetworking.canSend(handler, AnternetComputerResultPayload.TYPE)) handler.disconnect(AntOSProtocolPayload.outdatedClient());
         });
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> VERIFIED.remove(handler.player.getUUID()));
+        PayloadTypeRegistry.playS2C().register(AuthoringResultPayload.TYPE, AuthoringResultPayload.STREAM_CODEC);
+        PayloadTypeRegistry.playC2S().register(AuthoringRequestPayload.TYPE, AuthoringRequestPayload.STREAM_CODEC);
+        ServerPlayNetworking.registerGlobalReceiver(AuthoringRequestPayload.TYPE, (payload, context) ->
+                context.server().execute(() -> com.craisinlord.antos.content.editor.AuthoringService.handle(context.player(), payload)));
+        com.craisinlord.antos.content.editor.AuthoringService.setSender(ServerPlayNetworking::send);
         PayloadTypeRegistry.playS2C().register(AnternetComputerResultPayload.TYPE, AnternetComputerResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.playS2C().register(AnternetAccountResultPayload.TYPE, AnternetAccountResultPayload.STREAM_CODEC);
         PayloadTypeRegistry.playS2C().register(AntmailAnternetResultPayload.TYPE, AntmailAnternetResultPayload.STREAM_CODEC);

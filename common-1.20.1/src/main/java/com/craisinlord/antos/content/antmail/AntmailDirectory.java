@@ -32,10 +32,10 @@ public final class AntmailDirectory {
     public static final String OWNER = "owner";
     public static final String MANAGER = "manager";
     public static final String MEMBER = "member";
-    /**
-     * A list as seen by one account. {@code role} is the viewer's role ("owner", "manager", "member", or "" when the
-     * viewer no longer belongs). Mailing-list rosters are only disclosed to owners and managers.
-     */
+    
+
+
+ 
     public record View(UUID id, String kind, String name, UUID owner, List<UUID> managers, List<UUID> members, long revision, int memberCount, String role) {
         public boolean canManage() { return OWNER.equals(role) || MANAGER.equals(role); }
         public boolean isOwner() { return OWNER.equals(role); }
@@ -44,14 +44,14 @@ public final class AntmailDirectory {
     public record Page(String mode, String query, int page, boolean more, long revision, List<Person> people, List<View> lists) { }
     public static final String CONVERSATION_GROUP = "group";
     public static final String CONVERSATION_TEAM = "team";
-    /**
-     * Expanded recipients. {@code conversationKind} is null for ordinary mail, else "group" or "team".
-     * {@code conversationName} is the group name, or the team owner's name, when the send happened.
-     */
+    
+
+
+ 
     public record Audience(List<UUID> accounts, UUID conversation, Map<UUID, UUID> epochs, String conversationKind, String conversationName) {
         public Audience(List<UUID> accounts, UUID conversation, Map<UUID, UUID> epochs) { this(accounts, conversation, epochs, conversation == null ? null : CONVERSATION_GROUP, null); }
     }
-    /** An AntOS progression team as a mail audience. Teams are managed in Tasks; Antmail only reads them. */
+     
     public record TeamView(UUID id, String ownerName, UUID owner, Map<UUID, UUID> epochs) {
         public boolean member(UUID account) { return account != null && epochs.containsKey(account); }
     }
@@ -70,7 +70,7 @@ public final class AntmailDirectory {
         UUID owner;
         Set<UUID> managers = new LinkedHashSet<>();
         Map<UUID, UUID> members = new LinkedHashMap<>();
-        /** Accounts that left this list; managers cannot add them back. */
+         
         Set<UUID> declined = new LinkedHashSet<>();
         long revision;
         String role(UUID actor) {
@@ -139,10 +139,10 @@ public final class AntmailDirectory {
         entries.put(id, entry);
         return entry.view(actor);
     }
-    /**
-     * Removes the actor from a shared list or group they belong to. Leaving never conflicts with concurrent edits, and
-     * a manager cannot add the account back afterwards. Owners must transfer or delete instead.
-     */
+    
+
+
+ 
     public View leave(UUID actor, UUID id) {
         Entry entry = entries.get(id);
         if (entry == null || entry.kind.equals("personal") || !entry.members.containsKey(actor)) throw new IllegalArgumentException("not_member");
@@ -246,7 +246,7 @@ public final class AntmailDirectory {
         return new Audience(List.copyOf(audience), conversation, Map.copyOf(epochs), conversationKind, conversationName);
     }
     public boolean retryAllowed(UUID conversation, UUID account, UUID epoch) { return retryAllowed(CONVERSATION_GROUP, conversation, account, epoch, Teams.NONE); }
-    /** Whether {@code account} still holds the same uninterrupted membership ({@code epoch}) in the conversation. */
+     
     public boolean retryAllowed(String kind, UUID conversation, UUID account, UUID epoch, Teams teams) {
         if (conversation == null) return true;
         if (epoch == null) return false;
@@ -257,7 +257,7 @@ public final class AntmailDirectory {
         Entry entry = entries.get(conversation);
         return entry != null && epoch.equals(entry.members.get(account));
     }
-    /** Whether the actor currently belongs to this group or team, as opposed to only holding history from it. */
+     
     public boolean currentConversation(UUID actor, UUID id, Teams teams) {
         Entry entry = entries.get(id);
         if (entry != null) return entry.visible(actor);
@@ -285,7 +285,7 @@ public final class AntmailDirectory {
                 for (Person found : accounts.search(q)) if (listed.add(found.id())) people.add(found);
             }
         }
-        // Only lists the actor owns or belongs to can be visible, so walk the per-account index instead of every list.
+        
         for (Entry entry : related(actor)) {
             boolean permitted = entry.visible(actor);
             if (mode.equals("picker")) permitted = switch (entry.kind) {
@@ -301,10 +301,10 @@ public final class AntmailDirectory {
         List<View> listPage = lists.stream().skip(listStart).limit(PAGE_SIZE - personPage.size()).toList();
         return new Page(mode, q, page, start + PAGE_SIZE < people.size() + lists.size(), revision, personPage, listPage);
     }
-    /**
-     * Lists each account owns or belongs to, rebuilt lazily after any mutation (every mutation bumps {@link #revision}).
-     * Reads vastly outnumber writes, so this keeps page and limit checks proportional to one account's lists.
-     */
+    
+
+
+ 
     private Map<UUID, List<Entry>> byAccount;
     private long indexedRevision = -1;
     private List<Entry> related(UUID account) {

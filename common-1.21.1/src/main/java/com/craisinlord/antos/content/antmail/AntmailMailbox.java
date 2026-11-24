@@ -39,10 +39,10 @@ public final class AntmailMailbox {
     }
     public boolean canRecordBatch() { return batches.size() < 4096; }
     public List<AntmailMessage> conversation(UUID id) { return conversation(id, new java.util.HashMap<>()); }
-    /**
-     * Messages in one conversation, newest first. {@code folders} receives each message's folder (the codes
-     * {@link #folderOf} returns) from the same pass, so callers don't need four more scans per row.
-     */
+    
+
+
+ 
     public List<AntmailMessage> conversation(UUID id, java.util.Map<UUID, Integer> folders) {
         java.util.Map<UUID, AntmailMessage> rows = new java.util.LinkedHashMap<>();
         List<List<AntmailMessage>> lists = List.of(inbox, sent, archived, trash);
@@ -56,10 +56,10 @@ public final class AntmailMailbox {
         }
         return rows.values().stream().sorted(java.util.Comparator.comparingLong(AntmailMessage::createdAt).reversed()).toList();
     }
-    /**
-     * One representative message per conversation in this mailbox: the newest copy that carries a conversation name,
-     * else the first copy found. Used to label received history.
-     */
+    
+
+
+ 
     public java.util.Map<UUID, AntmailMessage> conversationHeads() {
         java.util.Map<UUID, AntmailMessage> heads = new java.util.LinkedHashMap<>();
         for (List<AntmailMessage> folder : List.of(inbox, sent, archived, trash)) {
