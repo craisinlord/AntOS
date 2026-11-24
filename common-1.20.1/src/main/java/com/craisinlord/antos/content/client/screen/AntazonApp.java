@@ -671,6 +671,8 @@ final class AntazonApp extends ComputerApp {
     }
 
     private void renderProductRow(GuiGraphics g, AntazonClientState.ProductRow product, int x, int y, int w, boolean hover) {
+        screen.editTarget(x, y, w, ROW - 1, "product", product.id());
+        if (product.dealActive() && product.dealKey().contains("@")) screen.editTarget(x, y, w, ROW - 1, "deal_campaign", product.dealKey().substring(0, product.dealKey().indexOf('@')));
         String blocker = blocker(product);
         boolean available = blocker.isEmpty();
         if (hover) g.fill(x, y, x + w, y + ROW - 1, Ui.HOVER);
@@ -769,6 +771,8 @@ final class AntazonApp extends ComputerApp {
         }
         if (product.variantMode().equals("choose") && !product.variants().contains(state.selectedVariant) && !product.variants().isEmpty()) state.selectedVariant = product.variants().get(0);
         int top = y + 24;
+        screen.editTarget(x, top + 18, w, h - 42, "product", product.id());
+        if (product.dealActive() && product.dealKey().contains("@")) screen.editTarget(x, top + 18, w, h - 42, "deal_campaign", product.dealKey().substring(0, product.dealKey().indexOf('@')));
         boolean saved = AntazonClientState.wishlist().contains(product.id());
         button(g, x, top, 40, "BACK", true, this::back);
         button(g, x + 44, top, 52, saved ? "SAVED" : "SAVE", true, () -> toggleSaved(product.id()));
@@ -1677,6 +1681,7 @@ final class AntazonApp extends ComputerApp {
                 var price = prices.get(index);
                 int rowY = listTop + (index - state.priceScroll) * rowHeight;
                 boolean isSelected = price.item().equals(state.priceItem);
+                screen.editTarget(x, rowY, rowWidth, rowHeight - 1, "sell_rule", "@item/" + price.item());
                 if (isSelected || screen.hovered(x, rowY, rowWidth, rowHeight - 1)) g.fill(x, rowY, x + rowWidth, rowY + rowHeight - 1, Ui.HOVER);
                 if (isSelected) g.fill(x, rowY, x + 2, rowY + rowHeight - 1, Ui.ACCENT);
                 renderAsset(g, new AntazonClientState.PreviewAsset(price.item(), ""), x + 11, rowY + 8, 14, price.greenTint(), price.renderMobFromSpawnEgg());
@@ -1909,7 +1914,7 @@ final class AntazonApp extends ComputerApp {
     private String diskTitle(String value) {
         ResourceLocation id = ResourceLocation.tryParse(value);
         var disk = id == null ? null : com.craisinlord.antos.content.guide.ComputerGuideData.disk(id);
-        return disk == null ? Component.translatable("guide.antos.missing_disk_title").getString() : AntOSPlayerText.apply(Component.translatable(disk.titleKey()).getString());
+        return disk == null ? Component.translatable("guide.antos.missing_disk_title").getString() : AntOSPlayerText.apply(com.craisinlord.antos.content.guide.ComputerGuideData.displayText(disk.titleKey()).getString());
     }
 
     private boolean collectedDisk(String value) {

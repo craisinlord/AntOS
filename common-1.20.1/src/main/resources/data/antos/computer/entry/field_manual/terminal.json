@@ -1,0 +1,14 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.terminal.title",
+  "folder": "antos:field_manual",
+  "sort_order": 7,
+  "cover_item": "minecraft:redstone_torch",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.terminal.1",
+    "antos.studio.help.terminal.2"
+  ]
+}

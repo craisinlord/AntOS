@@ -13,7 +13,11 @@ public final class AuthoringCoreTest {
     public static void main(String[] args) throws Exception {
         transferTests();
         documentTests();
+        linkTests();
         fileTests();
+        issueTests();
+        summaryTests();
+        recordTests();
         performance();
         System.out.println("Authoring core: " + checks + " checks passed");
     }
@@ -40,6 +44,136 @@ public final class AuthoringCoreTest {
         String emojiBoundary = "a".repeat(AuthoringWire.CHUNK_CHARS - 1) + "\ud83d\udc1c";
         List<AuthoringWire.Chunk> emojiChunks = AuthoringWire.split("emoji", emojiBoundary);
         check(!Character.isHighSurrogate(emojiChunks.getFirst().data().charAt(emojiChunks.getFirst().data().length() - 1)), "Packets must not split a Unicode surrogate pair");
+    }
+
+    private static boolean has(AuthoringKind kind, JsonObject body, String code, String field) {
+        return AuthoringChecks.check(kind, body).stream().anyMatch(issue -> issue.code().equals(code) && issue.field().equals(field));
+    }
+
+    private static void issueTests() {
+        for (AuthoringKind kind : AuthoringKind.values())
+            check(AuthoringChecks.check(kind, AuthoringTemplates.create(kind)).stream().allMatch(AuthoringIssue::warning), "Templates must have no blocking issues: " + kind);
+        JsonObject task = AuthoringTemplates.create(AuthoringKind.TASK);
+        task.addProperty("title", "");
+        check(has(AuthoringKind.TASK, task, "title_missing", "title"), "A missing title must name its field");
+        JsonArray goals = new JsonArray();
+        for (int index = 0; index < 2; index++) {
+            JsonObject goal = new JsonObject();
+            goal.addProperty("id", "same");
+            goal.addProperty("type", "item");
+            goal.addProperty("target", index == 0 ? "minecraft:stone" : "");
+            goal.addProperty("count", index == 0 ? 1 : 0);
+            goals.add(goal);
+        }
+        task.add("objectives", goals);
+        check(has(AuthoringKind.TASK, task, "goal_duplicate", "objectives/1/id"), "A repeated goal ID must point at the second goal");
+        check(has(AuthoringKind.TASK, task, "goal_target", "objectives/1/target"), "An empty target must be reported");
+        check(has(AuthoringKind.TASK, task, "range", "objectives/1/count"), "A count below one must be reported");
+        check(AuthoringChecks.check(AuthoringKind.TASK, task).size() >= 4, "Every problem must be reported at once");
+        JsonObject mail = AuthoringTemplates.create(AuthoringKind.MESSAGE);
+        mail.addProperty("sender", "");
+        mail.getAsJsonObject("trigger").addProperty("value", "");
+        check(has(AuthoringKind.MESSAGE, mail, "mail_sender", "sender") && has(AuthoringKind.MESSAGE, mail, "mail_target", "trigger/value"), "Mail needs a sender and a target");
+        JsonObject pool = AuthoringTemplates.create(AuthoringKind.REWARD_POOL);
+        pool.add("entries", new JsonArray());
+        check(has(AuthoringKind.REWARD_POOL, pool, "pool_empty", "entries"), "An empty pool must be reported");
+        JsonObject quiz = AuthoringTemplates.create(AuthoringKind.PROGRAM);
+        quiz.getAsJsonArray("questions").get(0).getAsJsonObject().addProperty("correct", 5);
+        check(has(AuthoringKind.PROGRAM, quiz, "question_correct", "questions/0/correct"), "A wrong answer index must be reported");
+        JsonObject command = AuthoringTemplates.create(AuthoringKind.TERMINAL_COMMAND);
+        command.addProperty("command", "Bad Name");
+        check(has(AuthoringKind.TERMINAL_COMMAND, command, "command_letters", "command"), "Command names must be lowercase words");
+        JsonObject broken = new JsonObject();
+        broken.addProperty("objectives", "not a list");
+        check(AuthoringChecks.check(AuthoringKind.TASK, broken).stream().anyMatch(issue -> !issue.warning()), "Malformed documents must be reported instead of throwing");
+        AuthoringIssue issue = AuthoringIssue.error("range", "count", "1", "108");
+        check(AuthoringIssue.decode(issue.encode()).equals(issue), "Issues must survive the network");
+    }
+
+    private static void summaryTests() {
+        JsonObject disk = AuthoringTemplates.create(AuthoringKind.DISK);
+        disk.getAsJsonArray("tasks").add("pack:one");
+        disk.addProperty("unknown", "x".repeat(50_000));
+        JsonObject summary = AuthoringSummary.of(AuthoringKind.DISK, disk);
+        check(summary.getAsJsonArray("tasks").size() == 1 && !summary.has("unknown"), "Summaries keep links and drop everything else");
+        check(summary.toString().length() < 4096, "Summaries must stay small");
+        JsonObject task = AuthoringTemplates.create(AuthoringKind.TASK);
+        JsonArray goals = new JsonArray();
+        for (int index = 0; index < 20; index++) goals.add(AuthoringTemplates.arrayEntry(AuthoringKind.TASK, "objectives", index));
+        task.add("objectives", goals);
+        JsonObject shortened = AuthoringSummary.of(AuthoringKind.TASK, task);
+        check(shortened.getAsJsonArray("objectives").size() == 3 && shortened.get("objectives_count").getAsInt() == 20, "Long lists must be shortened with a count");
+    }
+
+    private static void recordTests() {
+        var report = com.craisinlord.antos.content.computer.games.ComputerGameRecords.Report.parse("antos:chess_hard|wins=1|moves=18");
+        check(report != null && report.mode().equals("antos:chess_hard") && report.values().get("moves") == 18, "Game results must parse");
+        for (String bad : new String[]{"", "antos:chess_hard", "chess|wins=1", "antos:x|wins=2", "antos:x|wins=-1", "antos:x|speed=1", "antos:x|time=abc", "antos:x|time=999999999999"})
+            check(com.craisinlord.antos.content.computer.games.ComputerGameRecords.Report.parse(bad) == null, "Invalid game result must be refused: " + bad);
+        check(com.craisinlord.antos.api.game.ComputerGameRecordsRegistry.register(net.minecraft.resources.ResourceLocation.parse("othermod:golf")) && com.craisinlord.antos.content.computer.games.ComputerGameRecords.known("othermod:golf"), "Other mods can register games from common code");
+        check(!com.craisinlord.antos.api.game.ComputerGameRecordsRegistry.register(net.minecraft.resources.ResourceLocation.parse("antos:golf")), "AntOS game IDs are reserved");
+        check(com.craisinlord.antos.content.computer.games.ComputerGameRecords.meets(55, "time", 60)
+                && !com.craisinlord.antos.content.computer.games.ComputerGameRecords.meets(61, "time", 60)
+                && com.craisinlord.antos.content.computer.games.ComputerGameRecords.meets(100, "score", 100)
+                && !com.craisinlord.antos.content.computer.games.ComputerGameRecords.meets(-1, "time", 60), "Lower is better for time, higher for score");
+    }
+
+    private static void linkTests() {
+        String old = "pack:welcome";
+        String next = "pack:welcome_guide";
+        JsonObject mail = AuthoringTemplates.create(AuthoringKind.MESSAGE);
+        JsonObject trigger = new JsonObject();
+        trigger.addProperty("type", "disk_installed");
+        trigger.addProperty("value", old);
+        trigger.addProperty("pool", "welcome");
+        mail.add("trigger", trigger);
+        check(AuthoringLinks.links(AuthoringKind.MESSAGE, "pack", mail, AuthoringKind.DISK, old), "Mail links to the floppy that sends it");
+        check(!AuthoringLinks.links(AuthoringKind.MESSAGE, "pack", mail, AuthoringKind.ARCHIVE_ENTRY, old), "An article with the floppy's ID isn't linked by the mail");
+        JsonObject same = AuthoringLinks.relink(AuthoringKind.MESSAGE, "pack", mail, AuthoringKind.ARCHIVE_ENTRY, old, next, java.util.Set.of());
+        check(same.equals(mail), "Renaming an article must not change links to a floppy");
+        JsonObject moved = AuthoringLinks.relink(AuthoringKind.MESSAGE, "pack", mail, AuthoringKind.DISK, old, next, java.util.Set.of());
+        check(moved.getAsJsonObject("trigger").get("value").getAsString().equals(next) && moved.getAsJsonObject("trigger").get("pool").getAsString().equals("welcome"), "Renaming a floppy changes only its own links");
+        JsonObject pooled = AuthoringLinks.relink(AuthoringKind.MESSAGE, "pack", mail, AuthoringKind.MAIL_POOL, old, next, java.util.Set.of());
+        check(pooled.getAsJsonObject("trigger").get("pool").getAsString().equals(next), "Links without a namespace follow a rename");
+        JsonObject disk = AuthoringTemplates.create(AuthoringKind.DISK);
+        for (String field : List.of("tasks", "entries", "programs", "subscribe")) {
+            JsonArray ids = new JsonArray();
+            ids.add(old);
+            disk.add(field, ids);
+        }
+        JsonObject relinked = AuthoringLinks.relink(AuthoringKind.DISK, "pack", disk, AuthoringKind.ARCHIVE_ENTRY, old, next, java.util.Set.of());
+        check(relinked.getAsJsonArray("entries").get(0).getAsString().equals(next) && relinked.getAsJsonArray("tasks").get(0).getAsString().equals(old)
+                && relinked.getAsJsonArray("programs").get(0).getAsString().equals(old), "A floppy keeps its links to other types");
+        JsonObject both = AuthoringLinks.relink(AuthoringKind.DISK, "pack", disk, AuthoringKind.MESSAGE, old, next, java.util.Set.of(AuthoringKind.MAIL_POOL));
+        check(both.getAsJsonArray("subscribe").size() == 2, "A subscription shared by a mail and a pool keeps both");
+        JsonObject task = AuthoringTemplates.create(AuthoringKind.TASK);
+        JsonObject goal = new JsonObject();
+        goal.addProperty("id", "read");
+        goal.addProperty("type", "archive_viewed");
+        goal.addProperty("target", old);
+        JsonArray goals = new JsonArray();
+        goals.add(goal);
+        task.add("objectives", goals);
+        JsonObject reward = new JsonObject();
+        reward.addProperty("type", "archive");
+        reward.addProperty("entry", old);
+        JsonArray options = new JsonArray();
+        options.add(reward);
+        JsonObject choice = new JsonObject();
+        choice.addProperty("type", "choice");
+        choice.add("options", options);
+        JsonArray rewards = new JsonArray();
+        rewards.add(choice);
+        task.add("rewards", rewards);
+        task.addProperty("other_mod", old);
+        String changed = AuthoringLinks.relink(AuthoringKind.TASK, "pack", task, AuthoringKind.ARCHIVE_ENTRY, old, next, java.util.Set.of()).toString();
+        check(changed.contains("\"target\":\"" + next) && changed.contains("\"entry\":\"" + next) && changed.contains("\"other_mod\":\"" + old + "\""), "Goals and nested rewards follow a rename, unknown fields don't");
+        check(AuthoringLinks.loose(AuthoringKind.TASK, "pack", task, old), "An ID in an unknown field is noticed");
+        task.remove("other_mod");
+        check(!AuthoringLinks.loose(AuthoringKind.TASK, "pack", task, old), "Known links aren't loose");
+        java.util.Set<String> used = new java.util.HashSet<>();
+        AuthoringLinks.strings(disk, used);
+        check(used.contains(old), "IDs used by saved content are found");
     }
 
     private static void documentTests() {

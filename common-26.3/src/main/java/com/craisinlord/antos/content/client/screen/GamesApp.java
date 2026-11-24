@@ -132,6 +132,7 @@ final class GamesApp extends ComputerApp {
     }
 
     private void renderCell(ThemedGraphics g, Window window, Entry entry, int index, boolean gallery, int x, int y, int w, int h, int ticks) {
+        if (entry.program()) screen.editTarget(x, y, w, h, "program", entry.id());
         boolean hover = kit.hovered(x, y, w, h);
         boolean focused = keyboardFocus && index == focus;
         if (gallery || hover || focused) g.fill(x, y, x + w, y + h, hover ? Ui.HOVER : Ui.PANEL);

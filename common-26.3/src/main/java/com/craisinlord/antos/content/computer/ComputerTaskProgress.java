@@ -176,6 +176,21 @@ public final class ComputerTaskProgress {
                 && consumedObjectiveItems.add(new ItemObjectiveKey(taskId, objectiveId, itemId)));
     }
 
+    public boolean forgetTask(Identifier id) {
+        boolean changed = granted.remove(id);
+        changed |= completed.remove(id);
+        changed |= objectiveCounts.remove(id) != null;
+        changed |= objectiveItemCounts.remove(id) != null;
+        changed |= satisfiedObjectives.removeIf(key -> key.taskId().equals(id));
+        changed |= consumedObjectives.removeIf(key -> key.taskId().equals(id));
+        changed |= consumedObjectiveItems.removeIf(key -> key.taskId().equals(id));
+        return touched(changed);
+    }
+
+    public boolean lockArchiveEntry(Identifier id) {
+        return touched(unlockedArchiveEntries.remove(id));
+    }
+
     public boolean clearTaskProgress() {
         boolean changed = !granted.isEmpty() || !completed.isEmpty() || !objectiveCounts.isEmpty() || !objectiveItemCounts.isEmpty()
                 || !satisfiedObjectives.isEmpty() || !consumedObjectives.isEmpty() || !consumedObjectiveItems.isEmpty();

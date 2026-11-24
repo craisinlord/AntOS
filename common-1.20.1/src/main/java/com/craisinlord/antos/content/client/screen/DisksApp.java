@@ -194,6 +194,7 @@ final class DisksApp extends ComputerApp {
 
     private void drawCard(GuiGraphics g, ComputerGuideData.Disk disk, int x, int y, int w, int clipTop, int clipBottom) {
         boolean owned = collected.contains(disk.id());
+        screen.editTarget(x, Math.max(y, clipTop), w, Math.min(y + 76, clipBottom) - Math.max(y, clipTop), "disk", disk.id());
         boolean hover = screen.hovered(x, Math.max(y, clipTop), w, Math.min(y + 76, clipBottom) - Math.max(y, clipTop));
         g.fill(x, y, x + w, y + 76, hover && owned ? Ui.HOVER : Ui.PANEL);
         screen.box(g, x, y, x + w, y + 76, hover && owned ? Ui.ACCENT : Ui.BORDER);
@@ -210,6 +211,7 @@ final class DisksApp extends ComputerApp {
     }
 
     private void drawDetail(GuiGraphics g, int x, int y, int w, int h, ComputerGuideData.Disk disk) {
+        screen.editTarget(x, y + 20, w, h - 48, "disk", disk.id());
         button(g, x, y, 76, 17, tr("back"), false, true, () -> selected = null);
         String status = tr(locked(disk) ? "locked" : installed.contains(disk.id()) ? "installed" : "ejected");
         g.drawString(font, status, x + w - font.width(status), y + 4, Ui.TEXT_STRONG, false);
@@ -225,7 +227,7 @@ final class DisksApp extends ComputerApp {
         clipBottom = bodyY + bodyH;
         int line = bodyY - detailScroll;
         if (titleLines.size() > 2) line = wrapClipped(g, title(disk), x + 2, line, w - 12, Ui.ACCENT) + 9;
-        if (!disk.descriptionKey().isBlank()) line = wrapClipped(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, line, w - 12, Ui.TEXT) + 9;
+        if (!disk.descriptionKey().isBlank()) line = wrapClipped(g, ComputerGuideData.displayText(disk.descriptionKey()).getString(), x + 2, line, w - 12, Ui.TEXT) + 9;
         line = section(g, x, line, w - 8, "contents", bodyY, bodyY + bodyH);
         int contentCount = 0;
         List<ResourceLocation> workspaceDiskIds = disk.entries().isEmpty() ? List.of() : screen.workspaceDiskIds();
@@ -252,7 +254,7 @@ final class DisksApp extends ComputerApp {
             ResourceLocation id = ResourceLocation.tryParse(disk.wallpaper());
             ComputerGuideData.Wallpaper wallpaper = id == null ? null : ComputerGuideData.wallpaper(id);
             if (wallpaper != null) {
-                line = detailLink(g, x, line, w - 8, tr("wallpaper") + " / " + Component.translatable(wallpaper.titleKey()).getString(), "SETTINGS", bodyY, bodyY + bodyH, () -> screen.open("WALLPAPERS"));
+                line = detailLink(g, x, line, w - 8, tr("wallpaper") + " / " + ComputerGuideData.displayText(wallpaper.titleKey()).getString(), "SETTINGS", bodyY, bodyY + bodyH, () -> screen.open("WALLPAPERS"));
                 contentCount++;
             }
         }
@@ -350,8 +352,8 @@ final class DisksApp extends ComputerApp {
         int textY = y + 79 - detailScroll;
         screen.enableComputerScissor(g, x, y + 79, x + w, y + h - 65);
         textY = screen.wrap(g, tr("locked_help"), x + 2, textY, w - 8, Ui.TEXT) + 8;
-        if (!disk.features().encryption().hint().isBlank()) textY = screen.wrap(g, tr("hint") + " " + Component.translatable(disk.features().encryption().hint()).getString(), x + 2, textY, w - 8, Ui.TEXT_STRONG) + 8;
-        if (!disk.descriptionKey().isBlank()) textY = screen.wrap(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, textY, w - 8, Ui.TEXT_MUTED);
+        if (!disk.features().encryption().hint().isBlank()) textY = screen.wrap(g, tr("hint") + " " + ComputerGuideData.displayText(disk.features().encryption().hint()).getString(), x + 2, textY, w - 8, Ui.TEXT_STRONG) + 8;
+        if (!disk.descriptionKey().isBlank()) textY = screen.wrap(g, ComputerGuideData.displayText(disk.descriptionKey()).getString(), x + 2, textY, w - 8, Ui.TEXT_MUTED);
         detailMaximum = Math.max(0, textY + detailScroll - (y + h - 65));
         detailScroll = Math.min(detailScroll, detailMaximum);
         g.disableScissor();
@@ -431,7 +433,7 @@ final class DisksApp extends ComputerApp {
         Map<ResourceLocation, String> titles = new HashMap<>();
         Map<ResourceLocation, String> categoryNames = new HashMap<>();
         for (ComputerGuideData.Disk disk : definitions) {
-            titles.putIfAbsent(disk.id(), Component.translatable(disk.titleKey()).getString());
+            titles.putIfAbsent(disk.id(), ComputerGuideData.displayText(disk.titleKey()).getString());
             categoryNames.computeIfAbsent(disk.category(), this::translateCategoryName);
         }
         List<ComputerGuideData.Disk> disks = definitions.stream()
@@ -507,7 +509,7 @@ final class DisksApp extends ComputerApp {
         DiskCollection data = collection;
         String cached = data == null ? null : data.titles().get(disk.id());
         if (cached != null && data.byId().get(disk.id()) == disk) return cached;
-        return Component.translatable(disk.titleKey()).getString();
+        return ComputerGuideData.displayText(disk.titleKey()).getString();
     }
 
     private String categoryName(ResourceLocation id) {
@@ -518,7 +520,7 @@ final class DisksApp extends ComputerApp {
 
     private String translateCategoryName(ResourceLocation id) {
         var definition = ComputerGuideData.category(id);
-        return definition == null ? Component.translatable("guide.antos.category.general").getString() : Component.translatable(definition.titleKey()).getString();
+        return definition == null ? Component.translatable("guide.antos.category.general").getString() : ComputerGuideData.displayText(definition.titleKey()).getString();
     }
 
     private String tr(String key) {

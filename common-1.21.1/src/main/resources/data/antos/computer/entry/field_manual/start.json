@@ -1,0 +1,17 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.start.title",
+  "folder": "antos:field_manual",
+  "sort_order": 0,
+  "cover_item": "minecraft:compass",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.start.1",
+    "antos.studio.help.start.2",
+    "antos.studio.help.start.3",
+    "antos.studio.help.start.4",
+    "antos.studio.help.start.5"
+  ]
+}

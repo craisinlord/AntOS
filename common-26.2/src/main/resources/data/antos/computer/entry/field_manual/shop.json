@@ -1,0 +1,15 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.shop.title",
+  "folder": "antos:field_manual",
+  "sort_order": 5,
+  "cover_item": "minecraft:emerald",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.shop.1",
+    "antos.studio.help.shop.2",
+    "antos.studio.help.shop.3"
+  ]
+}

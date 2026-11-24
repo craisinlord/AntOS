@@ -1,0 +1,15 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.articles.title",
+  "folder": "antos:field_manual",
+  "sort_order": 3,
+  "cover_item": "minecraft:book",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.articles.1",
+    "antos.studio.help.articles.2",
+    "antos.studio.help.articles.3"
+  ]
+}

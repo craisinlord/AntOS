@@ -80,6 +80,8 @@ public final class RedstoneRushSession implements ComputerGame.Session {
         if (state != lastState) {
             if (over()) gate.reset();
             if (state == RedstoneRushLogic.State.WON && logic.level() >= RedstoneRushLogic.REWARD_LEVEL) rewards.claimOnce(GAME_ID);
+            if (state == RedstoneRushLogic.State.WON) com.craisinlord.antos.api.client.game.ComputerGameRecordsApi.won(
+                    net.minecraft.resources.ResourceLocation.tryParse("antos:redstone_rush"), -1, -1);
             if (state == RedstoneRushLogic.State.LOST) submit();
             lastState = state;
         }

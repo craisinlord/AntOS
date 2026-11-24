@@ -5,7 +5,6 @@ import com.craisinlord.antos.content.client.AntOSUiSounds;
 import com.craisinlord.antos.content.client.AntOSUiSounds.Cue;
 import com.craisinlord.antos.AntOS;
 import com.craisinlord.antos.content.client.ComputerAccessClientState;
-import com.craisinlord.antos.content.client.AuthoringClientState;
 import com.craisinlord.antos.content.client.AntazonClientState;
 import com.craisinlord.antos.content.client.ComputerFileSystemClientState;
 import com.craisinlord.antos.content.client.AntmailClientState;
@@ -129,12 +128,6 @@ public final class ComputerScreen extends Screen {
     boolean faceIdExpectedLinked;
     final GamesApp games;
     final TasksApp tasks = new TasksApp();
-    final ContentAuthoring authoring;
-    final ContentAuthoring mailAuthoring;
-    final ContentAuthoring antazonAuthoring;
-    final ContentAuthoring archiveAuthoring;
-    final ContentAuthoring diskAuthoring;
-    final ContentAuthoring terminalAuthoring;
     final CustomDisplayViewer displays = new CustomDisplayViewer(this);
     final NotificationPanel notifications = new NotificationPanel();
     private int pointerX;
@@ -205,12 +198,6 @@ public final class ComputerScreen extends Screen {
         boolean freshSession = !SESSIONS.containsKey(sessionKey);
         this.session = preview ? new Session() : SESSIONS.computeIfAbsent(sessionKey, ignored -> new Session());
         this.games = this.session.games;
-        this.authoring = this.session.authoring;
-        this.mailAuthoring = this.session.mailAuthoring;
-        this.antazonAuthoring = this.session.antazonAuthoring;
-        this.archiveAuthoring = this.session.archiveAuthoring;
-        this.diskAuthoring = this.session.diskAuthoring;
-        this.terminalAuthoring = this.session.terminalAuthoring;
         this.session.attach(this);
         for (ComputerApp app : List.of(tasks, notifications)) app.attach(this);
         if (preview) { session.onboardingCompleted = true; return; }
@@ -242,15 +229,6 @@ public final class ComputerScreen extends Screen {
                 if (!session.windows.get(index).minimized) activeWindow = session.windows.get(index);
             }
         }
-    }
-
-    ContentAuthoring authoring(Window window) {
-        if (window != null && window.type.equals("ANTMAIL")) return mailAuthoring;
-        if (window != null && window.type.equals("ANTAZON")) return antazonAuthoring;
-        if (window != null && window.type.equals("ARCHIVE")) return archiveAuthoring;
-        if (window != null && window.type.equals("DISKS")) return diskAuthoring;
-        if (window != null && window.type.equals("TERMINAL")) return terminalAuthoring;
-        return authoring;
     }
 
     public static void openComputer() {
@@ -305,12 +283,6 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public void tick() {
-        authoring.tick();
-        mailAuthoring.tick();
-        antazonAuthoring.tick();
-        archiveAuthoring.tick();
-        diskAuthoring.tick();
-        terminalAuthoring.tick();
         AntOSUiSounds.tick();
         if (session.bootTicks > 0) session.bootTicks--;
         if (loginMessageTicks > 0) loginMessageTicks--;
@@ -458,7 +430,9 @@ public final class ComputerScreen extends Screen {
         graphics.fill(left + 5, top + 5, left + desktopWidth - 5, top + desktopHeight - 5, Ui.SURFACE);
         pointerX = localMouseX;
         pointerY = localMouseY;
+        editTargets.clear();
         if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseX, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseY); else renderLogin(graphics, left, top);
+        renderEditMenu(graphics);
         renderFrameGrip(graphics, left, top);
         graphics.pose().popPose();
         renderFrameOutline(graphics);
@@ -1232,8 +1206,7 @@ public final class ComputerScreen extends Screen {
             AntmailMailbox mailbox = session.antmail.mailbox(AntmailClientState.getMailbox());
             if (mailbox != null) title = mailbox.address().fullAddress();
         }
-        int titleRight = authoring(window).renderTitle(g, window, controlsLeft, y);
-        g.drawString(font, Component.literal(trimToWidth(title, Math.max(1, titleRight - x - 12))), x + 7, y + 6, Ui.TEXT_STRONG, false);
+        g.drawString(font, Component.literal(trimToWidth(title, Math.max(1, controlsLeft - x - 12))), x + 7, y + 6, Ui.TEXT_STRONG, false);
         g.fill(controlsLeft, y, x + w, y + TITLE_BAR_HEIGHT, Ui.TITLE_BAR);
         g.fill(controlsLeft, y, controlsLeft + 1, y + TITLE_BAR_HEIGHT, Ui.BORDER_STRONG);
         g.fill(controlsLeft + WINDOW_CONTROL_WIDTH, y, controlsLeft + WINDOW_CONTROL_WIDTH + 1, y + TITLE_BAR_HEIGHT, Ui.BORDER_STRONG);
@@ -1249,9 +1222,9 @@ public final class ComputerScreen extends Screen {
         int cx = x + 8;
         int cy = y + 28;
         enableComputerScissor(g, x + 1, y + TITLE_BAR_HEIGHT, x + w - 1, y + h - 1);
+        editWindow = window;
         try {
-            if (authoring(window).render(g, window, cx, cy, w - 16, h - 34)) { }
-            else if (window.type.equals("ARCHIVE")) session.archive.render(g, cx, cy, w - 16, h - 34, window.maximized);
+            if (window.type.equals("ARCHIVE")) session.archive.render(g, cx, cy, w - 16, h - 34, window.maximized);
             else if (window.type.equals("TASKS")) tasks.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("DISKS")) session.disks.render(g, cx, cy, w - 16, h - 34);
             else if (window.type.equals("FILES")) session.files.render(g, cx, cy, w - 16, h - 34);
@@ -1305,7 +1278,80 @@ public final class ComputerScreen extends Screen {
         return y + 13;
     }
 
+    private record EditTarget(Window window, int x, int y, int w, int h, String kind, String id) { }
+
+    private final List<EditTarget> editTargets = new ArrayList<>();
+    private Window editWindow;
+    private List<EditTarget> editMenu = List.of();
+    private int editMenuX;
+    private int editMenuY;
+
+    void editTarget(int x, int y, int w, int h, String kind, Object id) {
+        if (id == null || w <= 0 || h <= 0 || editWindow == null || !com.craisinlord.antos.content.client.studio.AntStudioScreen.shortcuts()) return;
+        String value = id.toString();
+        if (!value.isBlank()) editTargets.add(new EditTarget(editWindow, x, y, w, h, kind, value));
+    }
+
+    private static Component editLabel(EditTarget target) {
+        return Component.translatable(target.kind().equals("deal_campaign") ? "computer.antos.edit_deal_in_studio" : "computer.antos.edit_in_studio");
+    }
+
+    private int editMenuWidth() {
+        return editMenu.stream().mapToInt(target -> font.width(editLabel(target))).max().orElse(0) + 12;
+    }
+
+    private boolean openEditShortcut(Window window, double mouseX, double mouseY) {
+        if (!com.craisinlord.antos.content.client.studio.AntStudioScreen.shortcuts()) return false;
+        for (int index = editTargets.size() - 1; index >= 0; index--) {
+            EditTarget target = editTargets.get(index);
+            if (target.window() != window || !inside(target.x(), target.y(), target.w(), target.h(), mouseX, mouseY)) continue;
+            editMenu = editTargets.stream().filter(other -> other.window() == window && other.x() == target.x() && other.y() == target.y()
+                    && other.w() == target.w() && other.h() == target.h()).distinct().toList();
+            editMenuX = Math.max(-desktopWidth / 2 + 2, Math.min(desktopWidth / 2 - editMenuWidth() - 2, (int) mouseX));
+            editMenuY = Math.max(-desktopHeight / 2 + 2, Math.min(desktopHeight / 2 - 16 * editMenu.size() - 2, (int) mouseY));
+            AntOSUiSounds.play(Cue.CLICK);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean editMenuClick(double mouseX, double mouseY, int button) {
+        List<EditTarget> targets = editMenu;
+        int width = editMenuWidth();
+        editMenu = List.of();
+        if (button == 0) for (int index = 0; index < targets.size(); index++) if (inside(editMenuX, editMenuY + index * 16, width, 16, mouseX, mouseY)) {
+            AntOSUiSounds.play(Cue.OPEN);
+            com.craisinlord.antos.content.client.studio.AntStudioScreen.open(targets.get(index).kind(), targets.get(index).id());
+            return true;
+        }
+        return button != 1;
+    }
+
+    private void renderEditMenu(GuiGraphics g) {
+        if (editMenu.isEmpty()) return;
+        int width = editMenuWidth();
+        g.flush();
+        g.pose().pushPose();
+        g.pose().translate(0.0F, 0.0F, 400.0F);
+        for (int index = 0; index < editMenu.size(); index++) {
+            int y = editMenuY + index * 16;
+            boolean hover = inside(editMenuX, y, width, 16, session.mouseX, session.mouseY);
+            g.fill(editMenuX, y, editMenuX + width, y + 16, hover ? Ui.HOVER : Ui.BACKGROUND);
+            box(g, editMenuX, y, editMenuX + width, y + 16, Ui.ACCENT);
+            g.drawString(font, editLabel(editMenu.get(index)), editMenuX + 6, y + 4, hover ? Ui.ACCENT : Ui.TEXT, false);
+        }
+        g.pose().popPose();
+        g.flush();
+    }
+
+    float[] scissorOrigin;
+
     void enableComputerScissor(GuiGraphics g, int left, int top, int right, int bottom) {
+        if (scissorOrigin != null) {
+            g.enableScissor((int) Math.floor(scissorOrigin[0] + left * scissorOrigin[2]), (int) Math.floor(scissorOrigin[1] + top * scissorOrigin[2]),
+                    (int) Math.ceil(scissorOrigin[0] + right * scissorOrigin[2]), (int) Math.ceil(scissorOrigin[1] + bottom * scissorOrigin[2]));
+            return;
+        }
         float scale = uiScale();
         int screenLeft = (int) Math.floor(centerX + left * scale);
         int screenTop = (int) Math.floor(centerY + top * scale);
@@ -2062,6 +2108,7 @@ public final class ComputerScreen extends Screen {
             return true;
         }
         session.lastUse = System.currentTimeMillis();
+        if (!editMenu.isEmpty() && editMenuClick(mouseX, mouseY, button)) return true;
         if (lookPickerOpen()) return lookPickerClicked(mouseX, mouseY);
         if (!session.onboardingCompleted) return onboardingClicked(mouseX, mouseY);
         if (displays.click(mouseX, mouseY, button)) return true;
@@ -2090,12 +2137,11 @@ public final class ComputerScreen extends Screen {
             activeWindow = window;
             session.windows.remove(window);
             session.windows.add(window);
-            if (authoring(window).titleClick(window, mouseX, mouseY, button)) return true;
             if (button != 0 && bounds.title(mouseX, mouseY, TITLE_BAR_HEIGHT)) return true;
             if (bounds.content(mouseX, mouseY, TITLE_BAR_HEIGHT)) {
                 pointerWindow = window;
                 pointerButton = button;
-                if (authoring(window).click(window, mouseX, mouseY, button)) return true;
+                if (button == 1 && openEditShortcut(window, mouseX, mouseY)) return true;
                 switch (window.type) {
                     case "TASKS" -> tasks.click(window, mouseX, mouseY, button, x, y, w, h);
                     case "DISKS" -> session.disks.click(mouseX, mouseY, button);
@@ -2291,7 +2337,6 @@ public final class ComputerScreen extends Screen {
             dragging.y = Math.max(34, Math.min(desktopHeight - dragging.renderHeight - 12, (int) mouseY - t - this.dragY));
         }
         if (pointerWindow != null && pointerButton == button && session.windows.contains(pointerWindow) && !pointerWindow.minimized) {
-            if (authoring(pointerWindow).drag(pointerWindow, mouseX, mouseY)) return true;
             switch (pointerWindow.type) {
                 case "TASKS" -> tasks.drag(mouseX, mouseY, button);
                 case "MERCHANT" -> session.merchant.drag(mouseY);
@@ -2321,11 +2366,6 @@ public final class ComputerScreen extends Screen {
         mouseY = (mouseY - centerY) / scale;
         if (button == 0) dragging = null;
         if (pointerWindow != null && pointerButton == button) {
-            if (authoring(pointerWindow).release(pointerWindow)) {
-                pointerWindow = null;
-                pointerButton = -1;
-                return true;
-            }
             switch (pointerWindow.type) {
                 case "TASKS" -> tasks.release();
                 case "MERCHANT" -> session.merchant.release();
@@ -2353,7 +2393,6 @@ public final class ComputerScreen extends Screen {
         if (!loggedIn || hoveredWindow == null) return super.mouseScrolled(mouseX, mouseY, scrollY);
         if (!session.onboardingCompleted || lookPickerOpen()) return true;
         if (!bounds(hoveredWindow).content((mouseX - centerX) / scale, (mouseY - centerY) / scale, TITLE_BAR_HEIGHT)) return true;
-        if (authoring(hoveredWindow).scroll(hoveredWindow, (mouseX - centerX) / scale, (mouseY - centerY) / scale, scrollY)) return true;
         switch (hoveredWindow.type) {
             case "FILES" -> session.files.scroll(hoveredWindow, mouseX, mouseY, scrollY);
             case "TASKS" -> tasks.scroll(hoveredWindow, mouseX, mouseY, scrollY);
@@ -2386,7 +2425,6 @@ public final class ComputerScreen extends Screen {
             return true;
         }
         if (activeWindow == null) return true;
-        if (authoring(activeWindow).type(activeWindow, codePoint, modifiers)) return true;
         switch (activeWindow.type) {
             case "TASKS" -> tasks.type(activeWindow, codePoint, modifiers);
             case "DISKS" -> session.disks.type(codePoint);
@@ -2412,7 +2450,6 @@ public final class ComputerScreen extends Screen {
             return true;
         }
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && displays.key(keyCode)) return true;
-        if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && authoring(activeWindow).key(activeWindow, keyCode, scanCode, modifiers)) return true;
         if (!loggedIn) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) { onClose(); return true; }
             if (keyCode == GLFW.GLFW_KEY_TAB) cycleAccountField();
@@ -2626,12 +2663,6 @@ public final class ComputerScreen extends Screen {
             session.text.checkpoint();
             session.paint.checkpoint();
         }
-        authoring.checkpoint();
-        mailAuthoring.checkpoint();
-        antazonAuthoring.checkpoint();
-        archiveAuthoring.checkpoint();
-        diskAuthoring.checkpoint();
-        terminalAuthoring.checkpoint();
         if (loggedIn) tasks.remember();
         if (loggedIn && AntOSSettings.preferences().resumeSession) {
             AntOSSettings.setResumeSnapshot(sessionKey, ComputerResume.capture(session));
@@ -2664,12 +2695,6 @@ public final class ComputerScreen extends Screen {
         final FileExplorerApp files = new FileExplorerApp();
         final ArchiveApp archive = new ArchiveApp();
         final AntmailApp antmail = new AntmailApp();
-        final ContentAuthoring authoring = new ContentAuthoring("TASKS");
-        final ContentAuthoring mailAuthoring = new ContentAuthoring("ANTMAIL");
-        final ContentAuthoring antazonAuthoring = new ContentAuthoring("ANTAZON");
-        final ContentAuthoring archiveAuthoring = new ContentAuthoring("ARCHIVE");
-        final ContentAuthoring diskAuthoring = new ContentAuthoring("DISKS");
-        final ContentAuthoring terminalAuthoring = new ContentAuthoring("TERMINAL");
         final GamesApp games = new GamesApp();
         boolean desktopRequested;
         int bootTicks = -1;
@@ -2678,7 +2703,7 @@ public final class ComputerScreen extends Screen {
         boolean gamesGallery = true;
 
         void attach(ComputerScreen screen) {
-            for (ComputerApp app : List.of(merchant, antazon, terminal, wallpaperPicker, settings, disks, text, paint, files, archive, antmail, games, authoring, mailAuthoring, antazonAuthoring, archiveAuthoring, diskAuthoring, terminalAuthoring)) app.attach(screen);
+            for (ComputerApp app : List.of(merchant, antazon, terminal, wallpaperPicker, settings, disks, text, paint, files, archive, antmail, games)) app.attach(screen);
         }
     }
 

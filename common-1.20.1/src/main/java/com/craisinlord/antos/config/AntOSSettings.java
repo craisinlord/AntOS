@@ -89,6 +89,17 @@ public final class AntOSSettings {
         return saved;
     }
 
+    public static boolean contentEditingShortcuts() { return pack.client.contentEditingShortcuts; }
+
+    public static synchronized boolean setContentEditingShortcuts(boolean enabled) {
+        boolean saved = saveEditingConfig(root -> {
+            if (!root.has("client")) root.add("client", new JsonObject());
+            root.getAsJsonObject("client").addProperty("contentEditingShortcuts", enabled);
+        });
+        if (saved) pack.client.contentEditingShortcuts = enabled;
+        return saved;
+    }
+
     private static boolean saveEditingConfig(java.util.function.Consumer<JsonObject> change) {
         if (configPath == null) return false;
         try {
@@ -753,6 +764,7 @@ public final class AntOSSettings {
     private static final class PackClient {
         private boolean inventoryComputerButton;
         private boolean contentEditing;
+        private boolean contentEditingShortcuts;
         private JsonObject defaultPreferences = new JsonObject();
 
         private Preferences defaultPreferences() {

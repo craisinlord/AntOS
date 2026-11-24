@@ -1,0 +1,19 @@
+{
+  "title": "antos.studio.manual.title",
+  "category": "antos:general",
+  "description": "antos.studio.manual.description",
+  "hidden": true,
+  "entries": [
+    "antos:field_manual/start",
+    "antos:field_manual/floppies",
+    "antos:field_manual/tasks",
+    "antos:field_manual/articles",
+    "antos:field_manual/mail",
+    "antos:field_manual/shop",
+    "antos:field_manual/programs",
+    "antos:field_manual/terminal",
+    "antos:field_manual/saving",
+    "antos:field_manual/errors",
+    "antos:field_manual/keys"
+  ]
+}

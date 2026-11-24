@@ -111,6 +111,27 @@ tasks.register('taskPinsAndClaimsTest', JavaExec) {
     mainClass = 'com.craisinlord.antos.content.computer.TaskPinsAndClaimsTest'
 }
 
+def authoringTestClasses = layout.buildDirectory.dir('classes/java/authoringTest')
+
+tasks.register('compileAuthoringTests', JavaCompile) {
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(25) }
+    dependsOn tasks.named('compileJava')
+    source files('../common-26.3/src/test/java/com/craisinlord/antos/content/editor/AuthoringCoreTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = authoringTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+tasks.register('authoringTest', JavaExec) {
+    javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+    group = 'verification'
+    description = 'Verifies authoring transfers, document preservation, validation and safe datapack writes.'
+    dependsOn tasks.named('compileAuthoringTests')
+    classpath = files(authoringTestClasses) + sourceSets.main.output + sourceSets.main.compileClasspath
+    mainClass = 'com.craisinlord.antos.content.editor.AuthoringCoreTest'
+}
+
 def merchantTestClasses = layout.buildDirectory.dir('classes/java/merchantTest')
 
 tasks.register('compileMerchantTests', JavaCompile) {

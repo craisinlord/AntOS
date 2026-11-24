@@ -1,0 +1,17 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.errors.title",
+  "folder": "antos:field_manual",
+  "sort_order": 9,
+  "cover_item": "minecraft:barrier",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.errors.1",
+    "antos.studio.help.errors.2",
+    "antos.studio.help.errors.3",
+    "antos.studio.help.errors.4",
+    "antos.studio.help.errors.5"
+  ]
+}

@@ -54,7 +54,10 @@ public final class AntOSFabricContent {
         AntOSObjects.bind(() -> FLOPPY_DISK, () -> FLOPPY_DISK_COMPONENT, () -> COMPUTER_BLOCK_ENTITY, () -> COMPUTER_ITEM,
                 () -> REWARD_DROP_ENTITY, () -> ANTROID_PHONE);
         CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.FUNCTIONAL_BLOCKS).register(entries -> entries.accept(COMPUTER_ITEM));
-        CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(entries -> entries.accept(FLOPPY_DISK));
+        CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(entries -> {
+            entries.accept(FLOPPY_DISK);
+            entries.accept(com.craisinlord.antos.content.item.FloppyDiskItem.freshCopy(Identifier.fromNamespaceAndPath("antos", "field_manual")));
+        });
         CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(entries -> entries.accept(ANTROID_PHONE));
     }
 

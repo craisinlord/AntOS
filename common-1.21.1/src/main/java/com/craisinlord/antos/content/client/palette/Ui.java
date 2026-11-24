@@ -165,6 +165,8 @@ public final class Ui {
     public static final int FLAPPY_LAVA_DARK = 0xFFA83A16;
     public static final int FLAPPY_SOUL_FIRE = 0xFF5CE0F0;
     public static final int FLAPPY_SOUL_FIRE_DIM = 0xFF237E96;
+    public static final int COIN = 0xFFE8B52E;
+    public static final int COIN_SHADE = 0xFF9A6A12;
     public static int ICON_DISABLED_TINT = 0xFF6B6B6B;
     private static final int WHITE = 0xFFFFFFFF;
     private static final int BLACK = 0xFF000000;
@@ -206,6 +208,17 @@ public final class Ui {
                 bases[PaletteColors.MUTED], accent, bases[PaletteColors.ERROR]);
         applyTaskStatus();
         iconBase = custom ? bases[PaletteColors.ICONS] : neutralIcons ? TEXT_MUTED : ACCENT;
+    }
+
+    public static void useGraphite() {
+        theme = ComputerTheme.active();
+        terminal = false;
+        custom = false;
+        int[] bases = PaletteColors.graphite();
+        applyDerived(bases[PaletteColors.DESKTOP], bases[PaletteColors.WINDOW], bases[PaletteColors.PANEL], bases[PaletteColors.TEXT],
+                bases[PaletteColors.MUTED], bases[PaletteColors.ACCENT], bases[PaletteColors.ERROR]);
+        applyTaskStatus();
+        iconBase = ACCENT;
     }
 
     public static float luminance(int color) {

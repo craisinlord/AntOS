@@ -9,6 +9,7 @@ import java.util.Set;
 
 public final class AuthoringValidation {
     public static final int MAX_DOCUMENT_CHARS = 262_144;
+    public static final int MAX_DRAFTS = 4096;
     private AuthoringValidation() { }
 
     public static JsonObject parse(String text) {

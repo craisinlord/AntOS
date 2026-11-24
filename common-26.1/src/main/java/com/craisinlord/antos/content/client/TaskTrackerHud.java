@@ -84,7 +84,7 @@ public final class TaskTrackerHud {
         String workspaceKey = ComputerWorkspaceClientKey.of();
         if (workspaceKey.equals("workspace:unbound")) return;
         List<String> pinned = ComputerTasksClientState.pinned();
-        if (preferences.taskTracker && !(minecraft.screen instanceof ComputerScreen)) {
+        if (preferences.taskTracker && !(minecraft.screen instanceof ComputerScreen) && !(minecraft.screen instanceof com.craisinlord.antos.content.client.studio.AntStudioScreen)) {
             if (!workspaceKey.equals(bootstrappedKey)) {
                 bootstrappedKey = workspaceKey;
                 if (!ComputerTasksClientState.hasSnapshot()) ComputerNetworking.requestTasks(ComputerTasksClientState.requestToken());

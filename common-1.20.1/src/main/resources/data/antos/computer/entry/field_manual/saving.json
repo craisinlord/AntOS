@@ -1,0 +1,17 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.saving.title",
+  "folder": "antos:field_manual",
+  "sort_order": 8,
+  "cover_item": "minecraft:chest",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.saving.1",
+    "antos.studio.help.saving.2",
+    "antos.studio.help.saving.3",
+    "antos.studio.help.saving.4",
+    "antos.studio.help.saving.5"
+  ]
+}

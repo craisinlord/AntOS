@@ -676,6 +676,16 @@ public final class AntmailServerData extends SavedData {
         return true;
     }
 
+    public synchronized void forgetTrigger(AntmailAddress address, Identifier triggerId) {
+        java.util.Set<Identifier> ids = triggered.get(address);
+        if (ids != null && ids.remove(triggerId)) setDirty();
+    }
+
+    public synchronized void forgetTasks(AntmailAddress address, List<Identifier> tasks) {
+        java.util.Set<Identifier> ids = completedTasks.get(address);
+        if (ids != null && ids.removeAll(tasks)) setDirty();
+    }
+
     public synchronized boolean beginRandomMailDay(long day) {
         if (randomMailDay == day) return false;
         randomMailDay = day;

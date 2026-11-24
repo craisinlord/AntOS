@@ -50,7 +50,7 @@ public final class AntazonUnlockMail {
         AntmailServerData data = AntmailServerData.access(player.level().getServer());
         AntmailAddress recipient = data.deliveryAddressFor(player);
         ComputerTaskProgress progress = ComputerWorkspaceData.access(player.level().getServer()).effectiveProgress(account.accountId(), workspace.taskProgress());
-        notifyUnlock(player, account.accountId(), recipient, progress, null, diskId, null, Component.translatable(disk.titleKey()).getString());
+        notifyUnlock(player, account.accountId(), recipient, progress, null, diskId, null, com.craisinlord.antos.content.guide.ComputerGuideData.displayText(disk.titleKey()).getString());
     }
 
     public static void onCommandRun(ServerPlayer player, com.craisinlord.antos.content.computer.ComputerWorkspace workspace, Identifier commandId, String typed) {

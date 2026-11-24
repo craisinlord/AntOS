@@ -101,7 +101,7 @@ def uiColorCheck = tasks.register('checkUiColors') {
 subprojects {
     tasks.matching { it.name == 'compileJava' }.configureEach { dependsOn(uiColorCheck) }
     tasks.withType(Jar).configureEach {
-        exclude 'com/craisinlord/antos/content/antmail/AntmailSmoke*', 'com/craisinlord/antos/content/client/screen/AntmailSmokeDriver*', 'com/craisinlord/antos/content/client/screen/AuthoringSmokeDriver*'
+        exclude 'com/craisinlord/antos/content/antmail/AntmailSmoke*', 'com/craisinlord/antos/content/client/screen/AntmailSmokeDriver*', 'com/craisinlord/antos/content/client/screen/AuthoringSmokeDriver*', 'com/craisinlord/antos/content/client/studio/StudioSmokeDriver*'
     }
 }
 

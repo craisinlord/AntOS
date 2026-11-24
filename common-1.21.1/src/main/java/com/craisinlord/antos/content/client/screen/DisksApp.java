@@ -194,6 +194,7 @@ final class DisksApp extends ComputerApp {
 
     private void drawCard(GuiGraphics g, ComputerGuideData.Disk disk, int x, int y, int w, int clipTop, int clipBottom) {
         boolean owned = collected.contains(disk.id());
+        screen.editTarget(x, Math.max(y, clipTop), w, Math.min(y + 76, clipBottom) - Math.max(y, clipTop), "disk", disk.id());
         boolean hover = screen.hovered(x, Math.max(y, clipTop), w, Math.min(y + 76, clipBottom) - Math.max(y, clipTop));
         g.fill(x, y, x + w, y + 76, hover && owned ? Ui.HOVER : Ui.PANEL);
         screen.box(g, x, y, x + w, y + 76, hover && owned ? Ui.ACCENT : Ui.BORDER);
@@ -210,6 +211,7 @@ final class DisksApp extends ComputerApp {
     }
 
     private void drawDetail(GuiGraphics g, int x, int y, int w, int h, ComputerGuideData.Disk disk) {
+        screen.editTarget(x, y + 20, w, h - 48, "disk", disk.id());
         button(g, x, y, 76, 17, tr("back"), false, true, () -> selected = null);
         String status = tr(locked(disk) ? "locked" : installed.contains(disk.id()) ? "installed" : "ejected");
         g.drawString(font, status, x + w - font.width(status), y + 4, Ui.TEXT_STRONG, false);
@@ -350,8 +352,8 @@ final class DisksApp extends ComputerApp {
         int textY = y + 79 - detailScroll;
         screen.enableComputerScissor(g, x, y + 79, x + w, y + h - 65);
         textY = screen.wrap(g, tr("locked_help"), x + 2, textY, w - 8, Ui.TEXT) + 8;
-        if (!disk.features().encryption().hint().isBlank()) textY = screen.wrap(g, tr("hint") + " " + Component.translatable(disk.features().encryption().hint()).getString(), x + 2, textY, w - 8, Ui.TEXT_STRONG) + 8;
-        if (!disk.descriptionKey().isBlank()) textY = screen.wrap(g, Component.translatable(disk.descriptionKey()).getString(), x + 2, textY, w - 8, Ui.TEXT_MUTED);
+        if (!disk.features().encryption().hint().isBlank()) textY = screen.wrap(g, tr("hint") + " " + ComputerGuideData.displayText(disk.features().encryption().hint()).getString(), x + 2, textY, w - 8, Ui.TEXT_STRONG) + 8;
+        if (!disk.descriptionKey().isBlank()) textY = screen.wrap(g, ComputerGuideData.displayText(disk.descriptionKey()).getString(), x + 2, textY, w - 8, Ui.TEXT_MUTED);
         detailMaximum = Math.max(0, textY + detailScroll - (y + h - 65));
         detailScroll = Math.min(detailScroll, detailMaximum);
         g.disableScissor();

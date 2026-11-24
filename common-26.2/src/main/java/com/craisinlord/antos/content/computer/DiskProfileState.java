@@ -27,6 +27,12 @@ public final class DiskProfileState {
         categories.putIfAbsent(disk, category);
         return activated.add(disk);
     }
+    public void forget(Identifier disk, List<Identifier> subscribed) {
+        activated.remove(disk);
+        categories.remove(disk);
+        copiedFiles.keySet().removeIf(key -> key.startsWith(disk + "|"));
+        subscribed.forEach(subscriptions::remove);
+    }
     public void seed(List<Identifier> disks) { activated.addAll(disks); }
     public int categoryCount(Identifier category) { return (int) categories.values().stream().filter(category::equals).count(); }
     public boolean subscribe(Identifier id) { return subscriptions.add(id); }

@@ -1,0 +1,18 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.mail.title",
+  "folder": "antos:field_manual",
+  "sort_order": 4,
+  "cover_item": "minecraft:feather",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.mail.1",
+    "antos.studio.help.mail.2",
+    "antos.studio.help.mail.3",
+    "antos.studio.help.mail.4",
+    "antos.studio.help.mail.5",
+    "antos.studio.help.mail.6"
+  ]
+}

@@ -204,6 +204,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private void renderCell(GuiGraphics g, BrowseItem item, int x, int y, int w, int h) {
+        screen.editTarget(x, y, w, h, item.folder() != null ? "archive_folder" : "archive_entry", item.folder() != null ? item.folder().id() : item.entry().id());
         boolean hover = kit.hovered(x, y, w, h);
         boolean focused = item.key().equals(state.focusKey) && state.controlFocus.equals("content");
         if (state.gallery || hover || focused) g.fill(x, y, x + w, y + h, hover ? Ui.HOVER : Ui.PANEL);
@@ -246,6 +247,7 @@ final class ArchiveApp extends ComputerApp {
     }
 
     private void renderArticle(GuiGraphics g, ComputerGuideData.Entry entry, List<ComputerGuideData.Entry> entries, int x, int top, int w, int h, boolean maximized) {
+        screen.editTarget(x, top, w, h, "archive_entry", entry.id());
         state.detailScroll = Math.max(0, state.detailScroll);
         int bottom = top + h;
         int contentWidth = w - 12;

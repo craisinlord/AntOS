@@ -1,0 +1,18 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.keys.title",
+  "folder": "antos:field_manual",
+  "sort_order": 10,
+  "cover_item": "minecraft:name_tag",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.keys.1",
+    "antos.studio.help.keys.2",
+    "antos.studio.help.keys.3",
+    "antos.studio.help.keys.4",
+    "antos.studio.help.keys.5",
+    "antos.studio.help.keys.6"
+  ]
+}

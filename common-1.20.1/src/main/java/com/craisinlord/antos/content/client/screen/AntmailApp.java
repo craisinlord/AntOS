@@ -370,6 +370,7 @@ final class AntmailApp extends ComputerApp {
                     String localizedBody = AntOSPlayerText.apply(localizedMailText(message.body()));
                     String sharedProduct = antazonProductLink(localizedBody);
                     AntmailDetailLayout detail = detailLayout(y, h, !sharedProduct.isBlank() || junkLink(message), showRetry);
+                    if (!message.definitionId().isBlank() && !state.sent) screen.editTarget(x - 2, detail.actionY(), navWidth + 2, detail.bodyBottom() - detail.actionY(), "message", message.definitionId());
                     if (corrupted) g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), Ui.CORRUPT_BACKGROUND);
                     String moveLabel = switch (messageSourceMode()) {
                         case "archive" -> state.sent ? "SENT" : "INBOX";
@@ -553,6 +554,7 @@ final class AntmailApp extends ComputerApp {
                     AntmailMessage message = messages.get(state.listScroll + row);
                     int rowY = listTop + row * rowHeight;
                     if (screen.inside(x, rowY - 1, navWidth - 7, rowHeight, screen.session.mouseX, screen.session.mouseY)) screen.drawHover(g, x, rowY - 1, navWidth - 7, rowHeight);
+                    if (!message.definitionId().isBlank() && !state.sent) screen.editTarget(x, rowY - 1, navWidth - 7, rowHeight, "message", message.definitionId());
                     boolean corruptedRow = message.corrupted() && !state.sent;
                 AntmailAddress rowAddress = state.sent ? message.recipient() : message.sender();
                 String rowSender = state.sent ? message.recipientSummary() : displaySender(message);

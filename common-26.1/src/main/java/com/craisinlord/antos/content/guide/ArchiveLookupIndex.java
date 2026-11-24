@@ -25,6 +25,7 @@ public final class ArchiveLookupIndex {
         Map<String, Set<Identifier>> covers = new HashMap<>();
         Map<String, Set<Identifier>> galleries = new HashMap<>();
         for (ComputerGuideData.Entry entry : all) {
+            if (ComputerGuideData.fieldManual(entry.id())) continue;
             if (!entry.coverItemId().isBlank()) covers.computeIfAbsent(entry.coverItemId(), ignored -> new HashSet<>()).add(entry.id());
             for (ComputerGuideData.GalleryItem item : entry.gallery()) {
                 if (!item.entity() && !item.id().isBlank()) galleries.computeIfAbsent(item.id(), ignored -> new HashSet<>()).add(entry.id());

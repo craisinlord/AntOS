@@ -68,7 +68,10 @@ public final class ComputerDisks {
         workspace.saveAccountWorkspace();
         data.setDirty();
         grantRewards(player, account, disk);
-        if (newlyActivated) AntazonUnlockMail.onDiskInstalled(player, workspace, disk.id());
+        if (newlyActivated) {
+            AntazonUnlockMail.onDiskInstalled(player, workspace, disk.id());
+            com.craisinlord.antos.content.antmail.AntmailEventData.onDiskInstalled(player, disk.id());
+        }
     }
 
     public static void reconcileRewards(ServerPlayer player, ComputerWorkspaceData.AccountInfo account) {

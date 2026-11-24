@@ -16,6 +16,7 @@ import net.minecraft.util.ARGB;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
 import org.joml.Matrix3x2fStack;
+import org.joml.Vector2f;
 import java.lang.reflect.Field;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -55,6 +56,9 @@ public final class ThemedGraphics {
     private final GuiGraphicsExtractor source;
     private final LegacyPose pose;
     private int colorMultiplier = Ui.TEXT_BRIGHT;
+    private int stratumLimit;
+    private int stratumSize;
+    private int scissors;
 
     public ThemedGraphics(GuiGraphicsExtractor source) {
         this.source = source;
@@ -70,7 +74,23 @@ public final class ThemedGraphics {
     }
 
     public void flush() {
+        stratumSize = 0;
         source.nextStratum();
+    }
+
+    public void limitStrata(int elements) {
+        stratumLimit = elements;
+        stratumSize = 0;
+    }
+
+    private void count() {
+        if (stratumLimit > 0 && ++stratumSize > stratumLimit) flush();
+    }
+
+    public void unwind() {
+        while (scissors > 0) disableScissor();
+        pose.unwind();
+        setColor(1.0F, 1.0F, 1.0F, 1.0F);
     }
 
     public void drawManaged(Runnable action) {
@@ -83,6 +103,7 @@ public final class ThemedGraphics {
     }
 
     public void fill(int minX, int minY, int maxX, int maxY, int color) {
+        count();
         source.fill(minX, minY, maxX, maxY, applyColor(color));
     }
 
@@ -91,6 +112,7 @@ public final class ThemedGraphics {
     }
 
     public int drawString(Font font, String text, int x, int y, int color, boolean dropShadow) {
+        count();
         source.text(font, text, x, y, applyColor(color), dropShadow);
         return font.width(text);
     }
@@ -100,6 +122,7 @@ public final class ThemedGraphics {
     }
 
     public int drawString(Font font, FormattedCharSequence text, int x, int y, int color, boolean dropShadow) {
+        count();
         source.text(font, text, x, y, applyColor(color), dropShadow);
         return font.width(text);
     }
@@ -109,6 +132,7 @@ public final class ThemedGraphics {
     }
 
     public int drawString(Font font, Component text, int x, int y, int color, boolean dropShadow) {
+        count();
         source.text(font, text, x, y, applyColor(color), dropShadow);
         return font.width(text);
     }
@@ -134,6 +158,7 @@ public final class ThemedGraphics {
     }
 
     public void renderItem(ItemStack stack, int x, int y) {
+        count();
         if (colorMultiplier == Ui.TEXT_BRIGHT) {
             source.item(stack, x, y);
             return;
@@ -150,6 +175,7 @@ public final class ThemedGraphics {
 
     public void blit(Identifier texture, int x, int y, int width, int height, int u, int v,
                      int sourceWidth, int sourceHeight, int textureWidth, int textureHeight) {
+        count();
         source.blit(RenderPipelines.GUI_TEXTURED, texture, x, y, (float) u, (float) v, width, height,
                 sourceWidth, sourceHeight, textureWidth, textureHeight, colorMultiplier);
     }
@@ -370,15 +396,30 @@ public final class ThemedGraphics {
 
     public void enableScissor(int minX, int minY, int maxX, int maxY) {
         source.enableScissor(minX, minY, maxX, maxY);
+        scissors++;
+    }
+
+    public void enableScissorOutward(int minX, int minY, int maxX, int maxY) {
+        Vector2f from = pose.matrix().transformPosition(minX, minY, new Vector2f());
+        Vector2f to = pose.matrix().transformPosition(maxX, maxY, new Vector2f());
+        pose.pushPose();
+        try {
+            pose.matrix().identity();
+            enableScissor((int) Math.floor(from.x()), (int) Math.floor(from.y()), (int) Math.ceil(to.x()), (int) Math.ceil(to.y()));
+        } finally {
+            pose.popPose();
+        }
     }
 
     public void disableScissor() {
         source.disableScissor();
+        scissors--;
     }
 
     public static final class LegacyPose {
         private final GuiGraphicsExtractor source;
         private final Matrix3x2fStack matrix;
+        private int depth;
 
         private LegacyPose(GuiGraphicsExtractor source) {
             this.source = source;
@@ -387,10 +428,16 @@ public final class ThemedGraphics {
 
         public void pushPose() {
             matrix.pushMatrix();
+            depth++;
         }
 
         public void popPose() {
             matrix.popMatrix();
+            depth--;
+        }
+
+        private void unwind() {
+            while (depth > 0) popPose();
         }
 
         public void translate(double x, double y, double z) {

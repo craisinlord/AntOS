@@ -43,7 +43,8 @@ public final class AuthoringFiles {
         Path metadata = pack.resolve("pack.mcmeta");
         if (!Files.exists(metadata, LinkOption.NOFOLLOW_LINKS)) {
             JsonObject settings = new JsonObject();
-            settings.addProperty("pack_format", 48);
+            settings.addProperty("min_format", 107);
+            settings.addProperty("max_format", 9999);
             settings.addProperty("description", "AntOS in-game authored content");
             JsonObject root = new JsonObject();
             root.add("pack", settings);

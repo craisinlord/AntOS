@@ -56,7 +56,7 @@ public final class AntOSUiSounds {
         }
         var preferences = AntOSSettings.preferences();
         Minecraft minecraft = Minecraft.getInstance();
-        if (!(minecraft.screen instanceof ComputerScreen) || !preferences.interfaceSounds || preferences.interfaceVolume <= 0) return;
+        if (!(minecraft.screen instanceof ComputerScreen || minecraft.screen instanceof com.craisinlord.antos.content.client.studio.AntStudioScreen) || !preferences.interfaceSounds || preferences.interfaceVolume <= 0) return;
         long now = System.nanoTime();
         if (now - lastPlayed < 60_000_000L && lastCue != null && cue.priority <= lastCue.priority) return;
         if (cue == lastCue && now - lastPlayed < 120_000_000L) return;

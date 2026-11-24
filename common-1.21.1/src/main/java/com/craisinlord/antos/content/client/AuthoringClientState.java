@@ -32,13 +32,15 @@ public final class AuthoringClientState {
     public static void setSender(Consumer<AuthoringRequestPayload> value) { sender = value; }
     public static boolean enabled() { return AntOSSettings.contentEditingControls() && operator(); }
     public static boolean available() { return enabled() && available; }
+    public static boolean allowed() { return operator() && available; }
+    public static boolean refused() { return statusKnown && !allowed(); }
     public static boolean blockedByServer() { return enabled() && statusKnown && !available; }
     public static boolean editing() { return available() && editing; }
     public static int revision() { return revision; }
     public static long reloadRevision() { return reloadRevision; }
     public static String error() { return error; }
     public static boolean busy() { return !pending.isEmpty(); }
-    public static boolean saving() { return pending.values().stream().anyMatch(value -> value.operation().equals("save") || value.operation().equals("remove")); }
+    public static boolean saving() { return pending.values().stream().anyMatch(value -> java.util.Set.of("stage", "commit", "save", "remove").contains(value.operation())); }
 
     public static boolean setEnabled(boolean value) {
         if (!operator() || !AntOSSettings.setContentEditingControls(value)) return false;
@@ -60,28 +62,45 @@ public final class AuthoringClientState {
             if (available || editing || !pending.isEmpty() || !outgoing.isEmpty()) clear();
             return;
         }
-        if (Minecraft.getInstance().screen instanceof com.craisinlord.antos.content.client.screen.ComputerScreen && AntOSSettings.contentEditingControls() && now - lastStatus >= 5000 && pending.isEmpty()) {
+        var screen = Minecraft.getInstance().screen;
+        boolean studio = screen instanceof com.craisinlord.antos.content.client.studio.AntStudioScreen;
+        if ((studio || screen instanceof com.craisinlord.antos.content.client.screen.ComputerScreen && AntOSSettings.contentEditingControls())
+                && now - lastStatus >= 5000 && pending.isEmpty()) {
             lastStatus = now;
             request("status", new JsonObject(), response -> { });
         }
+        com.craisinlord.antos.content.client.studio.AntStudioScreen.background();
         for (int index = 0; index < 4 && !outgoing.isEmpty(); index++) sender.accept(outgoing.removeFirst());
-        if (pending.values().stream().anyMatch(value -> now - value.started() > 15_000)) {
+        if (pending.values().stream().anyMatch(value -> now - value.started() > timeout(value.operation()))) {
             JsonObject timeout = new JsonObject();
             timeout.addProperty("ok", false);
             timeout.addProperty("error", "Editor request timed out. Your draft is retained; refresh and try again.");
-            for (Pending request : pending.values()) request.callback().accept(timeout);
+            java.util.List<Pending> expired = java.util.List.copyOf(pending.values());
             pending.clear();
             transfers.clear();
             outgoing.clear();
+            for (Pending request : expired) request.callback().accept(timeout);
             error = "Editor request timed out. Your draft is retained; refresh and try again.";
             revision++;
         }
     }
 
+    private static long timeout(String operation) {
+        return operation.equals("commit") || operation.equals("reload") ? 180_000L : 15_000L;
+    }
+
+    private static void fail(Consumer<JsonObject> callback, String message) {
+        error = message;
+        JsonObject result = new JsonObject();
+        result.addProperty("ok", false);
+        result.addProperty("error", message);
+        callback.accept(result);
+    }
+
     private static Runnable loadSmokeDriver() {
         if (System.getenv("ANTOS_EDITOR_SMOKE") == null) return null;
         try {
-            var method = Class.forName("com.craisinlord.antos.content.client.screen.AuthoringSmokeDriver").getMethod("tick");
+            var method = Class.forName("com.craisinlord.antos.content.client.studio.StudioSmokeDriver").getMethod("tick");
             return () -> {
                 try { method.invoke(null); }
                 catch (ReflectiveOperationException exception) { throw new IllegalStateException("Authoring smoke driver failed", exception); }
@@ -90,8 +109,8 @@ public final class AuthoringClientState {
     }
 
     public static void request(String operation, JsonObject values, Consumer<JsonObject> callback) {
-        if (!operator()) return;
-        if (pending.size() >= 4) { error = "Editor is busy; wait for the current request"; return; }
+        if (!operator()) { fail(callback, "Only operators can edit content"); return; }
+        if (pending.size() >= 4) { fail(callback, "Editor is busy; wait for the current request"); return; }
         JsonObject request = values.deepCopy();
         request.addProperty("operation", operation);
         String id = UUID.randomUUID().toString();
@@ -100,7 +119,7 @@ public final class AuthoringClientState {
                 outgoing.add(new AuthoringRequestPayload(chunk.id(), chunk.index(), chunk.total(), chunk.data()));
             pending.put(id, new Pending(System.currentTimeMillis(), operation, callback));
             if (!operation.equals("status")) error = "";
-        } catch (IllegalArgumentException exception) { error = exception.getMessage(); }
+        } catch (IllegalArgumentException exception) { fail(callback, exception.getMessage()); }
     }
 
     public static void receive(AuthoringResultPayload payload) {
@@ -125,13 +144,19 @@ public final class AuthoringClientState {
                 available = response.get("available").getAsBoolean();
                 editing = response.get("editing").getAsBoolean();
             }
+            if (request == null && response.has("operation") && response.get("operation").getAsString().equals("open")) {
+                com.craisinlord.antos.content.client.studio.AntStudioScreen.open(
+                        response.has("kind") ? response.get("kind").getAsString() : "", response.has("id") ? response.get("id").getAsString() : "");
+            }
             if (!response.has("ok") || !response.get("ok").getAsBoolean())
                 error = response.has("error") ? response.get("error").getAsString() : "Editor request failed";
             if (request != null) request.callback().accept(response);
             revision++;
         } catch (RuntimeException exception) {
             transfers.remove(payload.id());
-            pending.remove(payload.id());
+            Pending failed = pending.remove(payload.id());
+            com.craisinlord.antos.AntOS.LOGGER.warn("Could not read an editor response", exception);
+            if (failed != null) fail(failed.callback(), "Invalid editor response");
             error = "Invalid editor response";
             revision++;
         }
@@ -141,10 +166,11 @@ public final class AuthoringClientState {
         JsonObject cancelled = new JsonObject();
         cancelled.addProperty("ok", false);
         cancelled.addProperty("error", "Operator permission changed; editor request cancelled.");
-        for (Pending request : pending.values()) request.callback().accept(cancelled);
+        java.util.List<Pending> dropped = java.util.List.copyOf(pending.values());
         pending.clear();
         transfers.clear();
         outgoing.clear();
+        for (Pending request : dropped) request.callback().accept(cancelled);
         available = false;
         statusKnown = false;
         editing = false;

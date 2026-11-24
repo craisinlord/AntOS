@@ -41,7 +41,7 @@ public final class ComputerDiskFiles {
     }
 
     public static String destination(ComputerGuideData.Disk disk, DiskFeatures.File file) {
-        return destination("Disks", Component.translatable(disk.titleKey()).getString(), file);
+        return destination("Disks", ComputerGuideData.displayText(disk.titleKey()).getString(), file);
     }
 
     public static String destination(String root, String folder, DiskFeatures.File file) {
@@ -58,7 +58,7 @@ public final class ComputerDiskFiles {
 
     public static void copy(ComputerFileSystem files, DiskProfileState state, ComputerGuideData.Disk disk,
                             Map<Identifier, String> sources, String player, long time) {
-        copy(files, state, disk.id().toString(), "Disks", Component.translatable(disk.titleKey()).getString(), disk.features().files(), sources, player, time);
+        copy(files, state, disk.id().toString(), "Disks", ComputerGuideData.displayText(disk.titleKey()).getString(), disk.features().files(), sources, player, time);
     }
 
     public static void copy(ComputerFileSystem files, DiskProfileState state, String owner, String root, String folder, java.util.List<DiskFeatures.File> entries,

@@ -1,19 +1,19 @@
 # AntOS
 
-AntOS adds an ant-themed computer to Minecraft 1.21.1. Its desktop includes an Archive, file tools, a Terminal, Antmail, the Antazon shop, games, Paint, Tasks, a Disks Library, and the MERCHANT player marketplace. Almost everything on it is data-driven, so a modpack can add its own Archive pages, floppy disks, quests, mail, shop listings, quizzes, adventures, and secret terminal commands with a data pack and a resource pack.
+AntOS adds an ant-themed computer to Minecraft 1.21.1. Its desktop includes an Archive, file tools, a Terminal, Antmail, the Antazon shop, games, Paint, Tasks, a Disks Library, and the MERCHANT player marketplace. Almost everything on it is data-driven, so a modpack can add its own Archive pages, floppy disks, quests, mail, shop listings, quizzes, adventures, and secret terminal commands, either with the in-game editor, [AntStudio](#antstudio), or with a data pack and a resource pack.
 
-This README is the reference for modpack developers. The fastest way to start is to copy [`examples/datapack-template`](examples/datapack-template), which has a working example of everything below.
+This README is the reference for modpack developers. To make content in the game, type `/antos editor`. To write files by hand, the fastest way to start is to copy [`examples/datapack-template`](examples/datapack-template), which has a working example of everything below.
 
 The development workspace also contains forward-port targets for Minecraft 26.1, 26.2, and 26.3 on Fabric and NeoForge. Those ports are still in progress and not ready for release. See [`docs/PORTING_26.md`](docs/PORTING_26.md) for the project layout and Gradle tasks.
 
-**Version parity.** The `hijacked` mail style, forced wallpapers, takeover screens, the `wallpaper` reward, `/antos takeover`, and `AntmailApi` exist only in the 1.21.1 builds for now. [`docs/desktop-hijack-parity.md`](docs/desktop-hijack-parity.md) lists what the 1.20.1 and 26.x trees still need.
+**Version parity.** AntStudio is in every version. The `hijacked` mail style, forced wallpapers, takeover screens, the `wallpaper` reward, `/antos takeover`, and `AntmailApi` exist only in the 1.21.1 builds for now, so AntStudio leaves them out elsewhere. [`docs/desktop-hijack-parity.md`](docs/desktop-hijack-parity.md) lists what the 1.20.1 and 26.x trees still need.
 
 ## Contents
 
 - [Requirements and integrations](#requirements-and-integrations)
 - [Configuration](#configuration)
 - [Quick start](#quick-start)
-- [In-game content editing](docs/in-game-content-editor-plan.md)
+- [AntStudio](#antstudio): making content in the game
 - [Shared concepts](#shared-concepts): IDs, translations, previews, rewards, unlock requirements, time
 - Content types: [Archive entries](#archive-entries) · [Floppy disks](#floppy-disks) · [Programs](#programs-quizzes-and-adventures) · [Tasks](#tasks) · [Antmail](#antmail) · [Antazon](#antazon) · [MERCHANT](#merchant) · [Terminal commands](#terminal-commands)
 - [Appearance](#appearance): wallpapers, disk categories, icons, renaming apps and currency
@@ -100,6 +100,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
   "client": {
     "inventoryComputerButton": false,
     "contentEditing": false,
+    "contentEditingShortcuts": false,
     "defaultPreferences": {}
   },
   "jei": {
@@ -112,7 +113,7 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
 
 | Key | Side | Default | Effect |
 | --- | --- | --- | --- |
-| `contentEditingEnabled` | Server | `true` | Whether operators may use [in-game content editing](docs/in-game-content-editor-plan.md) on this server. It doesn't show the controls by itself; each operator turns them on with `client.contentEditing`. `/antos editing off` and `/antos editing on` change it without a restart. |
+| `contentEditingEnabled` | Server | `true` | Whether operators may use [AntStudio](#antstudio) on this server. `/antos editing off` and `/antos editing on` change it without a restart. `false` also hides the AntStudio note in **Settings > Help** from singleplayer players without cheats. |
 | `unlockAllArchiveEntries` | Server | `false` | Unlocks every loaded Archive entry without its disk. |
 | `unlockAllGameEntries` | Server | `false` | Unlocks every registered game without its disk. |
 | `showIntroductionEntry` | Server (synced) | `true` | Shows the built-in "SYSTEM INITIALIZED" Introduction page in every Archive. |
@@ -124,7 +125,8 @@ AntOS checks each setting on its own. A misspelled name, a value of the wrong ty
 | `rewardsOncePerPlayer` | Server | `true` | Task and disk rewards can be claimed once per Minecraft player, not once per Anternet account, so making a new account doesn't pay out the same rewards again. Claims are always recorded, so turning this back on later still counts earlier claims. Set to `false` to let every account claim separately. |
 | `desktopApps.<app>` | Server (synced) | `true` | Set to `false` to hide an app. **Antazon, Merchant and Tasks default to `false`**; set `desktopApps.antazon`, `desktopApps.merchant` and `desktopApps.tasks` to `true` to enable them. |
 | `client.inventoryComputerButton` | Client | `false` | Adds a button to the inventory screen that opens AntOS. A top-level `inventoryComputerButton` from older versions is moved here. |
-| `client.contentEditing` | Client | `false` | Shows the in-game content editing controls. Also in **Settings > Apps > Content editing**, which writes this value. Only operators see the controls. Leave it `false` in a pack you publish. |
+| `client.contentEditing` | Client | `false` | Shows the **Open AntStudio** button. Also in **Settings > Apps > AntStudio**, which writes this value. Only operators see it. `/antos editor` works without it. Leave it `false` in a pack you publish. |
+| `client.contentEditingShortcuts` | Client | `false` | Adds **Edit in AntStudio** when operators right-click content in other apps. Needs `client.contentEditing`. Leave it `false` in a pack you publish. |
 | `client.defaultPreferences` | Client | `{}` | Starting preferences for players who don't have an `antos/client.json` yet. It takes any of the preference keys described below, for example `{"theme": "amber", "uiScalePercent": 115}`. Keys you leave out use the built-in defaults, and invalid values log a warning and use them too. Changing it later doesn't affect players who already have settings. |
 | `jei.antazonPrices` | Server | `true` | With JEI installed, shows the Antazon Listings category. Hidden while Antazon is disabled. |
 | `jei.sellValues` | Server | `true` | With JEI installed, shows the Antazon Selling category. Hidden while Antazon is disabled. |
@@ -250,6 +252,40 @@ Every file's ID is `<namespace>:<path>`, where `<path>` is the file path under t
 | Wallpaper image | `assets/<ns>/textures/computer/wallpaper/<name>.png` |
 
 Because `category`, `group` and `reward_pool` are reserved folders under `task/`, tasks can't be placed in folders with those names.
+
+## AntStudio
+
+AntStudio makes and edits floppies, tasks, articles, mail, shop listings, programs and terminal commands in the game.
+
+### Opening it
+
+You need operator permission (level 2). In singleplayer, allow cheats.
+
+- Type `/antos editor`. You don't need a computer, an Anternet account or any setting turned on.
+- `/antos editor <type> <id>` opens one item, such as `/antos editor task mypack:first_task`.
+- For a button, turn on **Settings > Apps > AntStudio > Show AntStudio button**. It appears there and in **Settings > Help**.
+- With **Right-click shortcuts** on as well, right-clicking content in other apps offers **Edit in AntStudio**.
+
+### Making something
+
+1. Press **Ctrl N** and type what you want, such as "8 oak log" or "Welcome", or pick a starting point.
+2. Pick categories on the left and items from the list. Edit in the middle. The right side previews what players will see; click part of it to jump to that field.
+3. Fix any red problems in the bar at the bottom. Yellow ones are only warnings.
+4. Press **Save & apply** (Ctrl S).
+5. Test it. Floppies have **Give me this floppy** and **Reset my progress on it**, and mail has **Send me a test**.
+
+Press **F1** for help and shortcuts. The creative-only **AntOS Field Manual** floppy has the same help.
+
+### Good to know
+
+- **Simple** shows what most content needs. **Advanced** adds the rest in the same places, and **JSON** edits the whole file.
+- Changes are drafts until **Save & apply**, which checks every change, saves them together and reloads.
+- Everything is saved to the world, in `<world>/datapacks/antos-authored`. To use it in a modpack, copy that folder into your pack's data packs. `.json.previous` files are backups and can be left out.
+- Content from other packs is never changed. Saving a change makes your own version, and removing your version brings theirs back.
+- Drafts are kept for each world or server, even if the game closes. The world is recognized by the `antos_studio_id` file in its folder.
+- `/antos editing off` turns AntStudio off for everyone on the server.
+
+Game IDs for `game_record`: `antos:minesweeper_small`, `antos:minesweeper_large`, `antos:chess_easy`, `antos:chess_normal`, `antos:chess_hard`, `antos:chess_expert`, `antos:blockle`, `antos:ore_2048`, `antos:piston_push`, `antos:piston_push/<level>`, `antos:flappy_ghast`, `antos:cake_stack`, `antos:fliptris` and `antos:nether_breakout`. Mods can add their own; see [Native games](#native-games).
 
 ## Shared concepts
 
@@ -672,6 +708,7 @@ Every objective needs `id`, `type`, and `description`, and usually `target`.
 | `stat` | Stat target | Add `stat_type` such as `item_crafted`, `block_mined`, or `entity_killed`. Lifetime player totals. |
 | `mail_read` | Antmail message ID | |
 | `archive_viewed` | Archive entry ID | |
+| `game_record` | Game ID, such as `antos:minesweeper_large` | `stat_type` is `wins`, `time` (seconds), `moves` or `score`, and `count` is the goal. Time and moves need that many or fewer. Results come from the player's game and can be faked, so use them for fun rewards. |
 | `disk_installed` | Disk ID, or use `target_category` + `count` | Uses permanent history, so it completes retroactively and ejecting doesn't reduce it. Encrypted disks count after decryption. A single disk counts once. |
 | `program_ending` | Program ID | With `ending`, that ending. Without it, `count` distinct endings. Uses permanent history. |
 | `terminal_command` | Terminal command ID | Completes once the profile has run it, even before the task was available. |
@@ -832,6 +869,8 @@ Every profile automatically gets `<username>@antmail.com`. Data-driven messages 
 | `random` | Daily chance from `0` to `1`, checked once per in-game day per profile. Or use `trigger.pool` (and optional `trigger.weight`) instead; see [pools](#pools). |
 | `advancement` | Advancement ID. |
 | `mail_read` | Another data-driven message ID. |
+| `disk_installed` | Disk ID. Sent when a profile installs and unlocks the disk. Profiles that already had it don't get the mail. |
+| `game_record` | Game ID. Also set `metric` (`wins`, `time`, `moves` or `score`) and `count` beside `value`. Sent when a result reaches it. With `once: false` it's sent again only when that record improves, which for `wins` is every win. |
 | `task_complete` | Task ID. |
 | `manual` | Never fires on its own; sent only as a reward or by command. |
 
@@ -1383,6 +1422,8 @@ Register code-based games with `ComputerGameRegistry`. Each game has a namespace
 
 A game's `includedByDefault()` decides whether it's installed without its disk, and pack authors can override that with `builtInGames.<namespace:id>` in `config/antos.json`. To pay a daily AntCoin reward, call `ComputerGameRewards.claim(mode)` from the game when the player earns it, with a namespaced mode such as `examplemod:snake_win`. The server pays it at most once per mode, per profile, per Minecraft day, and only when the pack lists the mode in `gameRewards`. `ComputerGameRewards.reward(mode)` returns the configured amount, or `0` when it isn't listed or Antazon is disabled.
 
+To use a game in `game_record` goals and mail, register its ID with `ComputerGameRecordsRegistry.register(id)` (`com.craisinlord.antos.api.game`) in common code, so the server knows it too. Report results from the client with `ComputerGameRecordsApi.won` or `score`. Very frequent results still update bests, but don't count as wins or send mail.
+
 AntOS ships Blockle, Chess (four AI levels), Minesweeper (two board sizes), Cake Stack and Nether Breakout. Chess and Minesweeper are adapted from Create: Cybernetics by Perigrine3 under the MIT License; see `licenses/createcybernetics-MIT.txt`.
 
 ### Antmail
@@ -1409,6 +1450,9 @@ All commands need operator permission (level 2).
 
 | Command | Effect |
 | --- | --- |
+| `/antos editor` | Opens [AntStudio](#antstudio). |
+| `/antos editor <type> <id>` | Opens one item in AntStudio. |
+| `/antos editing on` / `off` | Allows AntStudio on this server, or turns it off for everyone. |
 | `/antos tasks inspect <task>` | Shows completion and objective counts for your signed-in workspace. |
 | `/antos tasks grant <task>` | Makes a task available. |
 | `/antos tasks complete <task>` | Completes it, makes rewards claimable, and checks dependents. |
@@ -1439,6 +1483,8 @@ The `/antos tasks` commands without a player argument act on your own signed-in 
 
 ## Troubleshooting
 
+- **`/antos editor` isn't suggested or doesn't work.** You need operator permission (cheats in singleplayer). If it says editing is off, run `/antos editing on`.
+- **The AntStudio button is missing.** It's off by default and only operators see it; see [AntStudio](#antstudio).
 - **Content doesn't show up.** Check the server log after `/reload`. AntOS reports bad references and skips invalid definitions.
 - **A task in a `category` or `group` folder is missing.** Those folder names are reserved under `task/`.
 - **A disk shows its ID instead of a name.** Add the `title` translation to your lang file.

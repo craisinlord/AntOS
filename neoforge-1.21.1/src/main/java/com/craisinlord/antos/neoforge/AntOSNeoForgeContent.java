@@ -63,7 +63,10 @@ public final class AntOSNeoForgeContent {
 
     private static void addCreativeItems(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) event.accept(COMPUTER_ITEM.get());
-        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) event.accept(FLOPPY_DISK.get());
+        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
+            event.accept(FLOPPY_DISK.get());
+            event.accept(com.craisinlord.antos.content.item.FloppyDiskItem.freshCopy(ResourceLocation.fromNamespaceAndPath("antos", "field_manual")));
+        }
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) event.accept(ANTROID_PHONE.get());
     }
 }

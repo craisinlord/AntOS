@@ -1138,6 +1138,11 @@ public final class ComputerTasks {
     private static int objectiveProgress(ServerPlayer player, ComputerGuideData.Objective objective, ItemCounts counts) {
         try {
             Identifier target = Identifier.parse(objective.target());
+            if (objective.type().equals("game_record")) {
+                var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
+                return account == null ? 0 : com.craisinlord.antos.content.computer.games.ComputerGameRecords.progress(
+                        player.level().getServer(), account.accountId(), objective.target(), objective.statType(), objective.count());
+            }
             if (objective.type().equals("disk_installed") || objective.type().equals("program_ending") || objective.type().equals("terminal_command")) {
                 var account = com.craisinlord.antos.content.network.AnternetAccountHandler.session(player);
                 if (account == null) return 0;

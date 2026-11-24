@@ -296,7 +296,13 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return id == null ? null : entriesView(diskIds, additionallyUnlocked).index().get(id);
     }
 
-    private record EntriesView(Map<ResourceLocation, Entry> archive, Map<ResourceLocation, Disk> disks, boolean unlockAll, boolean showIntroduction,
+    private static final ResourceLocation FIELD_MANUAL = ResourceLocation.fromNamespaceAndPath("antos", "field_manual");
+
+    public static boolean fieldManual(ResourceLocation id) {
+        return id.getNamespace().equals("antos") && id.getPath().startsWith("field_manual/");
+    }
+
+    private record EntriesView(Map<ResourceLocation, Entry> archive, Map<ResourceLocation, Disk> disks, boolean unlockAll, boolean manual, boolean showIntroduction,
                                List<ResourceLocation> diskIds, List<ResourceLocation> unlocked, List<Entry> sorted, Map<ResourceLocation, Entry> index) { }
 
     private static EntriesView entriesView(List<ResourceLocation> diskIds, java.util.Collection<ResourceLocation> additionallyUnlocked) {
@@ -304,18 +310,19 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         Map<ResourceLocation, Disk> currentDisks = disks;
         boolean unlockAll = unlockAllArchiveEntries();
         boolean showIntroduction = showIntroductionEntry();
+        boolean manual = unlockAll && (diskIds.contains(FIELD_MANUAL) || additionallyUnlocked.stream().anyMatch(ComputerGuideData::fieldManual));
         EntriesView[] views = entriesViews;
         for (EntriesView view : views) {
-            if (view.archive() == archiveEntries && view.disks() == currentDisks && view.unlockAll() == unlockAll
+            if (view.archive() == archiveEntries && view.disks() == currentDisks && view.unlockAll() == unlockAll && view.manual() == manual
                     && view.showIntroduction() == showIntroduction
                     && (unlockAll || sameOrder(view.diskIds(), diskIds) && sameOrder(view.unlocked(), additionallyUnlocked))) {
                 return view;
             }
         }
-        List<Entry> sorted = computeEntries(archiveEntries, currentDisks, unlockAll, showIntroduction, diskIds, additionallyUnlocked);
+        List<Entry> sorted = computeEntries(archiveEntries, currentDisks, unlockAll, manual, showIntroduction, diskIds, additionallyUnlocked);
         Map<ResourceLocation, Entry> index = new HashMap<>();
         for (Entry entry : sorted) index.putIfAbsent(entry.id(), entry);
-        EntriesView view = new EntriesView(archiveEntries, currentDisks, unlockAll, showIntroduction,
+        EntriesView view = new EntriesView(archiveEntries, currentDisks, unlockAll, manual, showIntroduction,
                 unlockAll ? List.of() : java.util.Collections.unmodifiableList(new ArrayList<>(diskIds)),
                 unlockAll ? List.of() : java.util.Collections.unmodifiableList(new ArrayList<>(additionallyUnlocked)),
                 sorted, java.util.Collections.unmodifiableMap(index));
@@ -336,12 +343,14 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         return true;
     }
 
-    private static List<Entry> computeEntries(Map<ResourceLocation, Entry> archiveEntries, Map<ResourceLocation, Disk> disks, boolean unlockAll, boolean showIntroduction,
+    private static List<Entry> computeEntries(Map<ResourceLocation, Entry> archiveEntries, Map<ResourceLocation, Disk> disks, boolean unlockAll, boolean manual, boolean showIntroduction,
                                               List<ResourceLocation> diskIds, java.util.Collection<ResourceLocation> additionallyUnlocked) {
         if (unlockAll) {
             Map<ResourceLocation, Entry> result = new LinkedHashMap<>();
             if (showIntroduction) result.put(INTRODUCTION, introduction());
-            result.putAll(archiveEntries);
+            archiveEntries.forEach((id, entry) -> {
+                if (manual || !fieldManual(id)) result.put(id, entry);
+            });
             return result.values().stream().sorted(Comparator.comparing(entry -> entry.titleKey().toString())).toList();
         }
         Map<ResourceLocation, Entry> result = new LinkedHashMap<>();
@@ -1058,10 +1067,6 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         String title = string(object, "title", "").trim();
         if (title.isBlank()) throw new IllegalArgumentException("Archive entry title is required");
         if (object.has("content")) CustomDisplays.content(object.get("content"));
-        String folderValue = string(object, "folder", "").trim();
-        ResourceLocation folder = folderValue.isEmpty() ? null : ResourceLocation.tryParse(folderValue);
-        if (!folderValue.isEmpty() && (folder == null || !archiveFolders.containsKey(folder)))
-            throw new IllegalArgumentException("Archive folder does not exist; save and reload it first");
         if (object.has("gallery") && gallery(object.get("gallery")).size() != object.getAsJsonArray("gallery").size())
             throw new IllegalArgumentException("Every gallery item must have a valid item, entity or identifier");
         Map<ResourceLocation, Entry> parsed = new HashMap<>();
@@ -1084,13 +1089,6 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
         String icon = string(object, "icon_item", "minecraft:book").trim();
         ResourceLocation iconId = ResourceLocation.tryParse(icon);
         if (iconId == null || !BuiltInRegistries.ITEM.containsKey(iconId)) throw new IllegalArgumentException("Unknown Archive folder icon " + icon);
-        String parentValue = string(object, "parent", "").trim();
-        if (!parentValue.isEmpty()) {
-            ResourceLocation parentId = ResourceLocation.tryParse(parentValue);
-            ArchiveFolder parent = parentId == null ? null : archiveFolders.get(parentId);
-            if (parent == null || parent.parent() != null) throw new IllegalArgumentException("Archive folders may have one level of subfolders; choose an existing root folder");
-            if (id.equals(parentId)) throw new IllegalArgumentException("An Archive folder cannot contain itself");
-        }
     }
 
     public static void validateAuthoringDisk(ResourceLocation id, JsonObject object) {
@@ -1327,10 +1325,12 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
             }
             if ((type.equals("disk_installed") || type.equals("program_ending")) && (ResourceLocation.tryParse(destination) == null || ending.length() > 64 || ending.contains("#"))) continue;
             if (type.equals("terminal_command") && ResourceLocation.tryParse(destination) == null) continue;
+            if (type.equals("game_record") && (ResourceLocation.tryParse(destination) == null
+                    || !com.craisinlord.antos.content.computer.games.ComputerGameRecords.METRICS.contains(string(row, "stat_type", "")))) continue;
             String statType = string(row, "stat_type", "");
             String tagMode = string(row, "tag_mode", "any");
             boolean supportedStat = type.equals("stat") && List.of("custom", "block_mined", "item_crafted", "item_used", "item_broken", "item_picked_up", "item_dropped", "entity_killed", "entity_killed_by").contains(statType);
-            boolean eventObjective = type.equals("disk_installed") || type.equals("program_ending") || type.equals("terminal_command") || type.equals("mail_read") || type.equals("archive_viewed")
+            boolean eventObjective = type.equals("game_record") || type.equals("disk_installed") || type.equals("program_ending") || type.equals("terminal_command") || type.equals("mail_read") || type.equals("archive_viewed")
                     || com.craisinlord.antos.content.computer.ComputerLocationObjectives.TYPES.contains(type)
                     || type.contains(":") && ResourceLocation.tryParse(type) != null;
             if (objectiveId.isBlank() || objectiveId.length() > 128 || !objectiveIds.add(objectiveId)

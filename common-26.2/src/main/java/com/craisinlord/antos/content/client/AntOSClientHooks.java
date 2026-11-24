@@ -20,6 +20,7 @@ public final class AntOSClientHooks {
         ArchiveLookup.clear();
         JeiClientState.clear();
         DisplaySyncClientState.clear();
+        com.craisinlord.antos.content.client.studio.AntStudioScreen.leaveWorld();
         com.craisinlord.antos.content.client.AuthoringClientState.clear();
         TaskTrackerHud.clear();
     }

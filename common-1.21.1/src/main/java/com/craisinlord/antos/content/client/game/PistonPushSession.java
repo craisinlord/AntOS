@@ -354,6 +354,9 @@ public final class PistonPushSession implements ComputerGame.Session {
         Map<String, Integer> progress = progress();
         boolean firstClear = !PistonPushProgress.solved(progress, level.id());
         if (PistonPushProgress.record(progress, level.id(), moves)) GameData.put(PistonPushProgress.KEY, PistonPushProgress.encode(progress));
+        com.craisinlord.antos.api.client.game.ComputerGameRecordsApi.won(net.minecraft.resources.ResourceLocation.tryParse("antos:piston_push"), -1, -1);
+        com.craisinlord.antos.api.client.game.ComputerGameRecordsApi.won(
+                net.minecraft.resources.ResourceLocation.tryParse("antos:piston_push/" + level.id().toLowerCase(java.util.Locale.ROOT)), -1, moves);
         if (firstClear) rewards.claimOnce(REWARD);
         if (clearedAtPar && level.world() >= 1) rewards.claimOnce(REWARD_PAR);
         sound(SoundEvents.PLAYER_LEVELUP, 1.0F, 0.6F);

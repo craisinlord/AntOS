@@ -303,6 +303,8 @@ final class SettingsApp extends ComputerApp {
             {"apps", "apps.files_sort"},
             {"apps", "apps.editing"},
             {"apps", "apps.editing_show"},
+            {"apps", "apps.editing_open_label"},
+            {"apps", "apps.editing_shortcuts"},
             {"notifications", "notifications.panel_hint"},
             {"notifications", "notifications.quiet"},
             {"notifications", "notifications.interface"},
@@ -322,6 +324,7 @@ final class SettingsApp extends ComputerApp {
             {"help", "help.tours"},
             {"help", "help.antos_tour"},
             {"help", "help.antazon_tour"},
+            {"help", "help.studio"},
             {"help", "help.shortcuts"},
             {"help", "help.search"},
             {"about", "about.system"},
@@ -347,6 +350,7 @@ final class SettingsApp extends ComputerApp {
         for (String[] item : SEARCH_SETTINGS) {
             if (item[1].equals("accessibility.brightness") && !AntOSSettings.preferences().displayLook.equals("terminal")) continue;
             if (item[1].startsWith("apps.editing") && !AuthoringClientState.operator()) continue;
+            if (item[1].equals("help.studio") && !studioHelp()) continue;
             String category = tr("category." + item[0]);
             String title = tr(item[1]);
             String text = (category + " " + title).toLowerCase(Locale.ROOT);
@@ -844,6 +848,13 @@ final class SettingsApp extends ComputerApp {
                 else if (!AuthoringClientState.setEnabled(value)) notice(tr("apps.editing_failed"));
             });
             label(g, tr(AuthoringClientState.blockedByServer() ? "apps.editing_blocked" : "apps.editing_hint"), Ui.TEXT_MUTED);
+            if (AuthoringClientState.available()) {
+                buttonRow(g, tr("apps.editing_open_label"), tr("apps.editing_open"), false, () -> com.craisinlord.antos.content.client.studio.AntStudioScreen.open("", ""));
+                toggleRow(g, tr("apps.editing_shortcuts"), AntOSSettings.contentEditingShortcuts(), value -> {
+                    if (!AntOSSettings.setContentEditingShortcuts(value)) notice(tr("apps.editing_failed"));
+                });
+                label(g, tr("apps.editing_shortcuts_hint"), Ui.TEXT_MUTED);
+            }
         }
     }
 
@@ -929,11 +940,27 @@ final class SettingsApp extends ComputerApp {
         cursorY += ROW - 2;
     }
 
+    private static boolean studioHelp() {
+        return AuthoringClientState.operator() || net.minecraft.client.Minecraft.getInstance().hasSingleplayerServer() && AntOSSettings.contentEditingEnabled();
+    }
+
     private void renderHelp(GuiGraphics g) {
         heading(g, "help.tours");
         buttonRow(g, tr("help.antos_tour"), tr("help.replay"), false, this::replayTour);
         if (AntOSSettings.appEnabled("ANTAZON")) buttonRow(g, tr("help.antazon_tour"), tr("help.replay"), false, this::replayAntazon);
         if (AppAvailability.enabled("MERCHANT")) buttonRow(g, tr("help.merchant_tour"), tr("help.replay"), false, this::replayMerchant);
+        if (studioHelp()) {
+            heading(g, "help.studio");
+            label(g, tr("help.studio_hint"), Ui.TEXT_MUTED);
+            label(g, tr(AuthoringClientState.operator() ? "help.studio_command" : "help.studio_cheats"), Ui.TEXT_MUTED);
+            cursorY += 2;
+            if (AuthoringClientState.available())
+                buttonRow(g, tr("apps.editing_open_label"), tr("apps.editing_open"), false, () -> com.craisinlord.antos.content.client.studio.AntStudioScreen.open("", ""));
+            else if (AuthoringClientState.operator()) buttonRow(g, tr("help.studio_settings_label"), tr("help.studio_settings"), false, () -> {
+                select("apps");
+                revealTarget = tr("apps.editing");
+            });
+        }
         heading(g, "help.shortcuts");
         field(g, tr("help.search"), search, tr("help.search_placeholder"));
         String query = search.value.toLowerCase(Locale.ROOT).trim();

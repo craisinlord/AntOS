@@ -71,7 +71,7 @@ public final class ComputerNetworking {
                     ComputerAccessPayload.TEAM_INVITE, ComputerAccessPayload.TEAM_ACCEPT_INVITE,
                     ComputerAccessPayload.TEAM_DECLINE_INVITE, ComputerAccessPayload.TEAM_LEAVE,
                     ComputerAccessPayload.TEAM_DISBAND, ComputerAccessPayload.TASK_CLAIM_ALL, ComputerAccessPayload.TASK_PIN,
-                    ComputerAccessPayload.GAME_DATA -> true;
+                    ComputerAccessPayload.GAME_DATA, ComputerAccessPayload.GAME_RECORD -> true;
             default -> false;
         };
     }
@@ -220,6 +220,10 @@ public final class ComputerNetworking {
 
     public static void claimGameReward(String mode) {
         send(ComputerAccessPayload.GAME_REWARD, mode);
+    }
+
+    public static void gameRecord(String report) {
+        send(ComputerAccessPayload.GAME_RECORD, report);
     }
 
     public static void gameData(String request) {

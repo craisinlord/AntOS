@@ -161,6 +161,35 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         fireMatching(player.server, data, address, "task_complete", taskId.toString());
     }
 
+    public static void onDiskInstalled(ServerPlayer player, ResourceLocation diskId) {
+        if (player == null || diskId == null) return;
+        AntmailServerData data = AntmailServerData.access(player.server);
+        AntmailAddress address = data.deliveryAddressFor(player);
+        if (address != null) fireMatching(player.server, data, address, "disk_installed", diskId.toString());
+    }
+
+    public static void onGameRecord(ServerPlayer player, UUID profile, String mode, java.util.Set<String> improved) {
+        AntmailServerData data = AntmailServerData.access(player.server);
+        AntmailAddress address = data.deliveryAddressFor(player);
+        if (address == null) return;
+        for (ResourceLocation id : triggers.matching("game_record", mode)) {
+            Definition definition = definitions.get(id);
+            if (definition != null && (definition.once() || improved.contains(definition.trigger().metric())) && com.craisinlord.antos.content.computer.games.ComputerGameRecords.meets(
+                    player.server, profile, mode, definition.trigger().metric(), definition.trigger().goal())) fire(player.server, data, address, id, definition);
+        }
+    }
+
+    public static AntmailDeliveryResult.Status sendTest(ServerPlayer player, ResourceLocation id, JsonObject body) {
+        AntmailServerData data = AntmailServerData.access(player.server);
+        AntmailAddress address = data.deliveryAddressFor(player);
+        if (address == null) return AntmailDeliveryResult.Status.ADDRESS_NOT_FOUND;
+        Definition definition = parse(id, body);
+        AntmailDeliveryResult.Status status = deliver(player.server, data, address, id, definition, true);
+        if (definition.delivery() != null && (status == AntmailDeliveryResult.Status.DELIVERED || status == AntmailDeliveryResult.Status.QUEUED))
+            AntmailPackages.drop(player, definition.delivery());
+        return status;
+    }
+
     private static void fireMatching(MinecraftServer server, AntmailServerData data, AntmailAddress address, String type, String value) {
         for (ResourceLocation definitionId : triggers.matching(type, value)) {
             fire(server, data, address, definitionId, definitions.get(definitionId));
@@ -506,7 +535,12 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         int delayMinutes = triggerObject.has("delay_minutes") ? Math.max(0, triggerObject.get("delay_minutes").getAsInt()) : 0;
         int delaySeconds = triggerObject.has("delay_seconds") ? Math.max(0, triggerObject.get("delay_seconds").getAsInt()) : 0;
         long delayTicks = (long) delayMinutes * 1200L + (long) delaySeconds * 20L;
-        Trigger trigger = new Trigger(type, value, pool, weight, delay, delayTicks, triggerObject.has("subscription_only") && triggerObject.get("subscription_only").getAsBoolean());
+        String metric = string(triggerObject, "metric");
+        int goal = triggerObject.has("count") ? Math.max(1, triggerObject.get("count").getAsInt()) : 1;
+        if (type.equals("game_record") && !com.craisinlord.antos.content.computer.games.ComputerGameRecords.METRICS.contains(metric))
+            throw new IllegalArgumentException("Game mail needs a metric: wins, time, moves or score");
+        Trigger trigger = new Trigger(type, value, pool, weight, delay, delayTicks, triggerObject.has("subscription_only") && triggerObject.get("subscription_only").getAsBoolean(),
+                metric, goal);
         boolean once = object.has("once") ? object.get("once").getAsBoolean() : !type.equals("random");
 
         Conditions conditions = null;
@@ -609,7 +643,11 @@ public final class AntmailEventData extends SimplePreparableReloadListener<Antma
         }
     }
 
-    public record Trigger(String type, String value, ResourceLocation pool, int weight, int delay, long delayTicks, boolean subscriptionOnly) {
+    public record Trigger(String type, String value, ResourceLocation pool, int weight, int delay, long delayTicks, boolean subscriptionOnly,
+                          String metric, int goal) {
+        public Trigger(String type, String value, ResourceLocation pool, int weight, int delay, long delayTicks, boolean subscriptionOnly) {
+            this(type, value, pool, weight, delay, delayTicks, subscriptionOnly, "", 1);
+        }
         public Trigger(String type, String value, ResourceLocation pool, int weight, int delay, boolean subscriptionOnly) { this(type, value, pool, weight, delay, 0L, subscriptionOnly); }
         public Trigger(String type, String value, ResourceLocation pool, int weight, int delay) { this(type, value, pool, weight, delay, 0L, false); }
         double chance() {

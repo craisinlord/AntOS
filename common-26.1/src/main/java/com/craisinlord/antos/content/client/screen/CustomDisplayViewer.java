@@ -1623,8 +1623,8 @@ final class CustomDisplayViewer {
     private void pickBlock(org.joml.Matrix4f sceneMatrix, SceneInfo info, String[] states, View view, float x, float y, float w, float h) {
         if (!hovered(x, y, w, h)) return;
         org.joml.Matrix4f inverse = new org.joml.Matrix4f(sceneMatrix).invert();
-        float mx = screen.centerX + screen.session.mouseX * screen.uiScale();
-        float my = screen.centerY + screen.session.mouseY * screen.uiScale();
+        float mx = screen.pointerScreenX();
+        float my = screen.pointerScreenY();
         org.joml.Vector3f a = inverse.transformPosition(new org.joml.Vector3f(mx, my, 10000));
         org.joml.Vector3f b = inverse.transformPosition(new org.joml.Vector3f(mx, my, -10000));
         double ox = a.x, oy = a.y, oz = a.z, dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;

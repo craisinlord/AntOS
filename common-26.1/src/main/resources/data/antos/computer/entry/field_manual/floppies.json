@@ -1,0 +1,17 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.floppies.title",
+  "folder": "antos:field_manual",
+  "sort_order": 1,
+  "cover_item": "minecraft:paper",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.floppies.1",
+    "antos.studio.help.floppies.2",
+    "antos.studio.help.floppies.3",
+    "antos.studio.help.floppies.4",
+    "antos.studio.help.floppies.5"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "type": "article",
+  "category": "field_manual",
+  "title": "antos.studio.help.programs.title",
+  "folder": "antos:field_manual",
+  "sort_order": 6,
+  "cover_item": "minecraft:jukebox",
+  "green_tint": false,
+  "unlocked_by_default": false,
+  "description": [
+    "antos.studio.help.programs.1",
+    "antos.studio.help.programs.2",
+    "antos.studio.help.programs.3"
+  ]
+}

@@ -65,6 +65,7 @@ public record ComputerAccessPayload(int action, String value) {
     public static final int TASK_CLAIM_ALL = 65;
     public static final int TASK_PIN = 66;
     public static final int GAME_DATA = 67;
+    public static final int GAME_RECORD = 68;
     public static final int MAX_VALUE_CHARS = 65536;
     public static final int BOOTSTRAP_STATE = 1;
     public static final int BOOTSTRAP_WALLET = 2;

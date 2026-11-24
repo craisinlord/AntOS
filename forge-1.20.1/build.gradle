@@ -65,6 +65,7 @@ minecraft {
             mods { antos { source sourceSets.main } }
         }
         client {
+            if (System.getenv('ANTOS_EDITOR_SMOKE')) args '--quickPlaySingleplayer', 'antstudio-smoke'
             jvmArgs '-Dmixin.env.remapRefMap=true', "-Dmixin.env.refMapRemappingFile=${projectDir}/build/createSrgToMcp/output.srg"
         }
         server {
@@ -107,6 +108,9 @@ tasks.named('processResources', ProcessResources).configure {
 }
 
 tasks.named('jar', Jar).configure { finalizedBy 'reobfJar' }
+tasks.withType(Jar).configureEach {
+    exclude 'com/craisinlord/antos/content/client/studio/StudioSmokeDriver*'
+}
 
 def displayTestClasses = layout.buildDirectory.dir('classes/java/displayTest')
 
@@ -183,6 +187,25 @@ tasks.register('merchantTest', JavaExec) {
     classpath = files(merchantTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
     mainClass = 'com.craisinlord.antos.content.merchant.MerchantStoreTest'
     args '--rules-only'
+}
+
+def authoringTestClasses = layout.buildDirectory.dir('classes/java/authoringTest')
+
+tasks.register('compileAuthoringTests', JavaCompile) {
+    dependsOn tasks.named('compileJava')
+    source files('../common-1.20.1/src/test/java/com/craisinlord/antos/content/editor/AuthoringCoreTest.java')
+    classpath = sourceSets.main.compileClasspath + sourceSets.main.output
+    destinationDirectory = authoringTestClasses
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+tasks.register('authoringTest', JavaExec) {
+    group = 'verification'
+    description = 'Verifies authoring transfers, document preservation, validation and safe datapack writes.'
+    dependsOn tasks.named('compileAuthoringTests')
+    classpath = files(authoringTestClasses) + sourceSets.main.output + sourceSets.main.runtimeClasspath
+    mainClass = 'com.craisinlord.antos.content.editor.AuthoringCoreTest'
 }
 
 def configTestClasses = layout.buildDirectory.dir('classes/java/configTest')

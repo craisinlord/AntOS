@@ -70,6 +70,12 @@ public class FloppyDiskItem extends Item {
         return data != null && data.getUnsafe().getBoolean(REDEEMED_TAG);
     }
 
+    public static ItemStack freshCopy(ResourceLocation diskId) {
+        ItemStack stack = new ItemStack(AntOSObjects.FLOPPY_DISK.get());
+        stack.set(AntOSObjects.FLOPPY_DISK_COMPONENT.get(), diskId);
+        return stack;
+    }
+
     public static ItemStack ejectedCopy(ResourceLocation diskId) {
         ItemStack stack = new ItemStack(AntOSObjects.FLOPPY_DISK.get());
         stack.set(AntOSObjects.FLOPPY_DISK_COMPONENT.get(), diskId);

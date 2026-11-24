@@ -284,6 +284,8 @@ public final class MinesweeperSession implements ComputerGame.Session {
         if (victory) {
             for (int column = 0; column < mode.columns; column++) for (int row = 0; row < mode.rows; row++) if (mines[column][row]) flagged[column][row] = true;
             rewards.claim(mode.rewardMode());
+            com.craisinlord.antos.api.client.game.ComputerGameRecordsApi.won(net.minecraft.resources.ResourceLocation.tryParse("antos:minesweeper_" + mode.id),
+                    (int) Math.max(1L, (finishedAt - startedAt + 999L) / 1000L), -1);
         }
     }
 

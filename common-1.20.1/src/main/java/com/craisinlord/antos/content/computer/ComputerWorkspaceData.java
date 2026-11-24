@@ -836,6 +836,27 @@ public final class ComputerWorkspaceData extends SavedData {
         return changed;
     }
 
+    public synchronized void forgetDisk(UUID accountId, UUID playerId, ResourceLocation diskId) {
+        ComputerAccountShard shard = accountShard(accountId);
+        if (shard != null) {
+            shard.profileDisks.remove(diskId);
+            shard.collectedDisks.remove(diskId);
+            shard.diskRewardReceipts.remove(diskId);
+            shard.setDirty();
+        }
+        Set<ResourceLocation> claims = playerDiskClaims.get(playerId);
+        if (claims != null && claims.remove(diskId)) setDirty();
+        setDirty();
+    }
+
+    public synchronized void forgetTaskReward(UUID accountId, UUID playerId, ResourceLocation taskId) {
+        Set<ResourceLocation> account = claimedTaskRewards.get(accountId);
+        Set<ResourceLocation> player = playerTaskClaims.get(playerId);
+        boolean changed = account != null && account.remove(taskId);
+        changed |= player != null && player.remove(taskId);
+        if (changed) setDirty();
+    }
+
     public synchronized boolean removeProfileDisk(UUID accountId, ResourceLocation diskId) {
         ComputerAccountShard shard = accountShard(accountId);
         if (shard == null || !shard.profileDisks.remove(diskId)) return false;

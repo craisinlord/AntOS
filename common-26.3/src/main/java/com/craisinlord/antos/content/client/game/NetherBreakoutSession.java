@@ -293,6 +293,8 @@ public final class NetherBreakoutSession implements ComputerGame.Session {
             lives = 0;
             gameOver = true;
             overTicks = 0;
+            com.craisinlord.antos.api.client.game.ComputerGameRecordsApi.score(
+                    net.minecraft.resources.Identifier.tryParse("antos:nether_breakout"), score);
         } else {
             serveTicks = 16;
             message = tr("computer.antos.nether_breakout.next_ball");

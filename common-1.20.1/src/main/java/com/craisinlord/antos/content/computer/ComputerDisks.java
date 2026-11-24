@@ -32,18 +32,18 @@ public final class ComputerDisks {
         ComputerWorkspaceData data = ComputerWorkspaceData.access(player.server);
         boolean spent = redeemedCopy && disk.features().consumable();
         if (spent && data.profileDisks(account.accountId()).contains(diskId)) {
-            player.displayClientMessage(Component.translatable("computer.antos.disks.already_redeemed", Component.translatable(disk.titleKey())), true);
+            player.displayClientMessage(Component.translatable("computer.antos.disks.already_redeemed", ComputerGuideData.displayText(disk.titleKey())), true);
             return InstallResult.ALREADY_INSTALLED;
         }
         if (data.profileDisks(account.accountId()).contains(diskId) && disk.features().consumable()
                 && (!disk.features().encryption().enabled() || data.diskState(account.accountId()).activated(diskId))) {
             redeemAgain(player, account, disk);
             ComputerAccessHandler.refreshAfterDisk(player, workspace);
-            player.displayClientMessage(Component.translatable("computer.antos.disks.install_success", Component.translatable(disk.titleKey())), true);
+            player.displayClientMessage(Component.translatable("computer.antos.disks.install_success", ComputerGuideData.displayText(disk.titleKey())), true);
             return InstallResult.INSTALLED;
         }
         if (data.profileDisks(account.accountId()).contains(diskId)) {
-            player.displayClientMessage(Component.translatable("computer.antos.disks.already_installed", Component.translatable(disk.titleKey())), true);
+            player.displayClientMessage(Component.translatable("computer.antos.disks.already_installed", ComputerGuideData.displayText(disk.titleKey())), true);
             return InstallResult.ALREADY_INSTALLED;
         }
         if (!data.addProfileDisk(account.accountId(), diskId)) return InstallResult.INVALID;
@@ -51,7 +51,7 @@ public final class ComputerDisks {
         if (!disk.features().encryption().enabled() || data.diskState(account.accountId()).activated(diskId)) activate(player, workspace, account, disk);
         ComputerAccessHandler.refreshAfterDisk(player, workspace);
         player.displayClientMessage(Component.translatable(data.diskState(account.accountId()).activated(diskId)
-                ? "computer.antos.disks.install_success" : "computer.antos.disks.installed_locked", Component.translatable(disk.titleKey())), true);
+                ? "computer.antos.disks.install_success" : "computer.antos.disks.installed_locked", ComputerGuideData.displayText(disk.titleKey())), true);
         return InstallResult.INSTALLED;
     }
 
@@ -68,7 +68,10 @@ public final class ComputerDisks {
         workspace.saveAccountWorkspace();
         data.setDirty();
         grantRewards(player, account, disk);
-        if (newlyActivated) AntazonUnlockMail.onDiskInstalled(player, workspace, disk.id());
+        if (newlyActivated) {
+            AntazonUnlockMail.onDiskInstalled(player, workspace, disk.id());
+            com.craisinlord.antos.content.antmail.AntmailEventData.onDiskInstalled(player, disk.id());
+        }
     }
 
     public static void reconcileRewards(ServerPlayer player, ComputerWorkspaceData.AccountInfo account) {

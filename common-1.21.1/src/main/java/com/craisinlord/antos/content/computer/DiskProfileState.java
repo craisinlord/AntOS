@@ -27,6 +27,12 @@ public final class DiskProfileState {
         categories.putIfAbsent(disk, category);
         return activated.add(disk);
     }
+    public void forget(ResourceLocation disk, List<ResourceLocation> subscribed) {
+        activated.remove(disk);
+        categories.remove(disk);
+        copiedFiles.keySet().removeIf(key -> key.startsWith(disk + "|"));
+        subscribed.forEach(subscriptions::remove);
+    }
     public void seed(List<ResourceLocation> disks) { activated.addAll(disks); }
     public int categoryCount(ResourceLocation category) { return (int) categories.values().stream().filter(category::equals).count(); }
     public boolean subscribe(ResourceLocation id) { return subscriptions.add(id); }

@@ -68,6 +68,12 @@ public class FloppyDiskItem extends Item {
         return tag != null && tag.getBoolean(REDEEMED_TAG);
     }
 
+    public static ItemStack freshCopy(ResourceLocation diskId) {
+        ItemStack stack = new ItemStack(AntOSObjects.FLOPPY_DISK.get());
+        AntOSObjects.setFloppyDiskId(stack, diskId);
+        return stack;
+    }
+
     public static ItemStack ejectedCopy(ResourceLocation diskId) {
         ItemStack stack = new ItemStack(AntOSObjects.FLOPPY_DISK.get());
         AntOSObjects.setFloppyDiskId(stack, diskId);
@@ -77,7 +83,7 @@ public class FloppyDiskItem extends Item {
     }
 
     private static Component displayText(String key) {
-        Component text = Component.translatable(key);
+        Component text = com.craisinlord.antos.content.guide.ComputerGuideData.displayText(key);
         return AntOSClientHooks.isClient() ? Component.literal(titleCase(text.getString())) : text;
     }
 

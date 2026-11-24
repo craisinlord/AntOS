@@ -9,6 +9,7 @@ import com.craisinlord.antos.content.item.AntroidPhoneItem;
 import com.craisinlord.antos.content.item.ComputerItem;
 import com.craisinlord.antos.content.item.FloppyDiskItem;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.item.CreativeModeTabs;
@@ -57,7 +58,10 @@ public final class AntOSForgeContent {
 
     private static void addCreativeItems(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) event.accept(COMPUTER_ITEM.get());
-        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) event.accept(FLOPPY_DISK.get());
+        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
+            event.accept(FLOPPY_DISK.get());
+            event.accept(FloppyDiskItem.freshCopy(new ResourceLocation("antos", "field_manual")));
+        }
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) event.accept(ANTROID_PHONE.get());
     }
 }

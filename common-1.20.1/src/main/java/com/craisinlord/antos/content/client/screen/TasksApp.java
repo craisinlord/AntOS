@@ -1015,6 +1015,7 @@ final class TasksApp extends ComputerApp {
 
     private void renderDetail(GuiGraphics g, com.craisinlord.antos.content.client.ComputerTasksClientState.TaskRow task,
                                   int x, int y, int w, int h, Set<ResourceLocation> unlockedArchiveIds) {
+        screen.editTarget(x, y, w, h, "task", task.id());
         boolean previousTint = screen.archiveGreenTint;
         screen.archiveGreenTint = task.greenTint();
         String backLabel = tr("back_to_map");
@@ -2096,6 +2097,7 @@ final class TasksApp extends ComputerApp {
 
     private void renderNode(GuiGraphics g, Node node) {
         var task = node.task();
+        screen.editTarget(node.left(), node.top(), node.right() - node.left(), node.bottom() - node.top(), "task", task.id());
         int nodeSize = node.right() - node.left();
         TaskStatus status = status(task);
         int border = task.isLink() ? Ui.ACCENT : statusBorder(status);

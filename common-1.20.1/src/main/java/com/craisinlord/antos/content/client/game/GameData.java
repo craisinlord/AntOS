@@ -67,6 +67,8 @@ public final class GameData {
     public static void submitBest(String gameId, long score) {
         String key = gameId + ".best";
         if (score <= 0L || !GameDataCodec.validKey(key)) return;
+        com.craisinlord.antos.api.client.game.ComputerGameRecordsApi.score(
+                net.minecraft.resources.ResourceLocation.tryParse("antos:" + gameId), (int) Math.min(100_000_000L, score));
         String value = Long.toString(score);
         if (GameDataCodec.apply(entries(), GameDataCodec.BEST, key, value)) {
             ComputerNetworking.gameData(GameDataCodec.request(GameDataCodec.BEST, key, value));

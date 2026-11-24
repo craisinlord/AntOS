@@ -370,7 +370,11 @@ public final class ChessSession implements ComputerGame.Session {
     private void checkFinished() {
         if (finished || !game.status().over()) return;
         finished = true;
-        if (game.status() == ChessGame.Status.WHITE_WON && !resigned) rewards.claim(difficulty.rewardMode());
+        if (game.status() == ChessGame.Status.WHITE_WON && !resigned) {
+            rewards.claim(difficulty.rewardMode());
+            com.craisinlord.antos.api.client.game.ComputerGameRecordsApi.won(
+                    net.minecraft.resources.ResourceLocation.tryParse("antos:chess_" + difficulty.id()), -1, game.fullmoveNumber());
+        }
     }
 
     private void resign() {

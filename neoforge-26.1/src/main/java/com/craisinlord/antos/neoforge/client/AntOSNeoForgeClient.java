@@ -50,6 +50,7 @@ public final class AntOSNeoForgeClient {
             AntOSComputerGames.register();
             AntOSClientHooks.setComputerOpener(ComputerScreen::openComputer);
             AntOSClientHooks.setPhoneOpener(ComputerScreen::openPhone);
+            com.craisinlord.antos.content.client.AuthoringClientState.setSender(ClientPacketDistributor::sendToServer);
             ComputerNetworking.setSender(ClientPacketDistributor::sendToServer);
             com.craisinlord.antos.content.network.PhoneDiskInsertPayload.setSender(ClientPacketDistributor::sendToServer);
             com.craisinlord.antos.content.network.PhoneDiskInsertPayload.setCreativeInventoryCheck(
