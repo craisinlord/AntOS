@@ -203,6 +203,7 @@ public final class ComputerScreen extends Screen {
         this.session.attach(this);
         for (ComputerApp app : List.of(tasks, notifications)) app.attach(this);
         if (preview) { session.onboardingCompleted = true; return; }
+        session.desktopRequested = false;
         this.loggedIn = accountResult != null && accountResult.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS;
         if (!loggedIn || AntOSSettings.hasCompletedComputerTour(accountResult.accountId())) {
             this.session.onboardingCompleted = true;
