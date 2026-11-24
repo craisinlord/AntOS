@@ -12,6 +12,7 @@ public enum AuthoringKind {
     PROGRAM("computer/program", "Program", "DISKS"),
     MESSAGE("antmail/message", "Message", "ANTMAIL"),
     MAIL_POOL("antmail/pool", "Mail pool", "ANTMAIL"),
+    TAKEOVER("computer/takeover", "Desktop takeover", "ANTMAIL"),
     PRODUCT("antazon/product", "Product", "ANTAZON"),
     SELL_RULE("antazon/sell", "Sell rule", "ANTAZON"),
     DEAL_CAMPAIGN("antazon/deal", "Deal campaign", "ANTAZON"),

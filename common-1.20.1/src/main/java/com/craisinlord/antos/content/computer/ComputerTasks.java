@@ -909,6 +909,11 @@ public final class ComputerTasks {
                 case "archive" -> {
                 }
                 case "mail" -> { if (deliverMailReward(player, sourceId, reward)) receipt.add(reward); }
+                case "wallpaper" -> {
+                    var account = accountForProgress(player);
+                    if (account != null) ComputerDesktopEffects.applyToAccount(player.server, account.accountId(),
+                            ComputerDesktopEffects.WallpaperChange.fromFlags(reward.target(), reward.mode()), null);
+                }
             }
         }
         if (!stacks.isEmpty()) {

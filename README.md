@@ -6,8 +6,6 @@ This README is the reference for modpack developers. To make content in the game
 
 The development workspace also contains forward-port targets for Minecraft 26.1, 26.2, and 26.3 on Fabric and NeoForge. Those ports are still in progress and not ready for release. See [`docs/PORTING_26.md`](docs/PORTING_26.md) for the project layout and Gradle tasks.
 
-**Version parity.** AntStudio is in every version. The `hijacked` mail style, forced wallpapers, takeover screens, the `wallpaper` reward, `/antos takeover`, and `AntmailApi` exist only in the 1.21.1 builds for now, so AntStudio leaves them out elsewhere. [`docs/desktop-hijack-parity.md`](docs/desktop-hijack-parity.md) lists what the 1.20.1 and 26.x trees still need.
-
 ## Contents
 
 - [Requirements and integrations](#requirements-and-integrations)
@@ -174,9 +172,9 @@ In **Settings → Personalize**, **Icon color** shows app icons in the accent co
 
 **Settings → Accessibility → AntOS interface size** scales the interface from 50% to 150% in 5% steps. It's always capped to fit the screen. Old Standard, Large, and Largest settings become 100%, 115%, and 130%. It's saved as `uiScalePercent` and can be set in `client.defaultPreferences`.
 
-On 1.21.1, **Settings → Accessibility → Full-screen desktop** makes AntOS fill the whole game window. It's off by default and saved as `fullscreenDesktop`. **Windowed** in the top bar switches back, and **Reset layout** pulls any off-screen windows back into view. Double-click a title bar to maximize or restore a window.
+**Settings → Accessibility → Full-screen desktop** makes AntOS fill the whole game window. It's off by default and saved as `fullscreenDesktop`. **Windowed** in the top bar switches back, and **Reset layout** pulls any off-screen windows back into view. Double-click a title bar to maximize or restore a window.
 
-On 1.21.1, the **Open Tasks** key (unbound by default) and the **Tasks** button in the inventory (shown with `inventoryComputerButton`) open Tasks on its own, filling the game window with no desktop. You sign in first if you need to. **Desktop** in the title bar switches to the normal desktop, and following a link to another app does the same. Esc, X or the key closes it and goes back to what was showing before.
+With `inventoryComputerButton` on, the inventory also lists your pinned tasks below the AntOS button. Click one to open AntOS on that task.
 
 Settings has a search bar. **Notices** in the top bar opens **Settings → Notifications → History**, which keeps the last 100 mail, task, and Antazon notices. **Quiet mode** (saved as `quietNotifications`) hides mail and task popups and sounds but still records them in the history.
 

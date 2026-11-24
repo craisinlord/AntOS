@@ -142,6 +142,8 @@ public final class TerminalCommandData {
         String wallpaper = string(object, "wallpaper", "");
         Identifier wallpaperId = wallpaper.isBlank() ? null : Identifier.tryParse(wallpaper);
         if (!wallpaper.isBlank() && wallpaperId == null) AntOS.LOGGER.warn("Terminal command {} has an invalid wallpaper ID {}", id, wallpaper);
+        com.craisinlord.antos.content.computer.ComputerDesktopEffects.WallpaperChange wallpaperChange =
+                com.craisinlord.antos.content.computer.ComputerDesktopEffects.WallpaperChange.parse("terminal command " + id, object.get("wallpaper"));
         DiskFeatures features = DiskFeatures.parse(object);
         if (object.has("encryption") || object.has("consumable")) AntOS.LOGGER.warn("Terminal command {} ignores 'encryption' and 'consumable'; those are disk-only fields", id);
         List<ComputerGuideData.TaskReward> rewards = ComputerGuideData.parseRewards(id, object.get("rewards"), false).stream().filter(reward -> {
@@ -157,7 +159,7 @@ public final class TerminalCommandData {
             return null;
         }
         boolean variadic = bool(object, "variadic", false);
-        if (output.isEmpty() && lockedOutput.isEmpty() && rewards.isEmpty() && !requires.any() && open.isBlank() && action == null
+        if (output.isEmpty() && lockedOutput.isEmpty() && rewards.isEmpty() && !requires.any() && open.isBlank() && action == null && wallpaperChange == null
                 && ids(object, "entries").isEmpty() && ids(object, "tasks").isEmpty() && features.files().isEmpty() && features.programs().isEmpty()) {
             AntOS.LOGGER.warn("Ignoring terminal command {} because it has no output and does nothing", id);
             return null;
@@ -165,7 +167,7 @@ public final class TerminalCommandData {
         return new Definition(id, List.copyOf(names), List.copyOf(arguments), caseSensitive, hidden, usage, string(object, "description", ""),
                 string(object, "hint", ""), requires, output, lockedOutput, bool(object, "once", true), bool(object, "clear", false),
                 ids(object, "entries"), ids(object, "tasks"), wallpaperId, features.files(), features.programs(), features.subscriptions(), rewards, open,
-                action, variadic);
+                action, variadic, wallpaperChange);
     }
 
     private static List<Line> lines(Identifier id, JsonElement element, String style, boolean typing, int speed) {
@@ -242,11 +244,12 @@ public final class TerminalCommandData {
                              String usage, String description, String hint, Requirements requires, List<Line> output, List<Line> lockedOutput,
                              boolean once, boolean clear, List<Identifier> entries, List<Identifier> tasks, Identifier wallpaper,
                              List<DiskFeatures.File> files, List<Identifier> programs, List<Identifier> subscriptions,
-                             List<ComputerGuideData.TaskReward> rewards, String open, Identifier action, boolean variadic) {
+                             List<ComputerGuideData.TaskReward> rewards, String open, Identifier action, boolean variadic,
+                             com.craisinlord.antos.content.computer.ComputerDesktopEffects.WallpaperChange wallpaperChange) {
         public String command() { return names.get(0); }
 
         public boolean hasEffects() {
-            return !entries.isEmpty() || !tasks.isEmpty() || wallpaper != null || !files.isEmpty() || !programs.isEmpty() || !subscriptions.isEmpty() || !rewards.isEmpty();
+            return !entries.isEmpty() || !tasks.isEmpty() || wallpaper != null || wallpaperChange != null || !files.isEmpty() || !programs.isEmpty() || !subscriptions.isEmpty() || !rewards.isEmpty();
         }
 
         public boolean matches(List<String> given) {

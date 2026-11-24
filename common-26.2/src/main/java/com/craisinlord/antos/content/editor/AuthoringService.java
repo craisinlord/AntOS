@@ -668,6 +668,7 @@ public final class AuthoringService {
         if (kind == AuthoringKind.CATEGORY || kind == AuthoringKind.GROUP || kind == AuthoringKind.REWARD_POOL)
             ComputerGuideData.validateAuthoringCatalog(kind.key(), id, body);
         if (kind == AuthoringKind.MESSAGE) com.craisinlord.antos.content.antmail.AntmailEventData.validateAuthoring(id, body);
+        if (kind == AuthoringKind.TAKEOVER) com.craisinlord.antos.content.antmail.AntmailEventData.validateAuthoringTakeover(id, body);
         if (kind == AuthoringKind.PRODUCT) com.craisinlord.antos.content.antazon.AntazonData.validateAuthoring(id, body);
         if (kind == AuthoringKind.DEAL_CAMPAIGN) com.craisinlord.antos.content.antazon.AntazonDealData.validateAuthoring(id, body);
         if (kind == AuthoringKind.ARCHIVE_ENTRY) {

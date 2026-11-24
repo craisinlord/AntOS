@@ -30,6 +30,9 @@ public final class AuthoringChecks {
                     range(body, "chance_per_day", 0, 1, issues);
                     range(body, "max_per_day", 0, 1_000_000, issues);
                 }
+                case TAKEOVER -> {
+                    if (string(body, "title").isBlank() && list(body, "lines").isEmpty()) issues.add(AuthoringIssue.error("takeover_empty", "title"));
+                }
                 case PRODUCT -> product(body, issues);
                 case SELL_RULE -> {
                     range(body, "value", 1, 1_000_000_000, issues);
@@ -89,6 +92,7 @@ public final class AuthoringChecks {
                 case "archive" -> need(reward, "entry", at, issues);
                 case "advancement" -> need(reward, "advancement", at, issues);
                 case "effect" -> need(reward, "effect", at, issues);
+                case "wallpaper" -> need(reward, "id", at, issues);
                 case "mail" -> {
                     if (string(reward, "message").isBlank() && string(reward, "subject").isBlank()) issues.add(AuthoringIssue.error("reward_target", at + "/subject"));
                 }

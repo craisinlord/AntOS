@@ -44,7 +44,31 @@ public final class AntmailDebugCommands {
                                                 SharedSuggestionProvider.suggest(AntmailEventData.definitionIds().stream()
                                                         .map(Identifier::toString), builder))
                                                 .executes(AntmailDebugCommands::send))))));
+        dispatcher.register(Commands.literal("antos").requires(source -> source.permissions().hasPermission(net.minecraft.server.permissions.Permissions.COMMANDS_GAMEMASTER))
+                .then(Commands.literal("takeover")
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .then(Commands.argument("id", IdentifierArgument.id()).suggests((context, builder) ->
+                                                SharedSuggestionProvider.suggest(AntmailEventData.takeoverIds().stream()
+                                                        .map(Identifier::toString), builder))
+                                        .executes(AntmailDebugCommands::takeover)))));
         registerSmokeCommands(dispatcher);
+    }
+
+    private static int takeover(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = EntityArgument.getPlayer(context, "player");
+        Identifier id = IdentifierArgument.getId(context, "id");
+        if (AntmailEventData.takeover(id) == null) {
+            throw new SimpleCommandExceptionType(Component.literal("That takeover is not loaded.")).create();
+        }
+        java.util.UUID profile = com.craisinlord.antos.content.computer.ComputerDesktopEffects.accountFor(player);
+        if (profile == null) {
+            throw new SimpleCommandExceptionType(Component.literal(player.getGameProfile().name() + " has no AntOS profile.")).create();
+        }
+        boolean queued = com.craisinlord.antos.content.computer.ComputerDesktopEffects.applyToAccount(player.level().getServer(), profile, null, id);
+        context.getSource().sendSuccess(() -> Component.literal(queued
+                ? "Queued takeover " + id + " for " + player.getGameProfile().name() + "; it shows the next time they open AntOS."
+                : "Takeover " + id + " is already queued for " + player.getGameProfile().name() + "."), true);
+        return 1;
     }
 
     private static int trigger(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {

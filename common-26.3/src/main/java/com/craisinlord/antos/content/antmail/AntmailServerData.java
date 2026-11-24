@@ -51,6 +51,10 @@ public final class AntmailServerData extends SavedData {
     private final Map<AntmailAddress, Set<Identifier>> packageClaims = new LinkedHashMap<>();
     private final Map<AntmailAddress, Set<Identifier>> pendingPackages = new LinkedHashMap<>();
     private long randomMailDay = Long.MIN_VALUE;
+    private static final int SCHEDULE_CLOCK_VERSION = 1;
+    private boolean legacyClock;
+    private boolean scheduleRebased;
+    private final Map<AntmailAddress, Long> inboxFullNoticeDay = new java.util.HashMap<>();
     private static final int MAX_BLOCKED_SENDERS = 256;
     private final Map<AntmailAddress, Set<String>> blockedJunkSenders = new LinkedHashMap<>();
     private final Set<AntmailAddress> blockAllJunk = new LinkedHashSet<>();
@@ -118,6 +122,7 @@ public final class AntmailServerData extends SavedData {
             }
         }
         data.randomMailDay = tag.contains("RandomMailDay") ? tag.getLongOr("RandomMailDay", 0L) : Long.MIN_VALUE;
+        data.legacyClock = tag.getIntOr("ScheduleClock", 0) < SCHEDULE_CLOCK_VERSION;
         ListTag randomQueueTags = tag.getListOrEmpty("RandomMailQueue");
         for (int i = 0; i < randomQueueTags.size(); i++) {
             try {
@@ -268,6 +273,7 @@ public final class AntmailServerData extends SavedData {
         }
         tag.put("Triggered", triggeredTags);
         tag.putLong("RandomMailDay", randomMailDay);
+        if (!legacyClock) tag.putInt("ScheduleClock", SCHEDULE_CLOCK_VERSION);
         if (!randomMailQueue.isEmpty()) {
             ListTag randomQueueTags = new ListTag();
             for (AntmailAddress address : randomMailQueue) randomQueueTags.add(net.minecraft.nbt.StringTag.valueOf(address.fullAddress()));
@@ -593,6 +599,35 @@ public final class AntmailServerData extends SavedData {
         return entry != null && entry.inboxSize() >= AntmailValidation.MAX_MAILBOX_MESSAGES;
     }
 
+    public synchronized boolean canMakeRoom(AntmailAddress address) {
+        AntmailMailbox mailbox = loadedMailbox(address);
+        return mailbox != null && oldestRead(mailbox) != null;
+    }
+
+    public synchronized void makeRoom(AntmailAddress address) {
+        if (address == null || !inboxFull(address)) return;
+        AntmailMailbox mailbox = loadedMailbox(address);
+        if (mailbox == null) return;
+        boolean changed = false;
+        while (mailbox.inboxSize() >= AntmailValidation.MAX_MAILBOX_MESSAGES) {
+            AntmailMessage oldest = oldestRead(mailbox);
+            if (oldest == null) break;
+            if (!mailbox.moveToTrash(oldest.id(), 0) && !mailbox.removeInbox(oldest.id())) break;
+            changed = true;
+        }
+        if (changed) touchMailbox(address);
+    }
+
+    private static AntmailMessage oldestRead(AntmailMailbox mailbox) {
+        AntmailMessage best = null;
+        for (AntmailMessage message : mailbox.inbox()) {
+            if (!message.read()) continue;
+            if (best == null || best.hasAttachments() && !message.hasAttachments()
+                    || best.hasAttachments() == message.hasAttachments() && message.createdAt() < best.createdAt()) best = message;
+        }
+        return best;
+    }
+
     synchronized void queueRandomMail(java.util.Collection<AntmailAddress> addresses) {
         randomMailQueue.clear();
         randomMailQueue.addAll(addresses);
@@ -690,6 +725,45 @@ public final class AntmailServerData extends SavedData {
         if (randomMailDay == day) return false;
         randomMailDay = day;
         setDirty();
+        return true;
+    }
+
+    public synchronized void rebaseSchedule(long gameTime, long dayTime, java.util.function.ToLongFunction<Identifier> maxDelay) {
+        if (scheduleRebased) return;
+        scheduleRebased = true;
+        boolean legacy = legacyClock;
+        legacyClock = false;
+        if (legacy) {
+            randomMailDay = Math.floorDiv(gameTime, 24000L);
+            setDirty();
+        }
+        List<ScheduledMail> entries = List.copyOf(scheduled.keySet());
+        List<ScheduledMail> rebased = new ArrayList<>(entries.size());
+        boolean changed = false;
+        for (ScheduledMail entry : entries) {
+            long limit = Math.max(0L, maxDelay.applyAsLong(entry.definitionId()));
+            long remaining = entry.dueTime() - (legacy ? dayTime : gameTime);
+            long due = legacy ? gameTime + Math.max(0L, Math.min(limit, remaining))
+                    : remaining > limit ? gameTime + limit : entry.dueTime();
+            if (due != entry.dueTime()) changed = true;
+            rebased.add(new ScheduledMail(entry.address(), entry.definitionId(), Math.floorDiv(due, 24000L), due));
+        }
+        if (!changed) return;
+        scheduled.clear();
+        scheduledIds.clear();
+        readySchedule.clear();
+        futureSchedule.clear();
+        parkedFull.clear();
+        parkedOffline.clear();
+        scheduleDay = Long.MIN_VALUE;
+        for (ScheduledMail entry : rebased) addScheduled(entry);
+        setDirty();
+    }
+
+    public synchronized boolean claimInboxFullNotice(AntmailAddress address, long day) {
+        Long last = inboxFullNoticeDay.get(address);
+        if (last != null && last == day) return false;
+        inboxFullNoticeDay.put(address, day);
         return true;
     }
 

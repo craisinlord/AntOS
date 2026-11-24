@@ -82,7 +82,10 @@ public final class ComputerNotificationClientState {
         if (!result.data().startsWith(ComputerAccessPayload.NOTIFICATION + "\0")) return;
         String[] fields = result.data().split("\u0000", -1);
         if (fields.length < 2) return;
-        if (fields[1].equals("mail") && fields.length >= 5) mail(fields[2], Boolean.parseBoolean(fields[3]), fields[4], field(fields, 5), field(fields, 6), field(fields, 7));
+        if (fields[1].equals("mail") && fields.length >= 5) {
+            if (fields[3].equals("hijacked")) hijackedMail(fields[2], fields[4], field(fields, 5), field(fields, 6), field(fields, 7));
+            else mail(fields[2], Boolean.parseBoolean(fields[3]), fields[4], field(fields, 5), field(fields, 6), field(fields, 7));
+        }
         else if (fields[1].equals("task") && fields.length >= 5) task(fields[2], fields[3], fields[4], field(fields, 5), field(fields, 6), field(fields, 7));
     }
 
@@ -100,6 +103,16 @@ public final class ComputerNotificationClientState {
         record("mail", title, message, corrupted ? "" : sender, corrupted ? "" : avatarItem, corrupted ? "" : avatarEntity, messageId);
         show(preferences.mailAlerts, title, message);
         if (!preferences.quietNotifications && preferences.mailSound && !preferences.mailAlerts.equals("off")) play(sound, corrupted ? 0.5F : 1.4F);
+    }
+
+    public static void hijackedMail(String sender, String sound, String avatarItem, String avatarEntity, String messageId) {
+        var preferences = AntOSSettings.preferences();
+        Component name = Component.literal(sender).withStyle(ChatFormatting.RED);
+        Component title = Component.translatable("computer.antos.notify.mail_title");
+        Component message = Component.translatable("antmail.antos.notification", name);
+        record("mail", title, message, sender, avatarItem, avatarEntity, messageId);
+        show(preferences.mailAlerts, title, message);
+        if (!preferences.quietNotifications && preferences.mailSound && !preferences.mailAlerts.equals("off")) play(sound, 0.7F);
     }
 
     public static void task(String titleKey, String descriptionKey, String sound, String iconItem, String iconEntity, String taskId) {

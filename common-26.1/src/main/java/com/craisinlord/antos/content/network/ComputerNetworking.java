@@ -153,6 +153,10 @@ public final class ComputerNetworking {
         send(ComputerAccessPayload.DESKTOP_STATE, "");
     }
 
+    public static void dismissTakeover() {
+        send(ComputerAccessPayload.DESKTOP_STATE, com.craisinlord.antos.content.computer.ComputerDesktopEffects.TAKEOVER_SEEN);
+    }
+
     public static void selectWallpaper(Identifier id) {
         send(ComputerAccessPayload.DESKTOP_WALLPAPER, id.toString());
     }

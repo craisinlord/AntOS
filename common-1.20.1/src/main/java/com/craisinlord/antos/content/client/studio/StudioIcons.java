@@ -24,6 +24,7 @@ final class StudioIcons {
             case PROGRAM -> StudioIcon.pixel("desktop/games");
             case MESSAGE -> named(body, "sender_avatar_item", "sender_avatar_entity", "minecraft:paper");
             case MAIL_POOL -> StudioIcon.pixel("desktop/antmail");
+            case TAKEOVER -> StudioIcon.item("minecraft:redstone_torch");
             case PRODUCT -> product(body);
             case SELL_RULE -> {
                 String item = StudioJson.string(body, "item");
@@ -121,6 +122,7 @@ final class StudioIcons {
             case "advancement" -> StudioIcon.item("minecraft:knowledge_book");
             case "effect" -> StudioIcon.item("minecraft:potion");
             case "mail" -> StudioIcon.pixel("desktop/antmail");
+            case "wallpaper" -> StudioIcon.item("minecraft:painting");
             default -> StudioIcon::unknown;
         };
     }

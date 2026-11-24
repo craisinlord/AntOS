@@ -35,7 +35,7 @@ final class StudioEditors extends StudioForm {
             new GoalType("command", "terminal_command", "", "kind:terminal_command", false),
             new GoalType("finish_program", "program_ending", "", "kind:program", false),
             new GoalType("game", "game_record", "", "game", true));
-    static final List<String> REWARDS = List.of("item", "antcoins", "experience", "experience_levels", "item_pool", "choice", "archive", "advancement", "effect", "mail");
+    static final List<String> REWARDS = List.of("item", "antcoins", "experience", "experience_levels", "item_pool", "choice", "archive", "advancement", "effect", "mail", "wallpaper");
     private static final Set<String> QUIET_REWARDS = Set.of("archive", "choice");
     private static final Set<String> OPTION_REWARDS = Set.of("item", "antcoins", "item_pool", "experience", "experience_levels", "advancement", "effect", "mail");
 
@@ -53,6 +53,7 @@ final class StudioEditors extends StudioForm {
                 case PROGRAM -> program();
                 case MESSAGE -> message();
                 case MAIL_POOL -> mailPool();
+                case TAKEOVER -> takeover();
                 case PRODUCT -> product();
                 case SELL_RULE -> sellRule();
                 case DEAL_CAMPAIGN -> deal();
@@ -365,6 +366,10 @@ final class StudioEditors extends StudioForm {
                 }
                 reward.add("options", options);
             }
+            case "wallpaper" -> {
+                reward.addProperty("id", "");
+                reward.addProperty("unlock", true);
+            }
             default -> { }
         }
         return reward;
@@ -451,6 +456,7 @@ final class StudioEditors extends StudioForm {
                 if (saved) refField(row, "message", "kind:message", false, cx, y, available);
                 else kit.field(row.id("subject"), cx, y, available, row.string("subject"), new StudioKit.Field().hint(t("field.subject")).max(64).bad(bad(row.field("subject"))), value -> row.put("subject", value));
             }
+            case "wallpaper" -> refField(row, "id", "wallpaper", false, cx, y, right - 4 - cx);
             case "choice" -> kit.text(t("choice_note"), cx, y + 4, right - cx, StudioTheme.soft);
             default -> kit.text(t("edit_in_json"), cx, y + 4, right - cx, StudioTheme.soft);
         }
@@ -478,6 +484,7 @@ final class StudioEditors extends StudioForm {
             case "item_pool" -> {
                 if (depth == 0) choice(row, "mode", "random", List.of("random", "choice"));
             }
+            case "wallpaper" -> checks().add(row, "unlock", false).add(row, "force", false).add(row, "restore", false).end();
             default -> { }
         }
         x = kept;
@@ -1072,12 +1079,25 @@ final class StudioEditors extends StudioForm {
                 StudioNode window = root.at("deliver_window");
                 pair(() -> number(window, "from", 0, 0, 24000, true), () -> number(window, "to", 24000, 0, 24000, true));
             });
-            section("effects", t("section.effects"), "", List.of("notification"), () -> {
+            section("effects", t("section.effects"), "", List.of("takeover", "wallpaper", "notification"), () -> {
                 optionalText(root, "notification", t("choice.default"), 256);
+                ref(root, "takeover", "kind:takeover", true);
+                if (root.has("wallpaper")) {
+                    StudioNode wallpaper = root.at("wallpaper");
+                    ref(wallpaper, "id", "wallpaper", false);
+                    checks().add(wallpaper, "unlock", false).add(wallpaper, "force", false).add(wallpaper, "restore", false).end();
+                    kit.button(x, y, kit.buttonWidth(t("remove_wallpaper")), 14, t("remove_wallpaper"), StudioKit.DANGER, true, "", () -> root.drop("wallpaper"));
+                    y += 16;
+                } else add(t("wallpaper"), at -> {
+                    JsonObject wallpaper = new JsonObject();
+                    wallpaper.addProperty("id", "antos:grid_ant");
+                    wallpaper.addProperty("unlock", true);
+                    root.put("wallpaper", wallpaper);
+                });
                 checks().add(root, "delete_after_read", false).add(root, "blockable", true).end();
             });
             leftovers(Set.of("sender", "sender_display", "subject", "body", "trigger", "once", "style", "sender_avatar_item", "sender_avatar_entity", "delete_after_read", "blockable",
-                    "notification", "antcoins", "conditions", "deliver_window", "delivery"));
+                    "notification", "antcoins", "conditions", "deliver_window", "delivery", "wallpaper", "takeover"));
         }
     }
 
@@ -1113,6 +1133,16 @@ final class StudioEditors extends StudioForm {
             return !pool.isEmpty() && (pool.contains(":") ? pool : entry.namespace() + ":" + pool).equals(key.id());
         }).toList()));
         if (advanced) leftovers(Set.of("chance_per_day", "max_per_day", "subscription_only", "blockable"));
+    }
+
+    private void takeover() {
+        section("text", t("section.takeover"), "", List.of("title", "lines"), () -> {
+            lines(root, "lines", t("takeover.lines"));
+            choice(root, "style", "hijacked", List.of("hijacked", "corrupted"));
+            optionalText(root, "button", t("takeover.button"), 64);
+        });
+        used();
+        if (advanced) leftovers(Set.of("title", "lines", "style", "button"));
     }
 
     private void whoUnlock(String title) {

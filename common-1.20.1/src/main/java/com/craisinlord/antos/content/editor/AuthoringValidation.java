@@ -129,6 +129,10 @@ public final class AuthoringValidation {
                 number(object, "chance_per_day", 0, 1);
                 number(object, "max_per_day", 0, 1_000_000);
             }
+            case TAKEOVER -> {
+                if (string(object, "title", 512).isBlank() && !object.has("lines"))
+                    throw new IllegalArgumentException("A takeover needs a title or lines");
+            }
             case PRODUCT -> {
                 required(object, "name", 512);
                 string(object, "description", 32_768);

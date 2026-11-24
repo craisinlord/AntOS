@@ -125,12 +125,14 @@ public final class TerminalCommands {
         definition.tasks().forEach(computer.taskProgress()::grant);
         definition.entries().forEach(computer.taskProgress()::unlockArchiveEntry);
         if (definition.wallpaper() != null && ComputerGuideData.wallpaper(definition.wallpaper()) != null) computer.desktopState().unlockWallpaper(definition.wallpaper());
+        boolean desktopChanged = com.craisinlord.antos.content.computer.ComputerDesktopEffects.apply(computer.desktopState(), definition.wallpaperChange());
         if (!definition.files().isEmpty()) ComputerDiskFiles.copy(computer.fileSystem(), state, "terminal:" + definition.id(), "Terminal", definition.command(),
                 definition.files(), ComputerDiskData.files(), player.getName().getString(), player.server.overworld().getGameTime());
         definition.subscriptions().forEach(state::subscribe);
         definition.programs().forEach(state::grantProgram);
         computer.saveAccountWorkspace();
         context.data().setDirty();
+        if (desktopChanged) ComputerAccessHandler.pushDesktop(player, com.craisinlord.antos.content.computer.ComputerDesktopEffects.clientTag(computer.desktopState(), false));
         if (definition.rewards().isEmpty()) return;
         var receipt = ComputerGuideData.encodeRewards(ComputerTasks.deliverRewards(player, definition.id(), definition.rewards(), Map.of()));
         for (var element : receipt) if (element.getAsJsonObject().has("body")) element.getAsJsonObject().addProperty("body", "");

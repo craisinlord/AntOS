@@ -112,6 +112,8 @@ final class StudioProblems {
                 }
                 String pool = StudioJson.string(trigger, "pool");
                 if (!pool.isBlank()) need(store, AuthoringKind.MAIL_POOL, pool.contains(":") ? pool : doc.key.namespace() + ":" + pool, "trigger/pool", issues);
+                String takeover = StudioJson.string(body, "takeover");
+                if (!takeover.isBlank()) need(store, AuthoringKind.TAKEOVER, takeover, "takeover", issues);
                 JsonObject conditions = StudioJson.object(body, "conditions");
                 for (String id : StudioJson.strings(conditions, "mail_read")) need(store, AuthoringKind.MESSAGE, id, "conditions/mail_read", issues);
                 for (String id : StudioJson.strings(conditions, "tasks_complete")) need(store, AuthoringKind.TASK, id, "conditions/tasks_complete", issues);
@@ -311,7 +313,7 @@ final class StudioProblems {
                 if (Set.of("requires", "requires_any", "connects", "archive_entries", "tasks", "entries", "programs", "subscribe", "unlock_tasks", "unlock_disks", "unlock_commands").contains(issue.field())) {
                     label = StudioText.t("fix.remove_link");
                     fix = () -> store.edit(key, "", body -> StudioJson.remove(body, issue.field(), issue.arguments().get(0)));
-                } else if (Set.of("folder", "parent").contains(issue.field())) {
+                } else if (Set.of("folder", "parent", "takeover").contains(issue.field())) {
                     label = StudioText.t("fix.clear");
                     fix = () -> store.edit(key, "", body -> body.remove(issue.field()));
                 }

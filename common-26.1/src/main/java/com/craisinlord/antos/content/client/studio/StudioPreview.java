@@ -84,6 +84,7 @@ final class StudioPreview {
                 case DISK -> disk(key, body);
                 case PROGRAM -> window(StudioText.label(key, body), "program", () -> program(body));
                 case TERMINAL_COMMAND -> window("TERMINAL", "terminal", () -> terminal(body));
+                case TAKEOVER -> takeover(body);
                 case REWARD_POOL -> window(StudioText.label(key, body), "pool", () -> pool(body));
                 case DEAL_CAMPAIGN -> window("ANTAZON", "deal", () -> {
                     kit.text(StudioText.read(StudioJson.string(body, "label")), x, y, w, StudioTheme.accent);
@@ -505,6 +506,30 @@ final class StudioPreview {
                 y += 12;
             }
         });
+    }
+
+    private void takeover(JsonObject body) {
+        boolean corrupted = StudioJson.string(body, "style").equals("corrupted");
+        int color = corrupted ? Ui.CORRUPT : Ui.HIJACK;
+        int top = y;
+        int height = windowHeights.getOrDefault("takeover", 80);
+        kit.box(x, top, w, height, corrupted ? Ui.CORRUPT_BACKGROUND : Ui.HIJACK_BACKGROUND, color);
+        x += 8;
+        w -= 16;
+        y = top + 10;
+        y = kit.wrap(Component.literal(StudioText.read(StudioJson.string(body, "title"))), x, y, w, color, 12) + 4;
+        for (String line : StudioJson.strings(body, "lines")) y = kit.wrap(AntOSPlayerText.apply(line), x, y, w, Ui.HIJACK_TEXT);
+        String button = StudioJson.string(body, "button");
+        if (!button.isBlank()) {
+            y += 4;
+            kit.outline(x, y, Math.min(w, kit.width(button) + 12), 15, color);
+            kit.text(button, x + 6, y + 4, w - 12, color);
+            y += 18;
+        }
+        x -= 8;
+        w += 16;
+        windowHeights.put("takeover", Math.max(60, y - top + 6));
+        y = top + Math.max(60, y - top + 6) + 8;
     }
 
     private void connections(StudioKey key) {

@@ -19,9 +19,17 @@ public final class AntmailNotifier {
         for (ServerPlayer player : AntmailServerData.access(server).onlinePlayersFor(server, message.recipient())) {
             if (AnternetAccountHandler.session(player) == null && !carriesPhone(player)) continue;
             SoundEvent sound = sound(message.notification());
-            ComputerAccessHandler.sendNotification(player, "mail", message.displaySender(), String.valueOf(message.corrupted()),
+            ComputerAccessHandler.sendNotification(player, "mail", message.displaySender(), message.hijacked() ? "hijacked" : String.valueOf(message.corrupted()),
                     sound == null ? "" : sound.getLocation().toString(), message.senderAvatarItem(), message.senderAvatarEntity(), message.id().toString());
         }
+    }
+
+    public static void inboxFull(MinecraftServer server, AntmailAddress address) {
+        if (server == null || address == null) return;
+        AntmailServerData data = AntmailServerData.access(server);
+        java.util.List<ServerPlayer> players = data.onlinePlayersFor(server, address);
+        if (players.isEmpty() || !data.claimInboxFullNotice(address, server.overworld().getGameTime() / 24000L)) return;
+        for (ServerPlayer player : players) player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("antmail.antos.inbox_full"));
     }
 
     public static void notifyObjectiveCompleted(ServerPlayer player, ComputerGuideData.Task task,

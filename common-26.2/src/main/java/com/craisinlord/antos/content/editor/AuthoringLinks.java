@@ -90,6 +90,7 @@ public final class AuthoringLinks {
             case "mail_read" -> Set.of(AuthoringKind.MESSAGE);
             case "folder" -> owner == AuthoringKind.ARCHIVE_ENTRY ? Set.of(AuthoringKind.ARCHIVE_FOLDER) : Set.of();
             case "parent" -> owner == AuthoringKind.ARCHIVE_FOLDER ? Set.of(AuthoringKind.ARCHIVE_FOLDER) : Set.of();
+            case "takeover" -> owner == AuthoringKind.MESSAGE ? Set.of(AuthoringKind.TAKEOVER) : Set.of();
             case "link_category" -> Set.of(AuthoringKind.CATEGORY);
             case "group", "link_group" -> owner == AuthoringKind.TASK ? Set.of(AuthoringKind.GROUP) : Set.of();
             case "category" -> switch (owner) {

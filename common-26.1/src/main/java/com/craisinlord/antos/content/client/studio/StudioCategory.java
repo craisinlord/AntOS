@@ -7,7 +7,7 @@ enum StudioCategory {
     FLOPPIES("disks", AuthoringKind.DISK, AuthoringKind.DISK_CATEGORY),
     TASKS("tasks", AuthoringKind.TASK, AuthoringKind.CATEGORY, AuthoringKind.GROUP, AuthoringKind.REWARD_POOL),
     ARCHIVE("archive", AuthoringKind.ARCHIVE_ENTRY, AuthoringKind.ARCHIVE_FOLDER),
-    MAIL("antmail", AuthoringKind.MESSAGE, AuthoringKind.MAIL_POOL),
+    MAIL("antmail", AuthoringKind.MESSAGE, AuthoringKind.MAIL_POOL, AuthoringKind.TAKEOVER),
     ANTAZON("antazon", AuthoringKind.PRODUCT, AuthoringKind.SELL_RULE, AuthoringKind.DEAL_CAMPAIGN),
     PROGRAMS("games", AuthoringKind.PROGRAM),
     TERMINAL("terminal", AuthoringKind.TERMINAL_COMMAND);

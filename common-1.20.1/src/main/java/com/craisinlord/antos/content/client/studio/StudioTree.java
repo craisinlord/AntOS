@@ -215,6 +215,7 @@ final class StudioTree {
                 senders.entrySet().stream().sorted(Comparator.comparing(entry -> StudioProblems.senderName(store, entry.getKey()).toLowerCase(Locale.ROOT)))
                         .forEach(entry -> group(result, "mail:" + entry.getKey(), StudioProblems.senderName(store, entry.getKey()), null, entry.getValue(), senders.size() <= 4));
                 section(result, "mail_pools", AuthoringKind.MAIL_POOL);
+                section(result, "takeovers", AuthoringKind.TAKEOVER);
             }
             case ANTAZON -> {
                 Map<String, List<StudioKey>> categories = new java.util.TreeMap<>();

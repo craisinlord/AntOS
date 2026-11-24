@@ -204,6 +204,7 @@ public final class ComputerScreen extends Screen {
         this.session.attach(this);
         for (ComputerApp app : List.of(tasks, notifications)) app.attach(this);
         if (preview) { session.onboardingCompleted = true; return; }
+        session.desktopRequested = false;
         this.loggedIn = accountResult != null && accountResult.result() == com.craisinlord.antos.content.network.AnternetAccountResultPayload.SUCCESS;
         if (!loggedIn || AntOSSettings.hasCompletedComputerTour(accountResult.accountId())) {
             this.session.onboardingCompleted = true;
@@ -378,8 +379,14 @@ public final class ComputerScreen extends Screen {
         if (desktop != null && !desktop.isBlank()) {
             try {
                 ComputerDesktopState state = new ComputerDesktopState();
-                state.load(AntmailWire.decodeTag(desktop));
+                net.minecraft.nbt.CompoundTag decoded = AntmailWire.decodeTag(desktop);
+                state.load(decoded);
                 updateDesktopSession(state);
+                if (decoded.contains(com.craisinlord.antos.content.computer.ComputerDesktopEffects.TAKEOVER_CONTENT_TAG)) {
+                    var content = com.craisinlord.antos.content.antmail.AntmailTakeover.fromTag(
+                            decoded.getCompoundOrEmpty(com.craisinlord.antos.content.computer.ComputerDesktopEffects.TAKEOVER_CONTENT_TAG));
+                    if (content != null) takeover = new TakeoverOverlay(content);
+                }
             } catch (RuntimeException ignored) {
             }
         }
@@ -435,7 +442,12 @@ public final class ComputerScreen extends Screen {
         pointerX = localMouseX;
         pointerY = localMouseY;
         editTargets.clear();
-        if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseX, notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseY); else renderLogin(graphics, left, top);
+        boolean takeoverShown = takeoverActive();
+        if (session.bootTicks > 0) renderBoot(graphics, left, top); else if (loggedIn) renderDesktop(graphics, left, top, takeoverShown || notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseX, takeoverShown || notifications.contains(localMouseX, localMouseY) ? -100000 : localMouseY); else renderLogin(graphics, left, top);
+        if (takeoverShown) {
+            graphics.flush();
+            takeover.render(graphics, font, left, top, desktopWidth, desktopHeight, localMouseX, localMouseY);
+        }
         renderEditMenu(graphics);
         renderFrameGrip(graphics, left, top);
         graphics.pose().popPose();
@@ -445,6 +457,18 @@ public final class ComputerScreen extends Screen {
 
     float uiScale() {
         return viewport().scale();
+    }
+
+    private TakeoverOverlay takeover;
+
+    private boolean takeoverActive() {
+        return takeover != null && loggedIn && session.bootTicks <= 0;
+    }
+
+    private void dismissTakeover() {
+        takeover = null;
+        AntOSUiSounds.play(Cue.CLICK);
+        ComputerNetworking.dismissTakeover();
     }
 
     private DesktopViewport viewport() {
@@ -2003,6 +2027,10 @@ public final class ComputerScreen extends Screen {
         mouseY = (mouseY - centerY) / scale;
         int l = -desktopWidth / 2;
         int t = -desktopHeight / 2;
+        if (takeoverActive()) {
+            if (button == InputConstants.MOUSE_BUTTON_LEFT && takeover.hit(mouseX, mouseY)) dismissTakeover();
+            return true;
+        }
         if (!loggedIn) {
             if (button != InputConstants.MOUSE_BUTTON_LEFT) return true;
             AntOSUiSounds.play(Cue.CLICK);
@@ -2313,6 +2341,7 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (takeoverActive()) return true;
         float scale = uiScale();
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && displays.scroll((mouseX - centerX) / scale, (mouseY - centerY) / scale, scrollY)) return true;
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && notifications.scroll((mouseX - centerX) / scale, (mouseY - centerY) / scale, scrollY)) return true;
@@ -2341,6 +2370,7 @@ public final class ComputerScreen extends Screen {
 
     @Override
     public boolean charTyped(net.minecraft.client.input.CharacterEvent event) {
+        if (takeoverActive()) return true;
         if (!Character.isValidCodePoint(event.codepoint())) return true;
         for (char codePoint : Character.toChars(event.codepoint())) typeCharacter(codePoint);
         return true;
@@ -2385,6 +2415,11 @@ public final class ComputerScreen extends Screen {
         int keyCode = event.key();
         int scanCode = event.keycode();
         int modifiers = event.modifiers();
+        if (takeoverActive()) {
+            if (keyCode == InputConstants.KEY_ESCAPE) onClose();
+            else if ((keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER || keyCode == InputConstants.KEY_SPACE) && takeover.ready()) dismissTakeover();
+            return true;
+        }
         if (loggedIn && session.onboardingCompleted && !lookPickerOpen() && displays.key(keyCode)) return true;
         if (!loggedIn) {
             if (keyCode == InputConstants.KEY_ESCAPE) { onClose(); return true; }

@@ -18,15 +18,28 @@ public final class AntmailGlitchText {
 
     private AntmailGlitchText() { }
 
+    public enum Tone { PLAIN, CORRUPTED, HIJACKED }
+
+    public static Tone tone(String style) {
+        return "hijacked".equals(style) ? Tone.HIJACKED : "corrupted".equals(style) ? Tone.CORRUPTED : Tone.PLAIN;
+    }
+
     public static Component body(String text, boolean corrupted, int plainColor) {
+        return body(text, corrupted ? Tone.CORRUPTED : Tone.PLAIN, plainColor);
+    }
+
+    public static Component body(String text, Tone tone, int plainColor) {
         MutableComponent root = Component.empty();
+        int effect = tone == Tone.HIJACKED ? Ui.HIJACK : Ui.CORRUPT;
         for (AntmailRenderMarkers.Segment segment : AntmailRenderMarkers.segments(text)) {
             Style style = switch (segment.kind()) {
-                case GLITCH -> Style.EMPTY.withColor(TextColor.fromRgb(Ui.CORRUPT & 0xFFFFFF)).withInsertion(TAG_GLITCH);
-                case REDACT -> Style.EMPTY.withColor(TextColor.fromRgb((corrupted ? Ui.CORRUPT : plainColor) & 0xFFFFFF)).withInsertion(TAG_REDACT);
-                case PLAIN -> corrupted
-                        ? Style.EMPTY.withColor(TextColor.fromRgb(Ui.CORRUPT & 0xFFFFFF)).withInsertion(TAG_CORRUPT)
-                        : Style.EMPTY.withColor(TextColor.fromRgb(plainColor & 0xFFFFFF));
+                case GLITCH -> Style.EMPTY.withColor(TextColor.fromRgb((tone == Tone.HIJACKED ? Ui.HIJACK_TEXT : effect) & 0xFFFFFF)).withInsertion(TAG_GLITCH);
+                case REDACT -> Style.EMPTY.withColor(TextColor.fromRgb((tone == Tone.PLAIN ? plainColor : effect) & 0xFFFFFF)).withInsertion(TAG_REDACT);
+                case PLAIN -> switch (tone) {
+                    case CORRUPTED -> Style.EMPTY.withColor(TextColor.fromRgb(Ui.CORRUPT & 0xFFFFFF)).withInsertion(TAG_CORRUPT);
+                    case HIJACKED -> Style.EMPTY.withColor(TextColor.fromRgb(Ui.HIJACK & 0xFFFFFF));
+                    case PLAIN -> Style.EMPTY.withColor(TextColor.fromRgb(plainColor & 0xFFFFFF));
+                };
             };
             root.append(Component.literal(segment.text()).withStyle(style));
         }

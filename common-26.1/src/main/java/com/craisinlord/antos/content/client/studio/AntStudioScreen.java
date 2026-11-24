@@ -282,6 +282,7 @@ public final class AntStudioScreen extends Screen {
                 output.add("");
                 body.add("output", output);
             }
+            case TAKEOVER -> body.add("lines", new JsonArray());
             default -> { }
         }
         String namespace = contextDisk() != null && !contextDisk().namespace().equals("antos") ? contextDisk().namespace() : "";

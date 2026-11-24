@@ -1458,6 +1458,10 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                         }
                         rewards.add(new TaskReward("mail", null, 0, 0, null, sender, subject, body, 0, 0, null, "", 0L));
                     }
+                    case "wallpaper" -> {
+                        var change = com.craisinlord.antos.content.computer.ComputerDesktopEffects.WallpaperChange.parse("rewards of " + id, row);
+                        if (change != null) rewards.add(new TaskReward("wallpaper", null, 0, 0, change.id(), "", "", "", 0, 0, null, change.flags(), 0L));
+                    }
                     default -> AntOS.LOGGER.warn("Ignoring unsupported {} reward for content {}", rewardType, id);
                 }
             } catch (RuntimeException exception) {
@@ -1480,6 +1484,8 @@ public final class ComputerGuideData extends SimplePreparableReloadListener<Comp
                 case "item_pool" -> { row.addProperty("pool", reward.poolId().toString()); row.addProperty("mode", reward.mode()); }
                 case "archive" -> row.addProperty("entry", reward.target().toString());
                 case "advancement" -> row.addProperty("advancement", reward.target().toString());
+                case "wallpaper" -> com.craisinlord.antos.content.computer.ComputerDesktopEffects.WallpaperChange.fromFlags(reward.target(), reward.mode())
+                        .encode().entrySet().forEach(entry -> row.add(entry.getKey(), entry.getValue()));
                 case "effect" -> {
                     row.addProperty("effect", reward.target().toString());
                     row.addProperty("duration_ticks", reward.durationTicks());

@@ -1364,6 +1364,7 @@ final class TasksApp extends ComputerApp {
             case "mail" -> "Antmail: " + reward.subject();
             case "effect" -> "Effect: " + reward.target();
             case "advancement" -> "Advancement: " + reward.target();
+            case "wallpaper" -> "Desktop wallpaper";
             default -> reward.type() + (reward.target().isBlank() ? "" : ": " + reward.target());
         };
     }

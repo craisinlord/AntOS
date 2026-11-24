@@ -44,6 +44,7 @@ final class StudioSentence {
                 case REWARD_POOL -> t("pool", hi(Integer.toString(StudioJson.list(body, "entries").size())));
                 case MAIL_POOL -> t(StudioJson.bool(body, "subscription_only", false) ? "mail_pool_owners" : "mail_pool", hi(StudioJson.integer(body, "max_per_day", 1) + ""),
                         hi(Math.round(StudioJson.number(body, "chance_per_day", 1) * 100) + "%"));
+                case TAKEOVER -> t("takeover");
                 case CATEGORY, GROUP, DISK_CATEGORY, ARCHIVE_FOLDER -> t(key.kind().key(), hi(Integer.toString(children(store, key))));
                 case TERMINAL_COMMAND -> t(StudioJson.list(body, "rewards").isEmpty() ? "command" : "command_reward", hi(StudioJson.string(body, "command")));
             };
@@ -123,6 +124,7 @@ final class StudioSentence {
             case "advancement" -> StudioText.prettyId(StudioJson.string(reward, "advancement"));
             case "effect" -> StudioText.effectName(StudioJson.string(reward, "effect"));
             case "mail" -> StudioText.t("a_mail");
+            case "wallpaper" -> StudioText.t("a_wallpaper");
             default -> StudioJson.string(reward, "type");
         };
     }

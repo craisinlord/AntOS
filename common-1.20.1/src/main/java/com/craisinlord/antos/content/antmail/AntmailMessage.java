@@ -125,6 +125,7 @@ public final class AntmailMessage {
     public String definitionId() { return definitionId; }
     public String style() { return style; }
     public boolean corrupted() { return style.equals("corrupted"); }
+    public boolean hijacked() { return style.equals("hijacked"); }
     public String senderDisplay() { return senderDisplay; }
     public String senderAvatarItem() { return senderAvatarItem; }
     public String senderAvatarEntity() { return senderAvatarEntity; }

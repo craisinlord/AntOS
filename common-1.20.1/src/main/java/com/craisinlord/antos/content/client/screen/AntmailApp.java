@@ -46,7 +46,7 @@ final class AntmailApp extends ComputerApp {
     private java.util.UUID detailRequestedId;
     private long detailRequestedAt;
     private String wrappedBodyText;
-    private boolean wrappedBodyCorrupted;
+    private AntmailGlitchText.Tone wrappedBodyTone = AntmailGlitchText.Tone.PLAIN;
     private int wrappedBodyWidth = -1;
     private net.minecraft.client.gui.Font wrappedBodyFont;
     private net.minecraft.locale.Language wrappedBodyLanguage;
@@ -363,8 +363,10 @@ final class AntmailApp extends ComputerApp {
                 if (message != null) {
                     boolean showRetry = state.sent && (message.batch() != null || !message.deliveryStatus().equals("DELIVERED"));
                     boolean corrupted = message.corrupted() && !state.sent;
-                    int headerColor = corrupted ? Ui.CORRUPT : Ui.ACCENT;
-                    int detailColor = corrupted ? Ui.CORRUPT_DIM : Ui.TEXT;
+                    boolean hijacked = message.hijacked() && !state.sent;
+                    AntmailGlitchText.Tone tone = hijacked ? AntmailGlitchText.Tone.HIJACKED : corrupted ? AntmailGlitchText.Tone.CORRUPTED : AntmailGlitchText.Tone.PLAIN;
+                    int headerColor = hijacked ? Ui.HIJACK : corrupted ? Ui.CORRUPT : Ui.ACCENT;
+                    int detailColor = hijacked ? Ui.HIJACK : corrupted ? Ui.CORRUPT_DIM : Ui.TEXT;
                     boolean replyAvailable = canReply(message);
                     String localizedSubject = AntOSPlayerText.apply(AntmailRenderMarkers.stripStyleMarkers(localizedMailText(message.subject())));
                     String localizedBody = AntOSPlayerText.apply(localizedMailText(message.body()));
@@ -372,6 +374,10 @@ final class AntmailApp extends ComputerApp {
                     AntmailDetailLayout detail = detailLayout(y, h, !sharedProduct.isBlank() || junkLink(message), showRetry);
                     if (!message.definitionId().isBlank() && !state.sent) screen.editTarget(x - 2, detail.actionY(), navWidth + 2, detail.bodyBottom() - detail.actionY(), "message", message.definitionId());
                     if (corrupted) g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), Ui.CORRUPT_BACKGROUND);
+                    if (hijacked) {
+                        g.fill(x - 2, detail.actionY(), x + navWidth, detail.bodyBottom(), Ui.HIJACK_BACKGROUND);
+                        g.fill(x + 29, detail.senderY(), x + navWidth - 2, detail.senderY() + 12, Ui.HIJACK_BAND);
+                    }
                     String moveLabel = switch (messageSourceMode()) {
                         case "archive" -> state.sent ? "SENT" : "INBOX";
                         case "trash" -> "RESTORE";
@@ -405,7 +411,7 @@ final class AntmailApp extends ComputerApp {
                     renderAvatar(g, detailAvatarName,
                             message.fromPlayer() ? messageSenderProfile.avatarItem() : message.senderAvatarItem(),
                             message.fromPlayer() ? "" : message.senderAvatarEntity(), x, detail.senderY(), 24);
-                    g.drawString(font, Component.literal("FROM  " + screen.trimToWidth(fromLabel, navWidth - 39 - font.width("FROM  "))), x + 31, detail.senderY() + 2, detailColor, false);
+                    g.drawString(font, Component.literal("FROM  " + screen.trimToWidth(fromLabel, navWidth - 39 - font.width("FROM  "))), x + 31, detail.senderY() + 2, hijacked ? Ui.HIJACK_TEXT : detailColor, false);
                     g.drawString(font, Component.literal("TO    " + screen.trimToWidth(message.recipientSummary(), navWidth - 39 - font.width("TO    "))), x + 31, detail.senderY() + 14, detailColor, false);
                     if (corrupted) localizedSubject = AntmailGlitchText.flicker(localizedSubject, 10, message.id().hashCode());
                     g.drawString(font, Component.literal(screen.trimToWidth(localizedSubject, navWidth - 6)), x, detail.subjectY(), headerColor, false);
@@ -419,7 +425,7 @@ final class AntmailApp extends ComputerApp {
                     float bodyTextScale = 0.85F;
                     int bodyLineAdvance = 9;
                     int bodyWrapWidth = Math.max(1, (int) ((navWidth - 16) / bodyTextScale));
-                    List<net.minecraft.util.FormattedCharSequence> bodyLines = wrapBody(localizedBody, corrupted, bodyWrapWidth);
+                    List<net.minecraft.util.FormattedCharSequence> bodyLines = wrapBody(localizedBody, tone, bodyWrapWidth);
                     int contentHeight = bodyLines.size() * bodyLineAdvance + (message.attachments().isEmpty() ? 0 : 6);
                     for (AntmailAttachment attachment : message.attachments()) {
                         contentHeight += attachment instanceof AntmailAttachment.Render render
@@ -556,6 +562,7 @@ final class AntmailApp extends ComputerApp {
                     if (screen.inside(x, rowY - 1, navWidth - 7, rowHeight, screen.session.mouseX, screen.session.mouseY)) screen.drawHover(g, x, rowY - 1, navWidth - 7, rowHeight);
                     if (!message.definitionId().isBlank() && !state.sent) screen.editTarget(x, rowY - 1, navWidth - 7, rowHeight, "message", message.definitionId());
                     boolean corruptedRow = message.corrupted() && !state.sent;
+                    boolean hijackedRow = message.hijacked() && !state.sent;
                 AntmailAddress rowAddress = state.sent ? message.recipient() : message.sender();
                 String rowSender = state.sent ? message.recipientSummary() : displaySender(message);
                 AntmailProfile rowProfile = AntmailClientState.getProfile(rowAddress.fullAddress());
@@ -571,6 +578,7 @@ final class AntmailApp extends ComputerApp {
                         rowSubject = AntmailGlitchText.flicker(rowSubject, 12, message.id().hashCode() + 7);
                         rowColor = message.read() ? Ui.CORRUPT_DIM : Ui.CORRUPT;
                     }
+                    if (hijackedRow) rowColor = message.read() ? Ui.HIJACK_DIM : Ui.HIJACK;
                 String avatarItem = state.sent ? rowProfile.avatarItem()
                         : message.fromPlayer() ? rowProfile.avatarItem() : message.senderAvatarItem();
                 String avatarEntity = !state.sent && !message.fromPlayer() ? message.senderAvatarEntity() : "";
@@ -589,7 +597,7 @@ final class AntmailApp extends ComputerApp {
                     int dateWidth = Math.round(font.width(gameDate) * dateScale);
                     int dateX = x + navWidth - 10 - dateWidth;
                     g.drawString(font, Component.literal(screen.trimToWidth(rowSender, Math.max(1, dateX - textX - 5))), textX, rowY,
-                            !message.read() && !state.sent ? Ui.ACCENT : Ui.TEXT, false);
+                            hijackedRow ? rowColor : !message.read() && !state.sent ? Ui.ACCENT : Ui.TEXT, false);
                     if (navWidth >= 120) {
                         g.pose().pushPose();
                         try {
@@ -606,7 +614,7 @@ final class AntmailApp extends ComputerApp {
                     g.pose().translate(x + 31, rowY + 9, 0);
                     g.pose().scale(rowTextScale, rowTextScale, 1.0F);
                     g.drawString(font, Component.literal(screen.trimToWidth(rowSubject + status, Math.max(1, (int) ((navWidth - 40) / rowTextScale)))),
-                            0, 0, message.read() ? Ui.TEXT : rowColor, false);
+                            0, 0, message.read() && !hijackedRow ? Ui.TEXT : rowColor, false);
                     g.pose().popPose();
                     String attachmentFlag = message.hasAttachments() ? "[FILE]" : "";
                     int previewWidth = navWidth - 40 - font.width(attachmentFlag) - 4;
@@ -710,11 +718,11 @@ final class AntmailApp extends ComputerApp {
         return !state.status.isEmpty() && !state.mode.equals("compose") && !state.mode.equals("profile");
     }
 
-    private List<net.minecraft.util.FormattedCharSequence> wrapBody(String text, boolean corrupted, int width) {
-        if (width != wrappedBodyWidth || corrupted != wrappedBodyCorrupted || font != wrappedBodyFont || net.minecraft.locale.Language.getInstance() != wrappedBodyLanguage || !text.equals(wrappedBodyText)) {
-            wrappedBodyLines = font.split(AntmailGlitchText.body(text, corrupted, Ui.TEXT), width);
+    private List<net.minecraft.util.FormattedCharSequence> wrapBody(String text, AntmailGlitchText.Tone tone, int width) {
+        if (width != wrappedBodyWidth || tone != wrappedBodyTone || font != wrappedBodyFont || net.minecraft.locale.Language.getInstance() != wrappedBodyLanguage || !text.equals(wrappedBodyText)) {
+            wrappedBodyLines = font.split(AntmailGlitchText.body(text, tone, Ui.TEXT), width);
             wrappedBodyText = text;
-            wrappedBodyCorrupted = corrupted;
+            wrappedBodyTone = tone;
             wrappedBodyWidth = width;
             wrappedBodyLanguage = net.minecraft.locale.Language.getInstance();
             wrappedBodyFont = font;

@@ -22,18 +22,66 @@ public final class ComputerDesktopState {
     public static final int MAX_ICON_COORDINATE = 4096;
     private static final String SELECTED_WALLPAPER_TAG = "SelectedWallpaper";
     private static final String UNLOCKED_WALLPAPERS_TAG = "UnlockedWallpapers";
+    private static final String FORCED_WALLPAPER_TAG = "ForcedWallpaper";
+    private static final String PREVIOUS_WALLPAPER_TAG = "PreviousWallpaper";
+    private static final String PENDING_TAKEOVER_TAG = "PendingTakeover";
     private static final String INSTALLED_PROGRAMS_TAG = "InstalledPrograms";
     private static final String ICON_POSITIONS_TAG = "IconPositions";
     private static final String ID_TAG = "Id";
     private static final String X_TAG = "X";
     private static final String Y_TAG = "Y";
     private Identifier selectedWallpaper;
+    private boolean forcedWallpaper;
+    private Identifier previousWallpaper;
+    private Identifier pendingTakeover;
     private final Set<Identifier> unlockedWallpaperIds = new LinkedHashSet<>();
     private final Set<Identifier> installedProgramIds = new LinkedHashSet<>();
     private final Map<Identifier, IconPosition> iconPositions = new LinkedHashMap<>();
 
     public Identifier selectedWallpaper() {
         return selectedWallpaper;
+    }
+
+    public boolean wallpaperForced() {
+        return forcedWallpaper;
+    }
+
+    public Identifier previousWallpaper() {
+        return previousWallpaper;
+    }
+
+    public Identifier pendingTakeover() {
+        return pendingTakeover;
+    }
+
+    public boolean queueTakeover(Identifier id) {
+        if (!validId(id) || id.equals(pendingTakeover)) return false;
+        pendingTakeover = id;
+        return true;
+    }
+
+    public boolean clearTakeover() {
+        if (pendingTakeover == null) return false;
+        pendingTakeover = null;
+        return true;
+    }
+
+    public boolean forceWallpaper(Identifier id) {
+        if (!validId(id)) return false;
+        if (forcedWallpaper && id.equals(selectedWallpaper)) return false;
+        if (!forcedWallpaper) previousWallpaper = selectedWallpaper == null ? DEFAULT_WALLPAPER : selectedWallpaper;
+        forcedWallpaper = true;
+        selectedWallpaper = id;
+        return true;
+    }
+
+    public boolean restoreWallpaper() {
+        if (!forcedWallpaper && previousWallpaper == null) return false;
+        Identifier target = previousWallpaper != null && unlockedWallpaperIds.contains(previousWallpaper) ? previousWallpaper : DEFAULT_WALLPAPER;
+        forcedWallpaper = false;
+        previousWallpaper = null;
+        selectedWallpaper = target;
+        return true;
     }
 
     public Set<Identifier> unlockedWallpaperIds() {
@@ -93,6 +141,8 @@ public final class ComputerDesktopState {
             return false;
         }
         selectedWallpaper = id;
+        forcedWallpaper = false;
+        previousWallpaper = null;
         return true;
     }
 
@@ -121,6 +171,9 @@ public final class ComputerDesktopState {
         iconPositions.clear();
         unlockedWallpaperIds.add(DEFAULT_WALLPAPER);
         selectedWallpaper = DEFAULT_WALLPAPER;
+        forcedWallpaper = false;
+        previousWallpaper = null;
+        pendingTakeover = null;
     }
 
     public CompoundTag save() {
@@ -129,6 +182,9 @@ public final class ComputerDesktopState {
             tag.putString(SELECTED_WALLPAPER_TAG, selectedWallpaper.toString());
         }
         tag.put(UNLOCKED_WALLPAPERS_TAG, saveIds(unlockedWallpaperIds));
+        if (forcedWallpaper) tag.putBoolean(FORCED_WALLPAPER_TAG, true);
+        if (previousWallpaper != null) tag.putString(PREVIOUS_WALLPAPER_TAG, previousWallpaper.toString());
+        if (pendingTakeover != null) tag.putString(PENDING_TAKEOVER_TAG, pendingTakeover.toString());
         tag.put(INSTALLED_PROGRAMS_TAG, saveIds(installedProgramIds));
         ListTag positions = new ListTag();
         for (Map.Entry<Identifier, IconPosition> entry : iconPositions.entrySet()) {
@@ -146,7 +202,10 @@ public final class ComputerDesktopState {
         clear();
         loadIds(tag.getListOrEmpty(UNLOCKED_WALLPAPERS_TAG), unlockedWallpaperIds, MAX_UNLOCKED_WALLPAPERS);
         Identifier storedSelection = parseId(tag.getStringOr(SELECTED_WALLPAPER_TAG, ""));
-        selectedWallpaper = storedSelection != null && unlockedWallpaperIds.contains(storedSelection) ? storedSelection : DEFAULT_WALLPAPER;
+        forcedWallpaper = storedSelection != null && tag.getBooleanOr(FORCED_WALLPAPER_TAG, false);
+        selectedWallpaper = storedSelection != null && (forcedWallpaper || unlockedWallpaperIds.contains(storedSelection)) ? storedSelection : DEFAULT_WALLPAPER;
+        previousWallpaper = parseId(tag.getStringOr(PREVIOUS_WALLPAPER_TAG, ""));
+        pendingTakeover = parseId(tag.getStringOr(PENDING_TAKEOVER_TAG, ""));
         loadIds(tag.getListOrEmpty(INSTALLED_PROGRAMS_TAG), installedProgramIds, MAX_INSTALLED_PROGRAMS);
         ListTag positions = tag.getListOrEmpty(ICON_POSITIONS_TAG);
         for (int index = 0; index < positions.size() && iconPositions.size() < MAX_ICON_POSITIONS; index++) {
