@@ -107,8 +107,8 @@ public final class AntmailSmokeDriver {
         float scale = screen.uiScale();
         double x = ((Number) field(screen, "centerX")).doubleValue() + center[0] * scale;
         double y = ((Number) field(screen, "centerY")).doubleValue() + center[1] * scale;
-        screen.mouseClicked(new net.minecraft.client.input.MouseButtonEvent(x, y, new net.minecraft.client.input.MouseButtonInfo(0, 0)), false);
-        screen.mouseReleased(new net.minecraft.client.input.MouseButtonEvent(x, y, new net.minecraft.client.input.MouseButtonInfo(0, 0)));
+        screen.mouseClicked(new net.minecraft.client.input.MouseButtonEvent(x, y, new net.minecraft.client.input.MouseButtonInfo(com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT, 0)), false);
+        screen.mouseReleased(new net.minecraft.client.input.MouseButtonEvent(x, y, new net.minecraft.client.input.MouseButtonInfo(com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT, 0)));
         return true;
     }
     private static boolean visible(String label) { return antmail() != null && directory().hitCenter(label) != null; }

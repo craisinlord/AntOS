@@ -43,8 +43,8 @@ public final class AntOSForgeNetworking {
         }, buffer -> new AuthoringRequestPayload(buffer.readUtf(36), buffer.readVarInt(), buffer.readVarInt(), buffer.readUtf(com.craisinlord.antos.content.editor.AuthoringWire.CHUNK_CHARS)),
                 (message, context) -> withPlayer(context, player -> com.craisinlord.antos.content.editor.AuthoringService.handle(player, message)));
         registerClient(id++, AnternetComputerResultPayload.class, (message, buffer) -> {
-            buffer.writeVarInt(message.result()); buffer.writeBoolean(message.hasPassword()); buffer.writeBoolean(message.authenticated()); buffer.writeUtf(message.data(), 65536);
-        }, buffer -> new AnternetComputerResultPayload(buffer.readVarInt(), buffer.readBoolean(), buffer.readBoolean(), buffer.readUtf(65536)));
+            buffer.writeVarInt(message.result()); buffer.writeBoolean(message.hasPassword()); buffer.writeBoolean(message.authenticated()); buffer.writeUtf(message.data(), com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS);
+        }, buffer -> new AnternetComputerResultPayload(buffer.readVarInt(), buffer.readBoolean(), buffer.readBoolean(), buffer.readUtf(com.craisinlord.antos.content.network.ComputerAccessResultPayload.MAX_DATA_CHARS)));
         registerClient(id++, AnternetAccountResultPayload.class, (message, buffer) -> {
             buffer.writeVarInt(message.result()); buffer.writeUUID(message.accountId()); buffer.writeUUID(message.workspaceId()); buffer.writeUtf(message.username(), 256);
         }, buffer -> new AnternetAccountResultPayload(buffer.readVarInt(), buffer.readUUID(), buffer.readUUID(), buffer.readUtf(256)));
